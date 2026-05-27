@@ -8,6 +8,33 @@
 
 **Source docs:** `docs/07-client-api-design.md`
 
+## Requirements
+
+### Functional Requirements
+
+| # | Requirement | Priority |
+|---|---|---|
+| FR-1 | `RedisClient::connect(url: &str)` parses redis:// URL and establishes TCP connection to Redis server | P0 |
+| FR-2 | `RedisClient::execute<T: FromRedisValue>(&self, cmd: CommandBuilder)` sends a command and waits for response | P0 |
+| FR-3 | `execute()` uses the connection's request queue to push the serialized command | P0 |
+| FR-4 | `execute()` waits on an spsc channel receiver for the response | P0 |
+| FR-5 | `execute()` decodes the `RedisValue` response using `FromRedisValue` trait | P0 |
+| FR-6 | `execute()` returns `Result<T, RedisError>` — typed success or parse/wire error | P0 |
+| FR-7 | `RedisClient` wraps internal state in `Arc<InnerClient>` for shared ownership across coroutines | P0 |
+| FR-8 | Monotonically increasing tags are assigned to each request for response matching | P1 |
+| FR-9 | `Commands` trait is implemented on `&RedisClient` — all 14 methods from Epic 3 | P1 |
+| FR-10 | `ping(&self)` convenience method sends PING and expects "PONG" response | P2 |
+
+### Non-Functional Requirements
+
+| # | Requirement | Priority |
+|---|---|---|
+| NFR-1 | No direct `may` import at crate level — may is used transitively through the connection crate only | P0 |
+| NFR-2 | `RedisClient` is `Clone` — multiple coroutines can share the same client | P1 |
+| NFR-3 | Thread-safe: `RedisClient` must be `Send + Sync` for cross-coroutine use | P1 |
+| NFR-4 | No blocking waits on spsc channels without timeout — must use may-aware yielding | P0 |
+| NFR-5 | Zero `unwrap()`/`expect()` in production code — use `?` and `Result` propagation | P1 |
+
 ## Code Anchors
 
 - `crates/client/src/lib.rs` — `pub struct RedisClient`
@@ -22,7 +49,7 @@ pub struct RedisClient {
 
 struct InnerClient {
     connection: Arc<Connection>,
-    tag_counter: Arc<TagCounter>,
+    tag_counter: Arc<AtomicUsize>,
 }
 ```
 
@@ -57,27 +84,37 @@ sequenceDiagram
     RC-->>App: Result<T, RedisError>
 ```
 
-## Tasks
+## Implementation Tasks
 
-1. Define `RedisClient` wrapping `Arc<InnerClient>`
-2. Define `InnerClient` with connection + tag_counter
-3. Implement `connect(url: &str)` — parses URL, calls `TcpConnector::connect`, wraps in RedisClient
-4. Implement `execute<T: FromRedisValue>(&self, cmd: CommandBuilder)` — the full flow:
-   - Create Request with next tag
-   - Use codec to encode CommandBuilder into BytesMut
-   - Push Request to connection's mpsc queue
-   - Wait on spsc receiver for response
-   - Decode RedisValue → T via FromRedisValue
-   - Return Result<T, RedisError>
-5. Implement `Commands` trait impl for `&RedisClient` — all 14 methods from Epic 3
-6. Add `ping(&self)` convenience method → execute `PING` → expect SimpleString "PONG"
+- [ ] Define `RedisClient` struct wrapping `Arc<InnerClient>`
+- [ ] Define `InnerClient` struct with `Arc<Connection>` + `Arc<AtomicUsize>` tag counter
+- [ ] Implement `connect(url: &str)` — parses URL, calls `TcpConnector::connect`, wraps in `RedisClient`
+- [ ] Implement `execute<T: FromRedisValue>(&self, cmd: CommandBuilder)`:
+  - [ ] Create Request with next tag from `tag_counter`
+  - [ ] Use `RESPWriter` to encode `CommandBuilder` into `BytesMut`
+  - [ ] Push `Request` to connection's mpsc queue
+  - [ ] Wait on spsc receiver for response `RedisValue`
+  - [ ] Decode `RedisValue` → `T` via `FromRedisValue`
+  - [ ] Return `Result<T, RedisError>`
+- [ ] Implement `Commands` trait impl for `&RedisClient` — all 14 methods from Epic 3
+- [ ] Implement `ping(&self)` convenience method → executes `PING` → expects `SimpleString("PONG")`
+- [ ] Implement `Clone` for `RedisClient`
+- [ ] Implement `Send + Sync` bounds on `RedisClient`
 
 ## Verification
 
-- `cargo test -p client` — at least 4 unit tests:
-  - `test_redis_client_struct` — RedisClient is constructible from mock
-  - `test_execute_builds_command` — verify CommandBuilder is built correctly
-  - `test_from_redis_value_extraction` — simulate response, verify type extraction
-  - `test_commands_trait_methods_exist` — all 14 trait methods are callable
-- `cargo clippy -p client` — zero warnings
-- No may import at crate level (may is only used transitively through connection crate)
+### Unit Tests (minimum 4)
+
+- [ ] `test_redis_client_struct` — RedisClient is constructible
+- [ ] `test_execute_builds_command` — verify CommandBuilder is encoded correctly
+- [ ] `test_from_redis_value_extraction` — simulate response, verify type extraction
+- [ ] `test_commands_trait_methods_exist` — all 14 trait methods are callable
+- [ ] `test_client_clone` — cloned client shares underlying connection
+- [ ] `test_ping` — sends PING, receives PONG
+
+### Lint & Build
+
+- [ ] `cargo test -p client` — all tests pass
+- [ ] `cargo clippy -p client` — zero warnings
+- [ ] `cargo fmt -p client` — formatted
+- [ ] No direct `may` import in `crates/client/src/` (may is only used transitively through connection crate)
