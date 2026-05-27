@@ -45,6 +45,7 @@
 //! });
 //! ```
 
+#[allow(clippy::module_inception)]
 pub mod connection;
 pub mod tcp;
 

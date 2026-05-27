@@ -389,15 +389,10 @@ mod tests {
     #[test]
     fn test_connection_connect() {
         let conn = Connection::connect("127.0.0.1", 6379);
-        match conn {
-            Ok(c) => {
-                assert!(c.id() > 0);
-                let tag = c.send(Request::new(vec![0], spsc::channel().0));
-                assert_eq!(tag, 0);
-            }
-            Err(_) => {
-                // Redis not running — connection failed, which is fine for CI
-            }
+        if let Ok(c) = conn {
+            assert!(c.id() > 0);
+            let tag = c.send(Request::new(vec![0], spsc::channel().0));
+            assert_eq!(tag, 0);
         }
     }
 
@@ -405,16 +400,13 @@ mod tests {
     #[test]
     fn test_connection_send_tags() {
         let conn = Connection::connect("127.0.0.1", 6379);
-        match conn {
-            Ok(c) => {
-                let tag0 = c.send(Request::new(vec![0], spsc::channel().0));
-                let tag1 = c.send(Request::new(vec![0], spsc::channel().0));
-                let tag2 = c.send(Request::new(vec![0], spsc::channel().0));
-                assert_eq!(tag0, 0);
-                assert_eq!(tag1, 1);
-                assert_eq!(tag2, 2);
-            }
-            Err(_) => {}
+        if let Ok(c) = conn {
+            let tag0 = c.send(Request::new(vec![0], spsc::channel().0));
+            let tag1 = c.send(Request::new(vec![0], spsc::channel().0));
+            let tag2 = c.send(Request::new(vec![0], spsc::channel().0));
+            assert_eq!(tag0, 0);
+            assert_eq!(tag1, 1);
+            assert_eq!(tag2, 2);
         }
     }
 
@@ -422,12 +414,9 @@ mod tests {
     #[test]
     fn test_connection_id() {
         let conn = Connection::connect("127.0.0.1", 6379);
-        match conn {
-            Ok(c) => {
-                let id = c.id();
-                assert!(id > 0); // socket fds start at 3
-            }
-            Err(_) => {}
+        if let Ok(c) = conn {
+            let id = c.id();
+            assert!(id > 0); // socket fds start at 3
         }
     }
 
@@ -435,13 +424,10 @@ mod tests {
     #[test]
     fn test_connection_drop() {
         let conn = Connection::connect("127.0.0.1", 6379);
-        match conn {
-            Ok(c) => {
-                let id = c.id();
-                assert!(id > 0);
-                drop(c); // Should cancel the connection loop without hanging
-            }
-            Err(_) => {}
+        if let Ok(c) = conn {
+            let id = c.id();
+            assert!(id > 0);
+            drop(c); // Should cancel the connection loop without hanging
         }
     }
 }

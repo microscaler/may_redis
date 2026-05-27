@@ -30,7 +30,7 @@ impl InMemoryStore {
     fn cleanup(&mut self) {
         let now = Instant::now();
         self.data
-            .retain(|_, (_, expiry)| expiry.map_or(true, |e| e > now));
+            .retain(|_, (_, expiry)| expiry.is_none_or(|e| e > now));
     }
 
     /// Get a value, returning error if missing or expired.
@@ -38,7 +38,7 @@ impl InMemoryStore {
         self.cleanup();
         match self.data.get(key) {
             Some((value, _)) => Ok(value.clone()),
-            None => Err(RedisError::Other(format!("no such key: {}", key))),
+            None => Err(RedisError::Other(format!("no such key: {key}"))),
         }
     }
 
@@ -76,7 +76,7 @@ impl InMemoryStore {
             Some(s) => {
                 let n: i64 = s
                     .parse()
-                    .map_err(|_| RedisError::Other(format!("ERR value is not an integer")))?;
+                    .map_err(|_| RedisError::Other("ERR value is not an integer".to_string()))?;
                 n + 1
             }
             None => 1,
@@ -94,10 +94,10 @@ impl InMemoryStore {
         match self.data.get(key) {
             Some((_, Some(expiry))) => {
                 let remaining = expiry.saturating_duration_since(Instant::now());
-                Ok(remaining.as_secs() as i64)
+                Ok(remaining.as_secs().cast_signed())
             }
             Some((_, None)) => Ok(-1),
-            None => Err(RedisError::Other(format!("no such key: {}", key))),
+            None => Err(RedisError::Other(format!("no such key: {key}"))),
         }
     }
 
@@ -116,6 +116,7 @@ impl InMemoryStore {
     }
 
     /// Get matching keys with glob support (`*` and `?*`).
+    #[must_use]
     pub fn keys(&self, pattern: &str) -> Vec<String> {
         let mut result = Vec::new();
         for key in self.data.keys() {
@@ -127,6 +128,7 @@ impl InMemoryStore {
     }
 
     /// Get the number of keys in the store.
+    #[must_use]
     pub fn dbsize(&self) -> usize {
         self.data.len()
     }
@@ -182,8 +184,15 @@ pub struct InMemoryClient {
     store: Arc<Mutex<InMemoryStore>>,
 }
 
+impl Default for InMemoryClient {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl InMemoryClient {
     /// Create a new empty in-memory client.
+    #[must_use]
     pub fn new() -> Self {
         Self {
             store: Arc::new(Mutex::new(InMemoryStore::new())),
@@ -197,12 +206,12 @@ impl InMemoryClient {
 
     /// SET key value
     pub fn set(&self, key: &str, value: &str) {
-        self.store.lock().unwrap().set(key, value)
+        self.store.lock().unwrap().set(key, value);
     }
 
     /// SET key value EX seconds
     pub fn set_ex(&self, key: &str, value: &str, seconds: u64) {
-        self.store.lock().unwrap().set_ex(key, value, seconds)
+        self.store.lock().unwrap().set_ex(key, value, seconds);
     }
 
     /// DEL key — returns 0 or 1
@@ -242,7 +251,7 @@ impl InMemoryClient {
 
     /// FLUSHDB
     pub fn flushdb(&self) {
-        self.store.lock().unwrap().flushdb()
+        self.store.lock().unwrap().flushdb();
     }
 }
 

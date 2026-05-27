@@ -48,7 +48,8 @@ pub struct Pipeline<'a> {
 
 impl<'a> Pipeline<'a> {
     /// Create an empty pipeline backed by the given connection.
-    pub fn new(connection: &'a Connection) -> Self {
+    #[must_use]
+    pub const fn new(connection: &'a Connection) -> Self {
         Self {
             connection,
             commands: Vec::new(),
@@ -79,7 +80,7 @@ impl<'a> Pipeline<'a> {
         // using the senders we stored during `add()`
         for (data, tx) in std::mem::take(&mut self.commands)
             .into_iter()
-            .zip(std::mem::take(&mut self.senders).into_iter())
+            .zip(std::mem::take(&mut self.senders))
         {
             let request = Request::new(data, tx);
             let _ = self.connection.send(request);
@@ -93,7 +94,7 @@ impl<'a> Pipeline<'a> {
 
         // Collect responses from the receivers we stored during `add()`
         let mut responses = Vec::with_capacity(self.receivers.len());
-        for rx in std::mem::take(&mut self.receivers).into_iter() {
+        for rx in std::mem::take(&mut self.receivers) {
             let response = rx
                 .recv()
                 .map_err(|_| RedisError::Parse("response channel closed".into()))?;
@@ -181,7 +182,7 @@ impl<T1: FromRedisValue, T2: FromRedisValue, T3: FromRedisValue, T4: FromRedisVa
 
 impl<T: FromRedisValue> FromPipelineResponse for Vec<T> {
     fn from_responses(responses: Vec<RedisValue>) -> Result<Self, RedisError> {
-        let mut result = Vec::with_capacity(responses.len());
+        let mut result = Self::with_capacity(responses.len());
         for response in responses {
             result.push(T::from_redis_value(&response)?);
         }

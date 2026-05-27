@@ -37,6 +37,7 @@
 //! let val: Option<String> = client.execute(client.get("mykey")).unwrap();
 //! ```
 
+#[allow(clippy::module_inception)]
 pub mod client;
 pub mod in_memory;
 pub mod pipeline;

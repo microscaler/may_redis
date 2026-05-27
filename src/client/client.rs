@@ -104,6 +104,7 @@ impl RedisClient {
     }
 
     /// Create a pipeline for batch command execution.
+    #[must_use]
     pub fn pipeline(&self) -> Pipeline<'_> {
         Pipeline::new(&self.inner.connection)
     }
@@ -199,8 +200,8 @@ impl Commands for RedisClient {
 /// (executes the command), while `Commands::ping()` returns `CommandBuilder` (builds it).
 /// Auto-deref resolves `&RedisClient::ping()` to the *inherent* method, which is the
 /// expected behavior — callers wanting the raw builder use `Commands::ping()`.
-
 #[cfg(test)]
+#[allow(clippy::used_underscore_items)]
 mod tests {
     use super::*;
     use may::coroutine::spawn;
@@ -284,19 +285,18 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
+    #[ignore = "requires live Redis server"]
     fn test_integration_ping() {
         run_may(|| {
             let client = shared_client();
             let result = client.ping();
             assert_eq!(result.unwrap(), "PONG");
             client.execute::<String>(client.flushdb()).ok();
-            ()
         });
     }
 
     #[test]
-    #[ignore]
+    #[ignore = "requires live Redis server"]
     fn test_integration_set_get() {
         run_may(|| {
             let client = shared_client();
@@ -306,12 +306,11 @@ mod tests {
             let result: Option<String> = client.execute(client.get("test_key")).unwrap();
             assert_eq!(result, Some("hello".to_string()));
             client.execute::<()>(client.flushdb()).ok();
-            ()
         });
     }
 
     #[test]
-    #[ignore]
+    #[ignore = "requires live Redis server"]
     fn test_integration_incr() {
         run_may(|| {
             let client = shared_client();
@@ -324,12 +323,11 @@ mod tests {
             assert_eq!(val, 2);
 
             client.execute::<()>(client.flushdb()).ok();
-            ()
         });
     }
 
     #[test]
-    #[ignore]
+    #[ignore = "requires live Redis server"]
     fn test_integration_exists_del() {
         run_may(|| {
             let client = shared_client();
@@ -347,12 +345,11 @@ mod tests {
             assert!(!exists);
 
             client.execute::<()>(client.flushdb()).ok();
-            ()
         });
     }
 
     #[test]
-    #[ignore]
+    #[ignore = "requires live Redis server"]
     fn test_integration_dbsize() {
         run_may(|| {
             let client = shared_client();
@@ -367,12 +364,11 @@ mod tests {
             assert_eq!(size, 2);
 
             client.execute::<()>(client.flushdb()).ok();
-            ()
         });
     }
 
     #[test]
-    #[ignore]
+    #[ignore = "requires live Redis server"]
     fn test_integration_set_ex_ttl() {
         run_may(|| {
             let client = shared_client();
@@ -388,12 +384,11 @@ mod tests {
             assert!(ttl > 0 && ttl <= 60);
 
             client.execute::<()>(client.flushdb()).ok();
-            ()
         });
     }
 
     #[test]
-    #[ignore]
+    #[ignore = "requires live Redis server"]
     fn test_integration_keys() {
         run_may(|| {
             let client = shared_client();
@@ -409,12 +404,11 @@ mod tests {
             assert!(keys.contains(&"user:2".to_string()));
 
             client.execute::<()>(client.flushdb()).ok();
-            ()
         });
     }
 
     #[test]
-    #[ignore]
+    #[ignore = "requires live Redis server"]
     fn test_integration_send_sync_clone() {
         run_may(|| {
             let client = shared_client();
@@ -428,12 +422,11 @@ mod tests {
             assert_eq!(val, Some("works".to_string()));
 
             client.execute::<()>(client.flushdb()).ok();
-            ()
         });
     }
 
     #[test]
-    #[ignore]
+    #[ignore = "requires live Redis server"]
     fn test_integration_error_propagation() {
         run_may(|| {
             let client = shared_client();
@@ -446,12 +439,11 @@ mod tests {
             assert!(result.is_err());
 
             client.execute::<()>(client.flushdb()).ok();
-            ()
         });
     }
 
     #[test]
-    #[ignore]
+    #[ignore = "requires live Redis server"]
     fn test_integration_pipeline() {
         run_may(|| {
             let client = shared_client();
@@ -468,12 +460,11 @@ mod tests {
             assert_eq!(results, ((), (), (), Some("a".to_string())));
 
             client.execute::<()>(client.flushdb()).ok();
-            ()
         });
     }
 
     #[test]
-    #[ignore]
+    #[ignore = "requires live Redis server"]
     fn test_integration_concurrent() {
         // Test that the shared client can be cloned and used from multiple
         // places. The may runtime handles coroutine yielding for I/O so
@@ -500,7 +491,6 @@ mod tests {
             assert_eq!(keys.len(), 2);
 
             client.execute::<()>(client.flushdb()).ok();
-            ()
         });
     }
 }
