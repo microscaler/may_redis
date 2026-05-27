@@ -22,6 +22,7 @@ Epics run in strict order: 0 → 1 → 2 → 3 → 4 → 5 → 6. Each epic's st
 
 - [RESP Protocol Reference](./topics/resp-protocol.md) — RESP wire format, type markers, encoding/decoding algorithms
 - [May Coroutine Pattern](./topics/may-coroutine-pattern.md) — may runtime primitives used in may-redis, connection loop architecture
+- [Connection Loop Pitfalls](./topics/connection-loop-pitfalls.md) — concrete bugs observed in `src/connection/connection.rs` and the regression tests that guard them
 - [Sesame-IDAM Integration](./topics/sesame-idam-integration.md) — Sesame-IDAM Redis usage inventory, command set analysis, migration plan
 - [Module Structure](./topics/module-structure.md) — planned modular workspace split, crate dependencies, feature flags
 

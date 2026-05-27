@@ -1,8 +1,9 @@
 # May Coroutine Pattern
 
-- Status: unverified
+- Status: partially-verified
 - Source docs: `docs/02-may_postgres_comparison.md`, `docs/06-connection-layer-design.md`
 - Code anchors: `src/connection/`, `may::net::TcpStream`, `may::go!`, `may::sync::spsc`, `may::queue::mpsc::Queue`
+- Related: [Connection Loop Pitfalls](./connection-loop-pitfalls.md) — concrete bugs observed in this loop and how to avoid regressing them
 - Last updated: 2026-05-27
 
 ## Core Architecture
@@ -51,11 +52,27 @@ Application Coroutines → mpsc Queue → Connection Coroutine (go!) → TCP Soc
 The same non-blocking read/write pattern as may_postgres:
 
 ```rust
-fn nonblock_read(stream: &mut TcpStream, read_buf: &mut BytesMut) -> bool {
-    // Read into BytesMut's unconsumed chunk
-    // Returns true if more data is available (keep reading)
+fn nonblock_read(stream: &mut TcpStream, read_buf: &mut BytesMut) -> io::Result<bool> {
+    // Read into BytesMut's unconsumed chunk until the socket would block
+    // or the buffer is full.
+    //
+    // Returns `Ok(true)` when the read was *blocked* (socket returned
+    // WouldBlock before the buffer was filled — caller MUST wait on
+    // epoll via `stream.wait_io()` before reading again).
+    //
+    // Returns `Ok(false)` when the buffer was filled completely (more
+    // data may still be available — caller should re-read immediately
+    // without waiting on epoll).
 }
 ```
+
+The return value is **not optional state**: the connection loop uses it
+to decide whether to call `stream.wait_io()` (yield to epoll) or to
+spin the loop one more time. Dropping the bool turns the connection
+loop into a busy-spin that never yields, deadlocking any coroutine
+that shares its worker. See
+[Connection Loop Pitfalls — Bug 1](./connection-loop-pitfalls.md#bug-1--connection-loop-never-yields-to-epoll-integration-tests-hang)
+for the exact regression.
 
 ## Request-Response Matching
 
