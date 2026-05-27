@@ -31,5 +31,12 @@
 //! assert!(matches!(val, RedisValue::BulkString(_)));
 //! ```
 
-pub mod error;
-pub mod value;
+pub mod from_redis_value;
+pub mod redis_error;
+pub mod redis_value;
+pub mod to_redis_args;
+
+// Re-export public types at the crate root for convenience
+pub use redis_error::{FromRedisValue, RedisError, RedisResult};
+pub use redis_value::RedisValue;
+pub use to_redis_args::ToRedisArgs;
