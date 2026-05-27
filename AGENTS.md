@@ -41,21 +41,16 @@ Strict operational rules for AI assistants working in this repository. **Knowled
 
 ## Before you do anything
 
-1. Read [`docs/Epics/00-epic-overview.md`](./docs/Epics/00-epic-overview.md) — project goal, architecture, and epic plan.
-2. Read the specific epic for your task:
-   - **Epic 0** (scaffolding): [`docs/Epics/epic-0-scaffolding.md`](./docs/Epics/epic-0-scaffolding.md)
-   - **Epic 1** (base): [`docs/Epics/epic-1-base.md`](./docs/Epics/epic-1-base.md)
-   - **Epic 2** (codec): [`docs/Epics/epic-2-codec.md`](./docs/Epics/epic-2-codec.md)
-   - **Epic 3** (protocol): [`docs/Epics/epic-3-protocol.md`](./docs/Epics/epic-3-protocol.md)
-   - **Epic 4** (connection): [`docs/Epics/epic-4-connection.md`](./docs/Epics/epic-4-connection.md)
-   - **Epic 5** (client): [`docs/Epics/epic-5-client.md`](./docs/Epics/epic-5-client.md)
-   - **Epic 6** (integration + migration): [`docs/Epics/epic-6-integration.md`](./docs/Epics/epic-6-integration.md)
+1. Read [`docs/Epics/Epic_0/Story_0.md`](./docs/Epics/Epic_0/Story_0.md) — project goal, architecture, feature flags, dependency graph.
+2. Read the specific story you are working on in `docs/Epics/Epic_N/Story_N.md`. Each epic has:
+   - `Story_0.md` — epic overview, crate architecture diagrams, implementation order
+   - `Story_1.md` through `Story_4.md` — granular, independently verifiable implementation stories
 3. Read `docs/01-protocol-analysis.md` — RESP wire format reference.
 4. Read `docs/02-may_postgres_comparison.md` — may_postgres reference patterns.
 5. Read `docs/03-sesame-idam-redis-usage.md` — Sesame-IDAM command set inventory.
 6. Drill into source `src/` only when the epics flag drift or a gap.
 
-Epics run in strict order: 0 → 1 → 2 → 3 → 4 → 5 → 6. Each epic's stories must all pass `cargo test` before moving to the next epic. The epics are the compounding artifact — they decompose the design docs into verifiable, ordered, independently testable implementation stories.
+Epics run in strict order: 0 → 1 → 2 → 3 → 4 → 5 → 6. Each epic's stories must all pass `cargo test` before moving to the next epic. Story_0 in each epic is the overview (no code, just architecture diagrams and implementation order); Story_1+ are the actual implementation stories with code anchors, tasks, and verification.
 
 ---
 
@@ -171,7 +166,7 @@ When modifying code, think in terms of module boundaries. Base should have zero 
 
 Only RESP2 type markers are in scope for v1: bulk strings (`$N`), arrays (`*N`), integers (`:N`), errors (`-$N`). RESP3 types (arbitrary binary `~$N`, blob error `=$N`, map `%`, attribute `>`, double `,`, null `_`) are out of scope unless explicitly requested.
 
-### 5. Connection loop pattern
+### 6. Connection loop pattern
 
 The connection layer follows the may_postgres pattern: a single `go!` coroutine running an epoll loop that:
 - Receives commands from application coroutines via an mpsc request queue
@@ -207,20 +202,16 @@ The goal is mechanical migration from `redis` crate to `may-redis`. The `Command
 
 - [`README.md`](./README.md) — project overview.
 - [`Cargo.toml`](./Cargo.toml) — workspace config + lint rules.
+- [`docs/Epics/Epic_0/Story_0.md`](./docs/Epics/Epic_0/Story_0.md) — project goal, architecture diagrams, dependency graph, feature flags.
+- [`docs/Epics/Epic_1/Story_0.md`](./docs/Epics/Epic_1/Story_0.md) through [`docs/Epics/Epic_6/Story_0.md`](./docs/Epics/Epic_6/Story_0.md) — epic overviews with crate architecture diagrams and implementation order.
+- [`docs/Epics/Epic_*/Story_1.md`](./docs/Epics/) through `Story_4.md` — granular implementation stories with code anchors, tasks, verification.
 - [`docs/01-protocol-analysis.md`](./docs/01-protocol-analysis.md) — RESP wire format analysis, comparison with PostgreSQL.
 - [`docs/02-may_postgres_comparison.md`](./docs/02-may_postgres_comparison.md) — may_postgres architecture, may primitives used, connection/request-response patterns.
 - [`docs/03-sesame-idam-redis-usage.md`](./docs/03-sesame-idam-redis-usage.md) — Sesame-IDAM Redis usage inventory across 5 modules, command frequency analysis.
-- [`docs/04-system-design.md`](./docs/04-system-design.md) — System design, crate responsibilities, feature flag matrix, size estimates.
-- [`docs/05-protocol-layer-design.md`](./docs/05-protocol-layer-design.md) — RESP encoding/decoding algorithms, type mapping.
-- [`docs/06-connection-layer-design.md`](./docs/06-connection-layer-design.md) — Connection loop algorithm, epoll handling, request-response matching, non-blocking I/O.
-- [`docs/07-client-api-design.md`](./docs/07-client-api-design.md) — CommandBuilder, Commands trait, Pipeline API, typed results, connection lifecycle.
-- [`docs/08-module-structure.md`](./docs/08-module-structure.md) — Planned workspace layout, Cargo.toml per crate, feature flags, build commands, dev workflow.
-- [`docs/09-migration-guide.md`](./docs/09-migration-guide.md) — Redis → may-redis migration (6 phases, file-by-file map).
 - [`docs/10-test-strategy.md`](./docs/10-test-strategy.md) — Test architecture, test tables per crate, running tests, may runtime setup.
-- [`docs/11-dependencies.md`](./docs/11-dependencies.md) — Dependency rationale, comparison with redis/tokio footprint, workspace integration steps.
 
 ---
 
-## Explicit instruction: read the docs
+## Explicit instruction: read the epics
 
-**Every session starts with reading the relevant `docs/` pages.** This is not optional. The docs are the comprehensive knowledge base for this project — there is no llmwiki, no wiki index, no log.md. If the docs have a gap or drift, fix them in-place.
+**Every session starts with reading the relevant `docs/Epics/` pages.** This is not optional. Each epic has Story_0 (overview with architecture diagrams) and Story_1+ (granular implementation stories). Read the epic overview, then the specific story you're working on. If the epics have a gap or drift, fix them in-place.
