@@ -9,6 +9,8 @@ use std::sync::Arc;
 use connection::{Connection, Request};
 use may::sync::spsc;
 
+use crate::pipeline::Pipeline;
+
 /// Internal client state shared across coroutines.
 struct InnerClient {
     connection: Connection,
@@ -99,6 +101,11 @@ impl RedisClient {
                 "unexpected PING response: {response}"
             )))
         }
+    }
+
+    /// Create a pipeline for batch command execution.
+    pub fn pipeline(&self) -> Pipeline<'_> {
+        Pipeline::new(&self.inner.connection)
     }
 }
 
@@ -196,6 +203,9 @@ impl Commands for RedisClient {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use may::coroutine::spawn;
+    use may::sync::SyncFlag;
+    use std::sync::Mutex;
 
     /// Test that RedisClient struct is constructible
     #[test]
@@ -209,5 +219,288 @@ mod tests {
     fn test_commands_trait_methods_exist() {
         fn _require_commands<T: Commands>() {}
         _require_commands::<RedisClient>();
+    }
+
+    // ---------------------------------------------------------------------------
+    // Integration tests — require a Redis server on localhost:6379
+    // Run with: cargo test -p client -- --ignored --test-threads=1
+    // ---------------------------------------------------------------------------
+    // Each test uses may::sync::SyncFlag to coordinate between the test
+    // coroutine and the main test thread. The may scheduler runs coroutines
+    // cooperatively — rx.recv() suspends the calling coroutine (not the std
+    // thread) allowing the connection loop to run and dispatch responses.
+    // SyncFlag::wait() blocks the std thread but the scheduler keeps running
+    // other coroutines (the connection loop) on the same thread.
+    //
+    // CRITICAL: We reuse a SINGLE shared RedisClient across all integration
+    // tests. Creating a new connection per test spawns a new epoll coroutine
+    // that gets cancelled on drop, exhausting the may scheduler's coroutine
+    // pool after ~4 tests. Keeping one connection alive avoids this.
+    // ---------------------------------------------------------------------------
+
+    /// Returns the shared RedisClient, initializing it on first call.
+    fn shared_client() -> RedisClient {
+        static INIT: std::sync::Once = std::sync::Once::new();
+        static CLIENT: std::sync::OnceLock<RedisClient> = std::sync::OnceLock::new();
+        INIT.call_once(|| {
+            CLIENT
+                .set(
+                    RedisClient::connect("127.0.0.1", 6379)
+                        .expect("Redis must be running on localhost:6379"),
+                )
+                .ok();
+        });
+        CLIENT.get().expect("client not initialized").clone()
+    }
+
+    /// Run e2e test logic inside the may scheduler.
+    /// Spawns the test body as a coroutine so rx.recv() cooperatively yields
+    /// (suspends the test coroutine, not the std thread), letting the
+    /// connection-loop coroutine run and dispatch responses.
+    fn run_may<F, T>(f: F) -> T
+    where
+        F: FnOnce() -> T + Send + 'static,
+        T: Send + 'static,
+    {
+        let flag = Arc::new(SyncFlag::new());
+        let wrapper = Arc::new(Mutex::new(None::<T>));
+        let flag2 = Arc::clone(&flag);
+        let wrapper2 = Arc::clone(&wrapper);
+
+        unsafe {
+            spawn(move || {
+                let val = f();
+                *wrapper2.lock().unwrap() = Some(val);
+                flag2.fire();
+            });
+        }
+
+        // SyncFlag::wait() blocks the std thread but the may scheduler
+        // keeps running the connection-loop coroutine in the background
+        // because it shares the same OS thread's event loop.
+        flag.wait();
+        let x = wrapper.lock().unwrap().take().unwrap();
+        x
+    }
+
+    #[test]
+    #[ignore]
+    fn test_integration_ping() {
+        run_may(|| {
+            let client = shared_client();
+            let result = client.ping();
+            assert_eq!(result.unwrap(), "PONG");
+            client.execute::<String>(client.flushdb()).ok();
+            ()
+        });
+    }
+
+    #[test]
+    #[ignore]
+    fn test_integration_set_get() {
+        run_may(|| {
+            let client = shared_client();
+            client
+                .execute::<()>(client.set("test_key", "hello"))
+                .unwrap();
+            let result: Option<String> = client.execute(client.get("test_key")).unwrap();
+            assert_eq!(result, Some("hello".to_string()));
+            client.execute::<()>(client.flushdb()).ok();
+            ()
+        });
+    }
+
+    #[test]
+    #[ignore]
+    fn test_integration_incr() {
+        run_may(|| {
+            let client = shared_client();
+            client.execute::<()>(client.flushdb()).ok();
+
+            let val: i64 = client.execute(client.incr("counter")).unwrap();
+            assert_eq!(val, 1);
+
+            let val: i64 = client.execute(client.incr("counter")).unwrap();
+            assert_eq!(val, 2);
+
+            client.execute::<()>(client.flushdb()).ok();
+            ()
+        });
+    }
+
+    #[test]
+    #[ignore]
+    fn test_integration_exists_del() {
+        run_may(|| {
+            let client = shared_client();
+            client.execute::<()>(client.flushdb()).ok();
+
+            client.execute::<()>(client.set("key1", "val1")).unwrap();
+            let exists: bool = client.execute(client.exists("key1")).unwrap();
+            assert!(exists);
+
+            let exists: bool = client.execute(client.exists("missing")).unwrap();
+            assert!(!exists);
+
+            client.execute::<()>(client.del("key1")).unwrap();
+            let exists: bool = client.execute(client.exists("key1")).unwrap();
+            assert!(!exists);
+
+            client.execute::<()>(client.flushdb()).ok();
+            ()
+        });
+    }
+
+    #[test]
+    #[ignore]
+    fn test_integration_dbsize() {
+        run_may(|| {
+            let client = shared_client();
+            client.execute::<()>(client.flushdb()).ok();
+
+            let size: usize = client.execute(client.dbsize()).unwrap();
+            assert_eq!(size, 0);
+
+            client.execute::<()>(client.set("a", "1")).unwrap();
+            client.execute::<()>(client.set("b", "2")).unwrap();
+            let size: usize = client.execute(client.dbsize()).unwrap();
+            assert_eq!(size, 2);
+
+            client.execute::<()>(client.flushdb()).ok();
+            ()
+        });
+    }
+
+    #[test]
+    #[ignore]
+    fn test_integration_set_ex_ttl() {
+        run_may(|| {
+            let client = shared_client();
+            client.execute::<()>(client.flushdb()).ok();
+
+            client
+                .execute::<()>(client.set_ex("ttl_key", "val", 60))
+                .unwrap();
+            let result: Option<String> = client.execute(client.get("ttl_key")).unwrap();
+            assert_eq!(result, Some("val".to_string()));
+
+            let ttl: i64 = client.execute(client.ttl("ttl_key")).unwrap();
+            assert!(ttl > 0 && ttl <= 60);
+
+            client.execute::<()>(client.flushdb()).ok();
+            ()
+        });
+    }
+
+    #[test]
+    #[ignore]
+    fn test_integration_keys() {
+        run_may(|| {
+            let client = shared_client();
+            client.execute::<()>(client.flushdb()).ok();
+
+            client.execute::<()>(client.set("user:1", "alice")).unwrap();
+            client.execute::<()>(client.set("user:2", "bob")).unwrap();
+            client.execute::<()>(client.set("other:1", "x")).unwrap();
+
+            let keys: Vec<String> = client.execute(client.keys("user:*")).unwrap();
+            assert_eq!(keys.len(), 2);
+            assert!(keys.contains(&"user:1".to_string()));
+            assert!(keys.contains(&"user:2".to_string()));
+
+            client.execute::<()>(client.flushdb()).ok();
+            ()
+        });
+    }
+
+    #[test]
+    #[ignore]
+    fn test_integration_send_sync_clone() {
+        run_may(|| {
+            let client = shared_client();
+            client.execute::<()>(client.flushdb()).ok();
+
+            let cloned = client.clone();
+            cloned
+                .execute::<()>(cloned.set("clone_test", "works"))
+                .unwrap();
+            let val: Option<String> = client.execute(cloned.get("clone_test")).unwrap();
+            assert_eq!(val, Some("works".to_string()));
+
+            client.execute::<()>(client.flushdb()).ok();
+            ()
+        });
+    }
+
+    #[test]
+    #[ignore]
+    fn test_integration_error_propagation() {
+        run_may(|| {
+            let client = shared_client();
+            client.execute::<()>(client.flushdb()).ok();
+
+            client
+                .execute::<()>(client.set("str_key", "not_a_number"))
+                .unwrap();
+            let result: Result<i64, _> = client.execute(client.incr("str_key"));
+            assert!(result.is_err());
+
+            client.execute::<()>(client.flushdb()).ok();
+            ()
+        });
+    }
+
+    #[test]
+    #[ignore]
+    fn test_integration_pipeline() {
+        run_may(|| {
+            let client = shared_client();
+            client.execute::<()>(client.flushdb()).ok();
+
+            // Build a pipeline with SET, SET, SET, GET
+            let mut pipeline = client.pipeline();
+            pipeline.add(client.set("pip:1", "a"));
+            pipeline.add(client.set("pip:2", "b"));
+            pipeline.add(client.set("pip:3", "c"));
+            pipeline.add(client.get("pip:1"));
+
+            let results: ((), (), (), Option<String>) = pipeline.execute().unwrap();
+            assert_eq!(results, ((), (), (), Some("a".to_string())));
+
+            client.execute::<()>(client.flushdb()).ok();
+            ()
+        });
+    }
+
+    #[test]
+    #[ignore]
+    fn test_integration_concurrent() {
+        // Test that the shared client can be cloned and used from multiple
+        // places. The may runtime handles coroutine yielding for I/O so
+        // we verify the client is properly shareable via clone().
+        run_may(|| {
+            let client = shared_client();
+            client.execute::<()>(client.flushdb()).ok();
+
+            // Clone the client and use both copies — tests Send + Sync
+            let c1 = client.clone();
+            let c2 = client.clone();
+
+            c1.execute::<()>(c1.set("concurrent:a", "1")).unwrap();
+            c2.execute::<()>(c2.set("concurrent:b", "2")).unwrap();
+
+            let v1: Option<String> = c1.execute(c1.get("concurrent:a")).unwrap();
+            let v2: Option<String> = c2.execute(c2.get("concurrent:b")).unwrap();
+
+            assert_eq!(v1, Some("1".to_string()));
+            assert_eq!(v2, Some("2".to_string()));
+
+            // Verify with KEYS
+            let keys: Vec<String> = client.execute(client.keys("concurrent:*")).unwrap();
+            assert_eq!(keys.len(), 2);
+
+            client.execute::<()>(client.flushdb()).ok();
+            ()
+        });
     }
 }
