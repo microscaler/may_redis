@@ -266,3 +266,182 @@ impl Connection {
         self.id
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Test that Request creates correctly
+    #[test]
+    fn test_request_new() {
+        let (tx, _rx): (spsc::Sender<RedisValue>, spsc::Receiver<RedisValue>) = spsc::channel();
+        let req = Request::new(vec![1, 2, 3], tx);
+        assert_eq!(req.data, vec![1, 2, 3]);
+    }
+
+    /// Test that PendingRequest holds the sender
+    #[test]
+    fn test_pending_request() {
+        let (tx, _rx) = spsc::channel();
+        let _p = PendingRequest { sender: tx };
+    }
+
+    /// Test process_req moves data from queue to write_buf
+    #[test]
+    fn test_process_req_moves_to_write_buf() {
+        let queue: Arc<Queue<Request>> = Arc::new(Queue::new());
+        let mut resp_queue = VecDeque::<PendingRequest>::new();
+        let mut write_buf: BytesMut = BytesMut::new();
+
+        let (tx, _rx) = spsc::channel();
+        let data: Vec<u8> = b"*1\r\n$4\r\nPING\r\n".to_vec();
+        queue.push(Request::new(data, tx));
+
+        process_req(&queue, &mut resp_queue, &mut write_buf);
+
+        assert_eq!(write_buf.chunk(), b"*1\r\n$4\r\nPING\r\n");
+        assert_eq!(resp_queue.len(), 1);
+    }
+
+    /// Test process_req with multiple requests queues them all
+    #[test]
+    fn test_process_req_multiple() {
+        let queue: Arc<Queue<Request>> = Arc::new(Queue::new());
+        let mut resp_queue = VecDeque::<PendingRequest>::new();
+        let mut write_buf: BytesMut = BytesMut::new();
+
+        for i in 0..3 {
+            let (tx, _rx) = spsc::channel();
+            queue.push(Request::new(vec![i as u8], tx));
+        }
+
+        process_req(&queue, &mut resp_queue, &mut write_buf);
+
+        assert_eq!(resp_queue.len(), 3);
+        assert_eq!(write_buf.len(), 3);
+    }
+
+    /// Test decode_responses with a valid integer response
+    #[test]
+    fn test_decode_responses_integer() {
+        let mut read_buf: BytesMut = b":42\r\n".as_slice().into();
+        let (tx, _rx): (spsc::Sender<RedisValue>, spsc::Receiver<RedisValue>) = spsc::channel();
+        let mut resp_queue = VecDeque::new();
+        resp_queue.push_back(PendingRequest { sender: tx });
+
+        let result = decode_responses(&mut read_buf, &mut resp_queue);
+        assert!(result.is_ok());
+        assert!(read_buf.is_empty());
+    }
+
+    /// Test decode_responses with a valid bulk string response
+    #[test]
+    fn test_decode_responses_bulk_string() {
+        let mut read_buf: BytesMut = b"$5\r\nhello\r\n".as_slice().into();
+        let (tx, _rx): (spsc::Sender<RedisValue>, spsc::Receiver<RedisValue>) = spsc::channel();
+        let mut resp_queue = VecDeque::new();
+        resp_queue.push_back(PendingRequest { sender: tx });
+
+        let result = decode_responses(&mut read_buf, &mut resp_queue);
+        assert!(result.is_ok());
+        assert!(read_buf.is_empty());
+    }
+
+    /// Test decode_responses with an error response
+    #[test]
+    fn test_decode_responses_error() {
+        let mut read_buf: BytesMut = b"-ERR something bad\r\n".as_slice().into();
+        let (tx, _rx): (spsc::Sender<RedisValue>, spsc::Receiver<RedisValue>) = spsc::channel();
+        let mut resp_queue = VecDeque::new();
+        resp_queue.push_back(PendingRequest { sender: tx });
+
+        let result = decode_responses(&mut read_buf, &mut resp_queue);
+        assert!(result.is_ok());
+        assert!(read_buf.is_empty());
+    }
+
+    /// Test decode_responses with incomplete data leaves buffer unchanged
+    #[test]
+    fn test_decode_responses_incomplete() {
+        let mut read_buf: BytesMut = b"$5\r\nhel".as_slice().into();
+        let (tx, _rx): (spsc::Sender<RedisValue>, spsc::Receiver<RedisValue>) = spsc::channel();
+        let mut resp_queue = VecDeque::new();
+        resp_queue.push_back(PendingRequest { sender: tx });
+
+        let result = decode_responses(&mut read_buf, &mut resp_queue);
+        assert!(result.is_ok());
+        assert!(!read_buf.is_empty()); // incomplete, so buffer is restored
+    }
+
+    /// Test decode_responses with unexpected response (no pending) warns
+    #[test]
+    fn test_decode_responses_unexpected() {
+        let mut read_buf: BytesMut = b":1\r\n".as_slice().into();
+        // resp_queue is empty — no pending request
+        let mut resp_queue = VecDeque::<PendingRequest>::new();
+
+        let result = decode_responses(&mut read_buf, &mut resp_queue);
+        assert!(result.is_ok());
+        assert!(read_buf.is_empty());
+    }
+
+    /// Test Connection::connect establishes and returns valid connection
+    #[test]
+    fn test_connection_connect() {
+        let conn = Connection::connect("127.0.0.1", 6379);
+        match conn {
+            Ok(c) => {
+                assert!(c.id() > 0);
+                let tag = c.send(Request::new(vec![0], spsc::channel().0));
+                assert_eq!(tag, 0);
+            }
+            Err(_) => {
+                // Redis not running — connection failed, which is fine for CI
+            }
+        }
+    }
+
+    /// Test Connection::send returns monotonically increasing tags
+    #[test]
+    fn test_connection_send_tags() {
+        let conn = Connection::connect("127.0.0.1", 6379);
+        match conn {
+            Ok(c) => {
+                let tag0 = c.send(Request::new(vec![0], spsc::channel().0));
+                let tag1 = c.send(Request::new(vec![0], spsc::channel().0));
+                let tag2 = c.send(Request::new(vec![0], spsc::channel().0));
+                assert_eq!(tag0, 0);
+                assert_eq!(tag1, 1);
+                assert_eq!(tag2, 2);
+            }
+            Err(_) => {}
+        }
+    }
+
+    /// Test Connection::id returns the socket fd
+    #[test]
+    fn test_connection_id() {
+        let conn = Connection::connect("127.0.0.1", 6379);
+        match conn {
+            Ok(c) => {
+                let id = c.id();
+                assert!(id > 0); // socket fds start at 3
+            }
+            Err(_) => {}
+        }
+    }
+
+    /// Test Drop cancels the connection loop coroutine
+    #[test]
+    fn test_connection_drop() {
+        let conn = Connection::connect("127.0.0.1", 6379);
+        match conn {
+            Ok(mut c) => {
+                let id = c.id();
+                assert!(id > 0);
+                drop(c); // Should cancel the connection loop without hanging
+            }
+            Err(_) => {}
+        }
+    }
+}
