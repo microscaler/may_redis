@@ -1,107 +1,98 @@
-# Epic 0 — Scaffolding
+# Epic 0 — Architecture & Module Structure
 
-**Objective:** Set up the workspace structure, Cargo.toml configuration, lint tooling, and documentation layout. This is the foundation that every subsequent epic depends on.
+**Objective:** Define the single-crate module layout. The codebase is one `may-redis` crate with five internal modules (`base`, `codec`, `protocol`, `connection`, `client`) — all under `src/`. No workspace split.
 
-**Dependencies:** None (first epic)
+**Dependencies:** None (first epic — architectural foundation)
 
-**Source docs:** `docs/08-module-structure.md`, `docs/11-dependencies.md`, `docs/09-migration-guide.md`
+**Source docs:** `docs/adr-001-single-crate-structure.md`
 
-## Workspace Goal
+## Architecture Decision
 
-```mermaid
-graph TB
-    subgraph "Workspace: may_redis"
-        WRoot[Workspace Cargo.toml<br/>6 members]
-        
-        subgraph "crates/"
-            Base[base<br/>~150 LOC<br/>deps: bytes]
-            Codec[codec<br/>~300 LOC<br/>deps: bytes, base]
-            Proto[protocol<br/>~400 LOC<br/>deps: bytes, log, may, base, codec]
-            Conn[connection<br/>~400 LOC<br/>deps: bytes, log, may, socket2, base, codec]
-            Client[client<br/>~300 LOC<br/>deps: base, codec, protocol, connection]
-            Umb[may-redis<br/>~50 LOC<br/>re-exports all]
-        end
-        
-        WRoot --> Base
-        WRoot --> Codec
-        WRoot --> Proto
-        WRoot --> Conn
-        WRoot --> Client
-        WRoot --> Umb
-    end
+Per **ADR 001**, the workspace split (6 crates) was rejected in favor of a single crate with module folders. The rationale:
+
+- 3.7K lines across 21 files — no meaningful compile-time benefit from splitting
+- No crates.io publish target — consumed via path deps in sibling repos
+- Feature flags not needed for v1 (all modules always compiled)
+- Import syntax is identical (`base::`, `codec::`, etc.) whether crate or module
+- Easier to navigate, modify, and maintain
+
+## Module Structure
+
+```
+may_redis/
+├── Cargo.toml           # Single manifest
+├── src/
+│   ├── lib.rs           # pub mod base, codec, protocol, connection, client;
+│   ├── base/            # RedisValue, RedisError, FromRedisValue, ToRedisArgs
+│   │   ├── mod.rs       # pub mod redis_value; redis_error; from_redis_value; to_redis_args;
+│   │   ├── redis_value.rs
+│   │   ├── redis_error.rs
+│   │   ├── from_redis_value.rs
+│   │   └── to_redis_args.rs
+│   ├── codec/           # RESPWriter, RESPReader — encode/decode
+│   │   ├── mod.rs       # pub mod writer; reader; roundtrip;
+│   │   ├── writer.rs
+│   │   ├── reader.rs
+│   │   └── roundtrip.rs
+│   ├── protocol/        # CommandBuilder, Commands trait
+│   │   ├── mod.rs       # pub mod builder; commands;
+│   │   ├── builder.rs
+│   │   └── commands.rs
+│   ├── connection/      # Epoll connection loop, TCP, may primitives
+│   │   ├── mod.rs       # pub mod connection; tcp;
+│   │   ├── connection.rs
+│   │   └── tcp.rs
+│   └── client/          # RedisClient, Pipeline, InMemoryClient
+│       ├── mod.rs       # pub mod client; pipeline; in_memory;
+│       ├── client.rs
+│       ├── pipeline.rs
+│       └── in_memory.rs
+└── docs/Epics/          # Epic 0-6 story definitions
 ```
 
 ## Dependency Graph
 
 ```mermaid
 graph LR
-    subgraph "External Dependencies"
-        Bytes[bytes 1.7]
-        Log[log 0.4]
-        May[may 0.3]
-        Socket2[socket2 0.5]
+    subgraph "Internal modules"
+        Base[base<br/>zero may dep]
+        Codec[codec<br/>base + bytes]
+        Proto[protocol<br/>base + codec + bytes + log + may]
+        Conn[connection<br/>base + codec + bytes + log + may + socket2]
+        Client[client<br/>base + codec + protocol + connection]
     end
-    
-    Base[base] --> Bytes
-    Codec[codec] --> Bytes
-    Codec --> Base
-    Proto[protocol] --> Bytes
-    Proto --> Log
-    Proto --> May
-    Proto --> Base
-    Proto --> Codec
-    Conn[connection] --> Bytes
-    Conn --> Log
-    Conn --> May
-    Conn --> Socket2
-    Conn --> Base
-    Conn --> Codec
-    Client[client] --> Base
-    Client --> Codec
-    Client --> Proto
-    Client --> Conn
-    Umb[may-redis] --> Base
-    Umb --> Codec
-    Umb --> Proto
-    Umb --> Conn
-    Umb --> Client
+
+    Base --> Codec
+    Codec --> Proto
+    Proto --> Conn
+    Conn --> Client
 ```
 
-## Feature Flag Matrix
+## Module Responsibility Matrix
 
-```mermaid
-graph TD
-    subgraph "Feature Flags"
-        F_Base[base — always on]
-        F_Codec[codec — always on]
-        F_Protocol[protocol — always on]
-        F_Connection[connection — default]
-        F_Client[client — default]
-        F_Test[test — off by default]
-        F_Pool[pool — off by default]
-    end
-    
-    subgraph "Build Configurations"
-        Full[Full build<br/>base + codec + protocol + connection + client]
-        BaseOnly[Minimal build<br/>base + codec only]
-        TestOnly[Test build<br/>+ test helpers]
-        Prod[Production<br/>same as full]
-    end
-    
-    F_Base --> Full
-    F_Codec --> Full
-    F_Protocol --> Full
-    F_Connection --> Full
-    F_Client --> Full
-    F_Base --> BaseOnly
-    F_Codec --> BaseOnly
-    F_Base --> TestOnly
-    F_Codec --> TestOnly
-    F_Protocol --> TestOnly
-    F_Test --> TestOnly
-    F_Base --> Prod
-    F_Codec --> Prod
-    F_Protocol --> Prod
-    F_Connection --> Prod
-    F_Client --> Prod
+| Module | May Dep? | Network Dep? | Purpose |
+|--------|----------|-------------|---------|
+| `base` | No | No | `RedisValue` enum, `RedisError`, `FromRedisValue`, `ToRedisArgs` |
+| `codec` | No | No | `RESPWriter` / `RESPReader` — pure RESP2 encoding/decoding |
+| `protocol` | Yes | No | `CommandBuilder`, `Commands` trait, request/response spsc channels |
+| `connection` | Yes | Yes | Epoll loop, `TcpStream`, request queue, response dispatch |
+| `client` | Yes | Yes | `RedisClient`, `Pipeline`, `InMemoryClient` (feature `test`) |
+
+## Build & Test Commands
+
+```bash
+cargo test --lib                                       # all unit + doc tests
+cargo test --lib test_integration_ -- --test-threads=1 # integration tests (needs Redis)
+cargo clippy --lib --tests --all-features -D warnings  # lint
+cargo fmt --all --check                                # format
 ```
+
+Integration tests use `--test-threads=1` because they share a `OnceLock<RedisClient>` singleton and Redis state.
+
+## Implementation Verification
+
+- All 147 unit tests pass (`cargo test --lib -- --test-threads=1 --skip test_integration_`)
+- All 11 integration tests pass with Redis on localhost:6379
+- All 6 doc tests pass (`cargo test --doc`)
+- Clippy: zero warnings with pedantic deny
+- Format: `cargo fmt --all --check` clean
