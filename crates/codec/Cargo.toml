@@ -8,6 +8,7 @@ description = "RESP protocol encoding/decoding: RESPWriter, RESPReader"
 
 [dependencies]
 bytes = { workspace = true }
+itoa = "1.0"
 base = { path = "../base" }
 
 [lints]

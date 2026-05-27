@@ -8,7 +8,7 @@
 //!
 //! RESP protocol encoding/decoding: `RESPWriter`, `RESPReader`.
 //!
-//! This crate depends only on `bytes` and `base`. No runtime dependency.
+//! This crate depends only on `bytes`, `itoa`, and `base`. No runtime dependency.
 //!
 //! ## Architecture
 //!
@@ -18,6 +18,7 @@
 //!     RR[RESPReader] --> RV
 //!     bytes[bytes] --> RW
 //!     bytes --> RR
+//!     itoa[itoa] --> RW
 //! ```
 //!
 //! ## Example
@@ -32,3 +33,6 @@
 
 pub mod reader;
 pub mod writer;
+
+#[cfg(test)]
+pub mod roundtrip;
