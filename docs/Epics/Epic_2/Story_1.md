@@ -6,12 +6,14 @@
 
 **Dependencies:** Story 2.0 (epic overview)
 
+**Status:** COMPLETE — all tasks implemented and tested.
+
 **Source docs:** `docs/05-protocol-layer-design.md`
 
 ## Code Anchors
 
-- `crates/codec/src/lib.rs` — `pub struct RESPWriter { buf: BytesMut }`
-- `crates/codec/src/writer.rs` — implementation
+- `src/codec/mod.rs` — `pub struct RESPWriter { buf: BytesMut }`
+- `src/codec/writer.rs` — implementation
 
 ## Struct
 
@@ -41,21 +43,21 @@ impl RESPWriter {
 
 ## Tasks
 
-1. Define `RESPWriter` with `buf: BytesMut`
-2. Implement `new()` and `with_capacity()` constructors
-3. Implement `write_simple(s: &str)` — writes `+{s}\r\n`
-4. Implement `write_bulk(data: &[u8])` — writes `${len}\r\n{data}\r\n`
-5. Implement `write_int(n: i64)` — writes `:{n}\r\n`
-6. Implement `write_array_header(len: usize)` — writes `*{len}\r\n`
-7. Implement `write_array_value(v: &RedisValue)` — dispatches to correct write_* method
-8. Implement `write_null_bulk()` — writes `$-1\r\n`
-9. Implement `write_empty_array()` — writes `*0\r\n`
-10. Implement `write_error(msg: &str)` — writes `-{msg}\r\n`
-11. Implement `take()` — returns the buffer and starts a new empty one
+- [x] Define `RESPWriter` with `buf: BytesMut`
+- [x] Implement `new()` and `with_capacity()` constructors
+- [x] Implement `write_simple(s: &str)` — writes `+{s}\r\n`
+- [x] Implement `write_bulk(data: &[u8])` — writes `${len}\r\n{data}\r\n`
+- [x] Implement `write_int(n: i64)` — writes `:{n}\r\n`
+- [x] Implement `write_array_header(len: usize)` — writes `*{len}\r\n`
+- [x] Implement `write_array_value(v: &RedisValue)` — dispatches to correct write_* method
+- [x] Implement `write_null_bulk()` — writes `$-1\r\n`
+- [x] Implement `write_empty_array()` — writes `*0\r\n`
+- [x] Implement `write_error(msg: &str)` — writes `-{msg}\r\n`
+- [x] Implement `take()` — returns the buffer and starts a new empty one
 
 ## Verification
 
-- `cargo test -p codec` — at least 8 unit tests:
+- All tests pass:
   - `test_write_simple_ok` — "OK" → "+OK\r\n"
   - `test_write_bulk_hello` — b"hello" → "$5\r\nhello\r\n"
   - `test_write_int_42` — 42 → ":42\r\n"
@@ -64,5 +66,5 @@ impl RESPWriter {
   - `test_write_empty_array` — `*0\r\n`
   - `test_write_error_err_msg` — "ERR msg" → "-ERR msg\r\n"
   - `test_take_returns_and_resets` — take empty, write again, take again
-- `cargo clippy -p codec` — zero warnings
-- No may import anywhere in the crate
+- `cargo clippy` — zero warnings
+- No may import anywhere in the codec module

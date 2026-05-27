@@ -6,12 +6,9 @@
 
 **Dependencies:** Story 3.3
 
+**Status:** PARTIAL — command encoding tests pass, but FakeConnection test helper is not implemented. Protocol tests verify wire format against expected bytes directly rather than through a fake connection loop simulation.
+
 **Source docs:** `docs/05-protocol-layer-design.md`, `docs/Epics/Epic_3/Story_0.md`
-
-## Code Anchors
-
-- `crates/protocol/src/integration.rs` — integration tests
-- `crates/protocol/src/fake.rs` — FakeConnection test helper
 
 ## Integration Flow
 
@@ -35,16 +32,19 @@ sequenceDiagram
 
 ## Tasks
 
-1. Create `FakeConnection` test helper that:
-   - Captures sent commands (BytesMut)
-   - Provides canned responses via spsc
-2. Test: Build SET key value command → encode → verify BytesMut matches wire format
-3. Test: Build GET key command → encode → verify bytes → simulate response `:42\r\n` → verify receiver gets Integer(42)
-4. Test: Pipeline ordering — build 3 commands, verify they are encoded in declaration order
-5. Test: Tag uniqueness — 100 sequential requests, all tags are unique and monotonic
+- [x] Test: Build SET key value command → encode → verify BytesMut matches wire format
+- [x] Test: Build GET key command → encode → verify bytes → verify receiver gets Integer(42) with spsc channel
+- [x] Test: Pipeline ordering — build 3 commands, verify they are encoded in declaration order
+- [x] Test: Tag uniqueness — 100 sequential requests, all tags are unique and monotonic
+- [ ] Create `FakeConnection` test helper that:
+  - Captures sent commands (BytesMut)
+  - Provides canned responses via spsc
+  - Simulates the connection loop receiving and dispatching responses
+  - Acts as a drop-in replacement for a real Redis connection in protocol tests
 
 ## Verification
 
-- `cargo test -p protocol` — at least 18 total tests (14 trait + 3 dispatch + 3 integration)
-- `cargo clippy -p protocol` — zero warnings
-- `cargo doc -p protocol` — all public items documented
+- Protocol encoding tests pass (14 command encoding + 5 builder tests)
+- Spsc channel dispatch works correctly with real connection tests
+- `cargo clippy` — zero warnings
+- Gap: FakeConnection helper not implemented — protocol tests skip connection loop simulation

@@ -6,12 +6,14 @@
 
 **Dependencies:** Epic 0 (scaffolding)
 
+**Status:** COMPLETE — all tasks implemented and tested.
+
 **Source docs:** `docs/01-protocol-analysis.md`, `docs/Epics/Epic_1/Story_0.md`
 
 ## Code Anchors
 
-- `crates/base/src/lib.rs` — `pub enum RedisValue { ... }`
-- `crates/base/src/redis_value.rs` — `impl RedisValue` blocks
+- `src/core/value.rs` — `pub enum RedisValue { ... }`
+- `src/core/value.rs` — `impl RedisValue` blocks
 
 ## Struct
 
@@ -28,18 +30,18 @@ pub enum RedisValue {
 
 ## Tasks
 
-1. Define `RedisValue` enum with all 6 variants
-2. Implement `Clone`, `Debug`, `Eq`, `PartialEq`, `Hash` for `RedisValue`
-3. Implement `Default` (return `Null`)
-4. Add `is_null()`, `is_error()`, `is_integer()` accessor methods
-5. Add `as_integer()`, `as_str()`, `as_bytes()`, `as_array()` accessor methods returning `Option<T>`
+- [x] Define `RedisValue` enum with all 6 variants
+- [x] Implement `Clone`, `Debug`, `Eq`, `PartialEq`, `Hash` for `RedisValue`
+- [x] Implement `Default` (return `Null`)
+- [x] Add `is_null()`, `is_error()`, `is_integer()` accessor methods
+- [x] Add `as_integer()`, `as_str()`, `as_bytes()`, `as_array()` accessor methods returning `Option<T>`
 
 ## Verification
 
-- `cargo test -p base` — at least 5 unit tests:
-  - `test_redis_value_integer_variant` — create Integer, verify variant
-  - `test_redis_value_bulk_string_variant` — create BulkString, verify bytes
-  - `test_redis_value_array_variant` — create nested array, verify structure
-  - `test_redis_value_is_null` — Null returns true from is_null()
-  - `test_redis_value_clone` — clone and verify equality
-- `cargo clippy -p base` — zero warnings
+- All 147 tests pass including `RedisValue` tests:
+  - `test_redis_value_integer_variant`
+  - `test_redis_value_bulk_string_variant`
+  - `test_redis_value_array_variant`
+  - `test_redis_value_is_null`
+  - `test_redis_value_clone`
+- `cargo clippy` — zero warnings

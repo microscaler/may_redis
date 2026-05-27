@@ -6,13 +6,15 @@
 
 **Dependencies:** Story 3.2
 
+**Status:** COMPLETE — all tasks implemented and tested.
+
 **Source docs:** `docs/Epics/Epic_3/Story_0.md`
 
 ## Code Anchors
 
-- `crates/protocol/src/request.rs` — `pub struct Request { tag, command, tx }`
-- `crates/protocol/src/response.rs` — `pub struct Response { tag, rx }`
-- `crates/protocol/src/tags.rs` — `pub struct TagCounter`
+- `src/connection/connection.rs` — `Request` struct
+- `src/connection/connection.rs` — `TagCounter` (AtomicUsize)
+- `src/protocol/mod.rs` — `Response` struct with spsc channel
 
 ## Structs
 
@@ -49,18 +51,18 @@ flowchart LR
 
 ## Tasks
 
-1. Define `TagCounter` — wraps `std::sync::atomic::AtomicUsize` with `next()` method
-2. Define `Request` struct with tag, command, tx fields
-3. Define `Response` struct with tag, rx fields
-4. Implement `Request::new(tag, command, tx)` constructor
-5. Implement `Response::new(tag, rx)` constructor
-6. Implement `TagCounter::new()` — initializes to 0
-7. Implement `TagCounter::next()` — returns current value and increments
+- [x] Define `TagCounter` — wraps `std::sync::atomic::AtomicUsize` with `next()` method
+- [x] Define `Request` struct with tag, command, tx fields
+- [x] Define `Response` struct with tag, rx fields
+- [x] Implement `Request::new(tag, command, tx)` constructor
+- [x] Implement `Response::new(tag, rx)` constructor
+- [x] Implement `TagCounter::new()` — initializes to 0
+- [x] Implement `TagCounter::next()` — returns current value and increments
 
 ## Verification
 
-- `cargo test -p protocol` — at least 3 unit tests:
+- All protocol tests pass:
   - `test_tag_counter_monotonic` — counter.next() returns 0, 1, 2, ...
   - `test_request_creation` — create Request with known tag, verify fields
   - `test_response_creation` — create Response with known tag, verify fields
-- `cargo clippy -p protocol` — zero warnings
+- `cargo clippy` — zero warnings
