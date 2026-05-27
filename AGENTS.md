@@ -41,13 +41,21 @@ Strict operational rules for AI assistants working in this repository. **Knowled
 
 ## Before you do anything
 
-1. Read [`docs/04-system-design.md`](./docs/04-system-design.md) — the system overview and crate responsibilities.
-2. Read [`docs/08-module-structure.md`](./docs/08-module-structure.md) — the planned workspace layout and dependency graph.
-3. Read [`docs/01-protocol-analysis.md`](./docs/01-protocol-analysis.md) — RESP wire format reference.
-4. Read the specific topic docs relevant to your work (protocol, connection, client, test strategy, migration guide).
-5. Drill into source `src/` only when the docs flag drift or a gap.
+1. Read [`docs/Epics/00-epic-overview.md`](./docs/Epics/00-epic-overview.md) — project goal, architecture, and epic plan.
+2. Read the specific epic for your task:
+   - **Epic 0** (scaffolding): [`docs/Epics/epic-0-scaffolding.md`](./docs/Epics/epic-0-scaffolding.md)
+   - **Epic 1** (base): [`docs/Epics/epic-1-base.md`](./docs/Epics/epic-1-base.md)
+   - **Epic 2** (codec): [`docs/Epics/epic-2-codec.md`](./docs/Epics/epic-2-codec.md)
+   - **Epic 3** (protocol): [`docs/Epics/epic-3-protocol.md`](./docs/Epics/epic-3-protocol.md)
+   - **Epic 4** (connection): [`docs/Epics/epic-4-connection.md`](./docs/Epics/epic-4-connection.md)
+   - **Epic 5** (client): [`docs/Epics/epic-5-client.md`](./docs/Epics/epic-5-client.md)
+   - **Epic 6** (integration + migration): [`docs/Epics/epic-6-integration.md`](./docs/Epics/epic-6-integration.md)
+3. Read `docs/01-protocol-analysis.md` — RESP wire format reference.
+4. Read `docs/02-may_postgres_comparison.md` — may_postgres reference patterns.
+5. Read `docs/03-sesame-idam-redis-usage.md` — Sesame-IDAM command set inventory.
+6. Drill into source `src/` only when the epics flag drift or a gap.
 
-Sessions that skip this waste work. The docs are the compounding artifact — they cover RESP protocol, may_postgres comparison, sesame-IDAM usage inventory, system design, protocol/connection/client layer design, module structure, migration strategy, test approach, and dependency rationale.
+Epics run in strict order: 0 → 1 → 2 → 3 → 4 → 5 → 6. Each epic's stories must all pass `cargo test` before moving to the next epic. The epics are the compounding artifact — they decompose the design docs into verifiable, ordered, independently testable implementation stories.
 
 ---
 
