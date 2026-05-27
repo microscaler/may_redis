@@ -3,7 +3,7 @@
 // Zero tokio, zero async-await, only may coroutines.
 //
 // Module layout:
-// - base:        RedisValue, RedisError, FromRedisValue, ToRedisArgs
+// - core:        RedisValue, RedisError, FromRedisValue, ToRedisArgs
 // - codec:       RESP encoding/decoding (writer + reader)
 // - protocol:    CommandBuilder, Commands trait
 // - connection:  epoll connection loop, TCP, coroutine management
@@ -16,14 +16,14 @@
 #![allow(clippy::io_other_error)]
 #![allow(clippy::ref_as_ptr)]
 
-pub mod base;
+pub mod core;
 pub mod client;
 pub mod codec;
 pub mod connection;
 pub mod protocol;
 
 // Re-export the most common types at the crate root
-pub use base::{FromRedisValue, RedisError, RedisValue, ToRedisArgs};
+pub use core::{FromRedisValue, RedisError, RedisValue, ToRedisArgs};
 pub use client::client::RedisClient;
 pub use client::pipeline::{FromPipelineResponse, Pipeline};
 pub use protocol::builder::{cmd, CommandBuilder};

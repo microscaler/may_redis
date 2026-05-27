@@ -1,6 +1,6 @@
 // Roundtrip tests: encode with RESPWriter, decode with RESPReader, verify equality.
 
-use crate::base::RedisValue;
+use crate::core::RedisValue;
 
 use crate::codec::reader::RESPReader;
 use crate::codec::writer::RESPWriter;

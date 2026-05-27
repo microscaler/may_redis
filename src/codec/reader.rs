@@ -2,7 +2,7 @@
 //
 // Uses an internal cursor (`pos`) to track progress through the buffer.
 
-use crate::base::{RedisError, RedisValue};
+use crate::core::{RedisError, RedisValue};
 use bytes::BytesMut;
 
 /// Reader that decodes RESP2 wire format into [`RedisValue`].

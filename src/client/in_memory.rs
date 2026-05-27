@@ -6,7 +6,7 @@
 //
 // This module is only compiled when the `test` feature is enabled.
 
-use crate::base::RedisError;
+use crate::core::RedisError;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;

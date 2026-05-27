@@ -6,7 +6,7 @@
 
 use std::fmt;
 
-use super::redis_value::RedisValue;
+use super::value::RedisValue;
 
 /// A typed error from `may_redis` operations.
 ///

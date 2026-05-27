@@ -25,7 +25,7 @@
 //!
 //! ```ignore
 //! use crate::codec::RESPWriter;
-//! use crate::base::RedisValue;
+//! use crate::core::RedisValue;
 //!
 //! let mut buf = Vec::new();
 //! RESPWriter::encode(&mut buf, &RedisValue::SimpleString("OK".into())).unwrap();

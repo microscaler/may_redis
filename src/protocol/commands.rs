@@ -1,6 +1,6 @@
 // Commands — Trait mirroring the redis crate API surface.
 
-use crate::base::ToRedisArgs;
+use crate::core::ToRedisArgs;
 
 use super::builder::CommandBuilder;
 

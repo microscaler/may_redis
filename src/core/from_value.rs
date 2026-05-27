@@ -2,7 +2,7 @@
 // Redis command set.
 
 use super::{FromRedisValue, RedisError, RedisValue};
-use super::redis_error::RedisResult;
+use super::error::RedisResult;
 
 impl FromRedisValue for Vec<String> {
     fn from_redis_value(value: &RedisValue) -> RedisResult<Self> {

@@ -2,7 +2,7 @@
 //
 // Provides the main user-facing API for connecting to Redis and executing commands.
 
-use crate::base::{FromRedisValue, RedisError, ToRedisArgs};
+use crate::core::{FromRedisValue, RedisError, ToRedisArgs};
 use crate::protocol::{builder::CommandBuilder, commands::Commands};
 use std::sync::Arc;
 

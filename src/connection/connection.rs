@@ -28,7 +28,7 @@ use std::os::fd::AsRawFd;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
-use crate::base::{RedisError, RedisValue};
+use crate::core::{RedisError, RedisValue};
 use crate::codec::reader::RESPReader;
 use super::tcp::{ConnectionError, TcpConnector};
 

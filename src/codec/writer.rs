@@ -1,6 +1,6 @@
 // RESPWriter — Encode RedisValue into RESP2 wire format.
 
-use crate::base::RedisValue;
+use crate::core::RedisValue;
 use bytes::BytesMut;
 
 /// Writer that produces RESP2 wire format from [`RedisValue`].

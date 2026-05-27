@@ -9,7 +9,7 @@
 // 2. Execute all at once with `execute()`
 // 3. Responses come back in order
 
-use crate::base::{FromRedisValue, RedisError, RedisValue};
+use crate::core::{FromRedisValue, RedisError, RedisValue};
 use crate::connection::{Connection, Request};
 use crate::protocol::builder::CommandBuilder;
 use may::coroutine::yield_now;
