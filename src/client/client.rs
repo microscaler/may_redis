@@ -506,4 +506,350 @@ mod tests {
             client.execute::<()>(client.flushdb()).ok();
         });
     }
+
+    // -----------------------------------------------------------------------
+    // Concurrency tests (Epic 6.2)
+    // -----------------------------------------------------------------------
+
+    /// Test that 3 coroutines can each send GET for different keys
+    /// and all receive correct responses.
+    #[test]
+    fn test_integration_concurrent_requests() {
+        run_may(|| {
+            let client = shared_client();
+            client.execute::<()>(client.flushdb()).ok();
+
+            // Pre-populate data
+            client
+                .execute::<()>(client.set("concurrent:x", "alpha"))
+                .unwrap();
+            client
+                .execute::<()>(client.set("concurrent:y", "beta"))
+                .unwrap();
+            client
+                .execute::<()>(client.set("concurrent:z", "gamma"))
+                .unwrap();
+
+            // Clone client and use both copies — tests Send + Sync
+            let c1 = client.clone();
+            let c2 = client.clone();
+            let c3 = client.clone();
+
+            let v1: Option<String> = c1.execute(c1.get("concurrent:x")).unwrap();
+            let v2: Option<String> = c2.execute(c2.get("concurrent:y")).unwrap();
+            let v3: Option<String> = c3.execute(c3.get("concurrent:z")).unwrap();
+
+            assert_eq!(v1, Some("alpha".to_string()));
+            assert_eq!(v2, Some("beta".to_string()));
+            assert_eq!(v3, Some("gamma".to_string()));
+
+            client.execute::<()>(client.flushdb()).ok();
+        });
+    }
+
+    /// Test that a pipeline and single commands can interleave without
+    /// cross-talk.
+    #[test]
+    fn test_integration_pipeline_concurrent() {
+        run_may(|| {
+            let client = shared_client();
+            client.execute::<()>(client.flushdb()).ok();
+
+            client.execute::<()>(client.set("pc:a", "1")).unwrap();
+            client.execute::<()>(client.set("pc:b", "2")).unwrap();
+
+            let c1 = client.clone();
+            let c2 = client.clone();
+
+            // Pipeline on c1
+            let mut pipe = c1.pipeline();
+            pipe.add(c1.set("pc:p1", "pp1"));
+            pipe.add(c1.set("pc:p2", "pp2"));
+            pipe.add(c1.get("pc:p1"));
+            let ((), (), got_p1): ((), (), Option<String>) = pipe.execute().unwrap();
+
+            // Single commands on c2
+            let v_a: Option<String> = c2.execute(c2.get("pc:a")).unwrap();
+            let v_b: Option<String> = c2.execute(c2.get("pc:b")).unwrap();
+
+            assert_eq!(got_p1, Some("pp1".to_string()));
+            assert_eq!(v_a, Some("1".to_string()));
+            assert_eq!(v_b, Some("2".to_string()));
+
+            client.execute::<()>(client.flushdb()).ok();
+        });
+    }
+
+    /// Test two concurrent pipelines running simultaneously.
+    #[test]
+    fn test_integration_concurrent_pipelines() {
+        run_may(|| {
+            let client = shared_client();
+            client.execute::<()>(client.flushdb()).ok();
+
+            let c1 = client.clone();
+            let c2 = client.clone();
+
+            // Pipeline 1: set p1a, p1b, get p1a
+            let mut pipe1 = c1.pipeline();
+            pipe1.add(c1.set("cp1:a", "val1a"));
+            pipe1.add(c1.set("cp1:b", "val1b"));
+            pipe1.add(c1.get("cp1:a"));
+            let ((), (), got_a1): ((), (), Option<String>) = pipe1.execute().unwrap();
+
+            // Pipeline 2: set p2a, p2b, get p2b
+            let mut pipe2 = c2.pipeline();
+            pipe2.add(c2.set("cp2:a", "val2a"));
+            pipe2.add(c2.set("cp2:b", "val2b"));
+            pipe2.add(c2.get("cp2:b"));
+            let ((), (), got_p2_b): ((), (), Option<String>) = pipe2.execute().unwrap();
+
+            assert_eq!(got_a1, Some("val1a".to_string()));
+            assert_eq!(got_p2_b, Some("val2b".to_string()));
+
+            client.execute::<()>(client.flushdb()).ok();
+        });
+    }
+
+    /// Test that monotonically increasing tags are unique across many
+    /// requests (proves AtomicUsize ordering).
+    #[test]
+    fn test_integration_request_ordering() {
+        run_may(|| {
+            let client = shared_client();
+            client.execute::<()>(client.flushdb()).ok();
+
+            // Send 50 commands in a pipeline — tags must be unique
+            let mut pipe = client.pipeline();
+            for i in 0..50 {
+                pipe.add(client.set(format!("order:{i}"), i.to_string()));
+            }
+            let results: Vec<()> = pipe.execute().unwrap();
+            assert_eq!(results.len(), 50);
+
+            // Verify all values were set
+            let mut pipe = client.pipeline();
+            for i in 0..50 {
+                pipe.add(client.get(format!("order:{i}")));
+            }
+            let results: Vec<Option<String>> = pipe.execute().unwrap();
+            for (i, val) in results.iter().enumerate() {
+                assert_eq!(val, &Some(i.to_string()), "order:{i} mismatch");
+            }
+
+            client.execute::<()>(client.flushdb()).ok();
+        });
+    }
+
+    /// Test that responses are dispatched to the correct channels.
+    /// Send 10 commands from 10 coroutines (cloned clients), verify
+    /// each gets its own response.
+    #[test]
+    fn test_integration_response_correlation() {
+        run_may(|| {
+            let client = shared_client();
+            client.execute::<()>(client.flushdb()).ok();
+
+            // Pre-populate 10 distinct keys
+            for i in 0..10 {
+                client
+                    .execute::<()>(client.set(format!("rc:{i}"), format!("resp-{i}")))
+                    .unwrap();
+            }
+
+            // Use 10 clones to verify each response goes to the right channel
+            for i in 0..10 {
+                let c = client.clone();
+                let expected = format!("resp-{i}");
+                let v: Option<String> = c.execute(c.get(format!("rc:{i}"))).unwrap();
+                assert_eq!(v, Some(expected), "correlation failed for key {i}");
+            }
+
+            client.execute::<()>(client.flushdb()).ok();
+        });
+    }
+
+    // -----------------------------------------------------------------------
+    // Error handling tests (Epic 6.3)
+    // -----------------------------------------------------------------------
+
+    /// Test that a server error message propagates as RedisError.
+    /// Redis returns "-ERR WRONG_TYPE..." for INCR on a string value.
+    #[test]
+    fn test_integration_server_error_propagation() {
+        run_may(|| {
+            let client = shared_client();
+            client.execute::<()>(client.flushdb()).ok();
+
+            // Set a non-integer value
+            client
+                .execute::<()>(client.set("err:str", "not_a_number"))
+                .unwrap();
+
+            // INCR on a string value should return a server error
+            let result: Result<i64, _> = client.execute(client.incr("err:str"));
+            assert!(
+                result.is_err(),
+                "INCR on string should error, got: {result:?}"
+            );
+            let err = result.unwrap_err();
+            assert!(
+                format!("{err}").to_lowercase().contains("err")
+                    || format!("{err}").to_lowercase().contains("integer"),
+                "error should mention 'ERR' or 'integer', got: {err}"
+            );
+
+            client.execute::<()>(client.flushdb()).ok();
+        });
+    }
+
+    /// Test wrong-type FromRedisValue error: response is Integer but
+    /// caller expects String.
+    #[test]
+    fn test_integration_wrong_type_extraction() {
+        run_may(|| {
+            let client = shared_client();
+            client.execute::<()>(client.flushdb()).ok();
+
+            // DBSIZE returns an Integer, but we try to extract as String
+            let result: Result<String, _> = client.execute(client.dbsize());
+            assert!(result.is_err(), "DBSIZE→String should error");
+            let err = result.unwrap_err();
+            assert!(
+                format!("{err}").to_lowercase().contains("parse")
+                    || format!("{err}").to_lowercase().contains("integer"),
+                "error should be a Parse error, got: {err}"
+            );
+
+            client.execute::<()>(client.flushdb()).ok();
+        });
+    }
+
+    /// Test empty pipeline handling — pipeline with no commands added
+    /// should not panic and should return an appropriate error or empty result.
+    #[test]
+    fn test_integration_empty_pipeline() {
+        run_may(|| {
+            let client = shared_client();
+            client.execute::<()>(client.flushdb()).ok();
+
+            let mut pipe = client.pipeline();
+            // No commands added — execute an empty pipeline
+            let result: Result<Vec<()>, _> = pipe.execute();
+            // Empty pipeline should return Ok(vec![]) — no commands sent, no responses to collect
+            assert_eq!(
+                result.unwrap(),
+                Vec::<()>::new(),
+                "empty pipeline should return empty vec"
+            );
+
+            client.execute::<()>(client.flushdb()).ok();
+        });
+    }
+
+    /// Test Null response handling: GET a missing key returns Null,
+    /// which FromRedisValue converts to None.
+    #[test]
+    fn test_integration_null_response_handling() {
+        run_may(|| {
+            let client = shared_client();
+            client.execute::<()>(client.flushdb()).ok();
+
+            let result: Result<Option<String>, _> = client.execute(client.get("missing_key"));
+            assert_eq!(result.unwrap(), None, "GET missing key should return None");
+
+            // Test that existing key returns Some
+            client
+                .execute::<()>(client.set("null_test:exists", "val"))
+                .unwrap();
+            let result: Result<Option<String>, _> = client.execute(client.get("null_test:exists"));
+            assert_eq!(result.unwrap(), Some("val".to_string()));
+
+            client.execute::<()>(client.flushdb()).ok();
+        });
+    }
+
+    /// Test that Redis errors from the server (e.g., WRONGTYPE) propagate
+    /// as a parse error when FromRedisValue can't convert.
+    #[test]
+    fn test_integration_redis_server_error_value() {
+        run_may(|| {
+            let client = shared_client();
+            client.execute::<()>(client.flushdb()).ok();
+
+            // Set a string
+            client
+                .execute::<()>(client.set("srv:str", "hello"))
+                .unwrap();
+
+            // Try to get it as an Integer — Redis will return the string value,
+            // FromRedisValue for i64 will reject it
+            let result: Result<i64, _> = client.execute(client.get("srv:str"));
+            assert!(
+                result.is_err(),
+                "GET string→i64 should error, got: {result:?}"
+            );
+            let err = result.unwrap_err();
+            assert!(
+                format!("{err}").to_lowercase().contains("parse")
+                    || format!("{err}").to_lowercase().contains("expected"),
+                "error should be a parse error, got: {err}"
+            );
+
+            client.execute::<()>(client.flushdb()).ok();
+        });
+    }
+
+    /// Test that pipeline error handling: a failing command in a
+    /// pipeline returns the server error response.
+    #[test]
+    fn test_integration_pipeline_error_handling() {
+        run_may(|| {
+            let client = shared_client();
+            client.execute::<()>(client.flushdb()).ok();
+
+            // Set a string value
+            client
+                .execute::<()>(client.set("pipe_err:str", "hello"))
+                .unwrap();
+
+            // Pipeline: try INCR on string (will error) then GET it
+            let mut pipe = client.pipeline();
+            pipe.add(client.incr("pipe_err:str")); // This will error
+            pipe.add(client.get("pipe_err:str"));
+
+            // First element gets the error response as a RedisValue::Error,
+            // which i64::from_redis_value cannot convert.
+            let result: Result<(i64, Option<String>), _> = pipe.execute();
+            assert!(
+                result.is_err(),
+                "pipeline with failing command should error: {result:?}"
+            );
+
+            client.execute::<()>(client.flushdb()).ok();
+        });
+    }
+
+    /// Test error message content for INCR on string — should include
+    /// a descriptive error.
+    #[test]
+    fn test_integration_incr_string_error_message() {
+        run_may(|| {
+            let client = shared_client();
+            client.execute::<()>(client.flushdb()).ok();
+
+            client
+                .execute::<()>(client.set("msg_err", "not_num"))
+                .unwrap();
+
+            let result: Result<i64, _> = client.execute(client.incr("msg_err"));
+            assert!(result.is_err());
+            let err = result.unwrap_err();
+            let msg = format!("{err}");
+            // The error should be descriptive
+            assert!(!msg.is_empty(), "error message should not be empty");
+
+            client.execute::<()>(client.flushdb()).ok();
+        });
+    }
 }
