@@ -10,7 +10,6 @@ use crate::connection::{Connection, Request};
 use may::sync::spsc;
 
 use super::pipeline::Pipeline;
-use crate::connection::ConnectionError;
 
 /// Internal client state shared across coroutines.
 struct InnerClient {
@@ -36,7 +35,7 @@ impl RedisClient {
     ///
     /// # Errors
     /// Returns [`ConnectionError`](connection::ConnectionError) if TCP connection fails.
-    pub fn connect(host: &str, port: u16) -> Result<Self, connection::ConnectionError> {
+    pub fn connect(host: &str, port: u16) -> Result<Self, crate::connection::ConnectionError> {
         let connection = Connection::connect(host, port)?;
         Ok(Self {
             inner: Arc::new(InnerClient { connection }),

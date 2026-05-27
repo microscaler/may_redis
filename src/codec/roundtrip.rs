@@ -2,8 +2,8 @@
 
 use crate::base::RedisValue;
 
-use crate::reader::RESPReader;
-use crate::writer::RESPWriter;
+use crate::codec::reader::RESPReader;
+use crate::codec::writer::RESPWriter;
 
 /// Encode a value with [`RESPWriter`], then decode it with [`RESPReader`].
 fn roundtrip(v: &RedisValue) -> RedisValue {

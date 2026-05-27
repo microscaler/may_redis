@@ -436,7 +436,7 @@ mod tests {
     fn test_connection_drop() {
         let conn = Connection::connect("127.0.0.1", 6379);
         match conn {
-            Ok(mut c) => {
+            Ok(c) => {
                 let id = c.id();
                 assert!(id > 0);
                 drop(c); // Should cancel the connection loop without hanging
