@@ -10,37 +10,43 @@
 //!
 //! Redis connection loop: epoll, TCP, coroutine management.
 //!
-//! This crate depends on `bytes`, `log`, `may`, `socket2`, `base`, and `codec`.
+//! This crate depends on `bytes`, `log`, `may`, `base`, and `codec`.
 //!
 //! ## Architecture
 //!
-//! ```mermaid
-//! graph TB
-//!     subgraph "Connection Loop"
-//!         CL[go! epoll loop]
-//!         TCP[TCP Stream]
-//!         RW[Read/Write buffers]
-//!     end
-//!     subgraph "Request Pipeline"
-//!         Q[mpsc Queue Request]
-//!         Tag[Monotonic tag]
-//!         S[spsc Receiver Response]
-//!     end
-//!     CL --> TCP
-//!     TCP --> RW
-//!     Q --> CL
-//!     CL --> Tag
-//!     Tag --> S
-//!     S --> CL
-//! ```
+//! ```text
+//! +---------------------+     +-------------------------+
+//! |  Application Co     |     |  Connection Co (go!)    |
+//! |                     |     |                         |
+//! |  Connection::send() | --> |  mpsc Queue<Request>    |
+//! |                     |     |  + epoll loop            |
+//! |  spsc::Receiver     | <-- |  + read_buf / write_buf  |
+//! |  from spsc channel  |     |  + RESPReader decode     |
+//! +---------------------+     +-------------------------+
 //!
-//! ## Example
+//! ## Usage
 //!
 //! ```ignore
-//! use connection::Connection;
+//! use connection::{Connection, Request};
+//! use may::sync::spsc;
 //!
-//! let conn = Connection::connect("127.0.0.1:6379").await;
+//! may::run(|| {
+//!     may::go(|| {
+//!         let conn = Connection::connect("127.0.0.1", 6379).unwrap();
+//!         let (tx, rx) = spsc::channel();
+//!         let request = Request::new(
+//!             vec![b'*1\r\n$4\r\nPING\r\n'],
+//!             tx,
+//!         );
+//!         conn.send(request);
+//!         let response: RedisValue = rx.recv().unwrap();
+//!         println!("{response:?}");
+//!     }).join();
+//! });
 //! ```
 
-pub mod epoll;
+pub mod connection;
 pub mod tcp;
+
+pub use connection::{Connection, Request};
+pub use tcp::{ConnectionError, TcpConnector};

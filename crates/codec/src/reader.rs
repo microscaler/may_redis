@@ -1,4 +1,6 @@
 // RESPReader — Decode RESP2 wire format into RedisValue.
+//
+// Uses an internal cursor (`pos`) to track progress through the buffer.
 
 use base::{RedisError, RedisValue};
 use bytes::BytesMut;
@@ -16,6 +18,16 @@ impl RESPReader {
     #[must_use = "must call read_value() to decode data"]
     pub const fn new(buf: BytesMut) -> Self {
         Self { buf, pos: 0 }
+    }
+
+    /// Take ownership of the unconsumed portion of the buffer.
+    ///
+    /// Returns the bytes from `pos` to end. Used by the connection loop
+    /// to recover data when decode fails partway through a value.
+    #[must_use]
+    pub fn take_buf(self) -> BytesMut {
+        let mut buf = self.buf;
+        buf.split_off(self.pos)
     }
 
     /// Read a single RESP value from the buffer.
