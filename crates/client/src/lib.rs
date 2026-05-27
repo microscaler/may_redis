@@ -31,8 +31,11 @@
 //! ```ignore
 //! use client::RedisClient;
 //!
-//! let mut client = RedisClient::connect("127.0.0.1:6379").await?;
-//! let val: Option<String> = client.get("mykey").await?;
+//! let client = RedisClient::connect("127.0.0.1", 6379)?;
+//! let val: Option<String> = client.get("mykey")?;
 //! ```
 
+pub mod client;
 pub mod pipeline;
+
+pub use client::RedisClient;

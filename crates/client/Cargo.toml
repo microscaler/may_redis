@@ -11,6 +11,10 @@ base = { path = "../base" }
 codec = { path = "../codec" }
 protocol = { path = "../protocol" }
 connection = { path = "../connection" }
+bytes = "1.7"
+may = "0.3"
+itoa = "1.0"
+log = "0.4"
 
 [features]
 default = ["connection", "client"]

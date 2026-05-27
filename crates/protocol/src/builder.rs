@@ -8,6 +8,7 @@ use codec::writer::RESPWriter;
 ///
 /// Collects command name and arguments, then encodes them into RESP2 wire
 /// format when [`build()`](Self::build) is called.
+#[derive(Clone)]
 pub struct CommandBuilder {
     args: Vec<RedisValue>,
 }

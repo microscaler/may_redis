@@ -54,8 +54,12 @@ name = "client"
 version = "0.1.0"
 dependencies = [
  "base",
+ "bytes",
  "codec",
  "connection",
+ "itoa",
+ "log",
+ "may",
  "protocol",
 ]
 
