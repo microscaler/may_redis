@@ -1,0 +1,24 @@
+[package]
+name = "may-redis"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description.workspace = true
+
+[dependencies]
+base = { path = "../base" }
+codec = { path = "../codec" }
+protocol = { path = "../protocol" }
+connection = { path = "../connection", optional = true }
+client = { path = "../client", optional = true }
+
+[features]
+default = ["connection", "client"]
+connection = ["dep:connection"]
+client = ["dep:client"]
+pool = []
+test = ["client?/test"]
+
+[lints]
+workspace = true

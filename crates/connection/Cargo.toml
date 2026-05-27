@@ -1,0 +1,18 @@
+[package]
+name = "connection"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Redis connection loop: epoll, TCP, coroutine management"
+
+[dependencies]
+bytes = { workspace = true }
+log = { workspace = true }
+may = { workspace = true }
+socket2 = { workspace = true }
+base = { path = "../base" }
+codec = { path = "../codec" }
+
+[lints]
+workspace = true

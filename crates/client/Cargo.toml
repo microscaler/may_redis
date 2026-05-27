@@ -1,0 +1,23 @@
+[package]
+name = "client"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Public client API: RedisClient, Pipeline"
+
+[dependencies]
+base = { path = "../base" }
+codec = { path = "../codec" }
+protocol = { path = "../protocol" }
+connection = { path = "../connection" }
+
+[features]
+default = ["connection", "client"]
+connection = []
+client = []
+pool = []
+test = []
+
+[lints]
+workspace = true

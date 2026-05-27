@@ -9,6 +9,13 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f2032f911046de80f0a198e0901378627c33f59ea0ac00e363d481118bd70a53"
 
 [[package]]
+name = "base"
+version = "0.1.0"
+dependencies = [
+ "bytes",
+]
+
+[[package]]
 name = "bitflags"
 version = "2.11.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -41,6 +48,36 @@ name = "cfg_aliases"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "613afe47fcd5fac7ccf1db93babcb082c5994d996f20b8b159f2ad1658eb5724"
+
+[[package]]
+name = "client"
+version = "0.1.0"
+dependencies = [
+ "base",
+ "codec",
+ "connection",
+ "protocol",
+]
+
+[[package]]
+name = "codec"
+version = "0.1.0"
+dependencies = [
+ "base",
+ "bytes",
+]
+
+[[package]]
+name = "connection"
+version = "0.1.0"
+dependencies = [
+ "base",
+ "bytes",
+ "codec",
+ "log",
+ "may",
+ "socket2",
+]
 
 [[package]]
 name = "core_affinity"
@@ -183,10 +220,11 @@ dependencies = [
 name = "may-redis"
 version = "0.1.0"
 dependencies = [
- "bytes",
- "log",
- "may",
- "socket2",
+ "base",
+ "client",
+ "codec",
+ "connection",
+ "protocol",
 ]
 
 [[package]]
@@ -253,6 +291,17 @@ dependencies = [
  "redox_syscall",
  "smallvec",
  "windows-link",
+]
+
+[[package]]
+name = "protocol"
+version = "0.1.0"
+dependencies = [
+ "base",
+ "bytes",
+ "codec",
+ "log",
+ "may",
 ]
 
 [[package]]

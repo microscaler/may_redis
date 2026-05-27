@@ -1,0 +1,17 @@
+[package]
+name = "protocol"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Redis command protocol: CommandBuilder, Commands trait"
+
+[dependencies]
+bytes = { workspace = true }
+log = { workspace = true }
+may = { workspace = true }
+base = { path = "../base" }
+codec = { path = "../codec" }
+
+[lints]
+workspace = true

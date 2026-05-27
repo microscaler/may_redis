@@ -1,12 +1,28 @@
-[package]
-name = "may-redis"
+[workspace]
+members = [
+    "crates/base",
+    "crates/codec",
+    "crates/protocol",
+    "crates/connection",
+    "crates/client",
+    "crates/may-redis",
+]
+resolver = "2"
+
+[workspace.package]
 version = "0.1.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/microscaler/may_redis"
 description = "A coroutine-based Redis client for the may runtime"
 
-[lints.clippy]
+[workspace.dependencies]
+bytes = "1.7"
+log = "0.4"
+may = { version = "0.3", default-features = false }
+socket2 = "0.5"
+
+[workspace.lints.clippy]
 all = { level = "deny", priority = -1 }
 pedantic = { level = "deny", priority = -1 }
 nursery = { level = "deny", priority = -1 }
@@ -20,9 +36,3 @@ too_many_lines = "allow"
 missing_errors_doc = "allow"
 missing_panics_doc = "allow"
 missing_safety_doc = "allow"
-
-[dependencies]
-bytes = "1.7"
-log = "0.4"
-may = { version = "0.3", default-features = false }
-socket2 = "0.5"

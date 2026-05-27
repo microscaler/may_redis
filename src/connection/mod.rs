@@ -1,1 +1,0 @@
-// connection — Redis connection loop

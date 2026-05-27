@@ -1,0 +1,14 @@
+[package]
+name = "codec"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "RESP protocol encoding/decoding: RESPWriter, RESPReader"
+
+[dependencies]
+bytes = { workspace = true }
+base = { path = "../base" }
+
+[lints]
+workspace = true
