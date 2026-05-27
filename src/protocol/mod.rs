@@ -22,10 +22,10 @@
 //!
 //! ## Example
 //!
-//! ```ignore
-//! use crate::protocol::Commands;
+//! ```no_run
+//! use may_redis::cmd;
 //!
-//! let cmd = Commands::get("mykey");
+//! let builder = cmd("GET").arg("mykey");
 //! ```
 
 pub mod builder;

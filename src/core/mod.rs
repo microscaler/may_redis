@@ -24,11 +24,11 @@
 //!
 //! ## Example
 //!
-//! ```ignore
-//! use crate::core::Value;
+//! ```no_run
+//! use may_redis::RedisValue;
 //!
-//! let val = Value::BulkString("hello".into());
-//! assert!(matches!(val, Value::BulkString(_)));
+//! let val = RedisValue::BulkString("hello".into());
+//! assert!(matches!(val, RedisValue::BulkString(_)));
 //! ```
 
 pub mod error;

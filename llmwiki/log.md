@@ -189,3 +189,15 @@
   together vs separately and whether to also wire `AGENTS.md` and
   the `llmwiki/index.md` / `llmwiki/docs-catalog.md` pointers in the
   same commit.
+
+## [2026-05-27] fix | resolved all 6 ignored doctests
+
+- All 6 `/// ```ignore` doctests converted to `/// ```no_run` and fixed so they compile.
+- `src/client/mod.rs` — added missing `Commands` trait import so `client.get()` compiles
+- `src/client/pipeline.rs` — added `Commands` import, replaced `?` with `.unwrap()` (doctest `main` can't use `?`)
+- `src/codec/mod.rs` — replaced nonexistent `RESPWriter::encode()` static with actual instance API (`RESPWriter::new()` → `write_simple()` → `take()`)
+- `src/core/mod.rs` — fixed wrong type name (`Value` → `RedisValue`), corrected import to `may_redis::RedisValue`
+- `src/protocol/builder.rs` — corrected import to `may_redis::cmd`
+- `src/protocol/mod.rs` — replaced trait-receiver example (`Commands::get`) with standalone `cmd()` example
+- Result: 6/6 doctests passing (compile-only via `no_run`), 0 ignored. Full test suite: 153 passed, 0 failed.
+- All files updated in `src/`, wiki log updated.

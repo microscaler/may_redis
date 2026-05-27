@@ -23,12 +23,12 @@
 //!
 //! ## Example
 //!
-//! ```ignore
-//! use crate::codec::RESPWriter;
-//! use crate::core::RedisValue;
+//! ```no_run
+//! use may_redis::RedisValue;
 //!
-//! let mut buf = Vec::new();
-//! RESPWriter::encode(&mut buf, &RedisValue::SimpleString("OK".into())).unwrap();
+//! let mut writer = may_redis::codec::writer::RESPWriter::new();
+//! writer.write_simple("OK");
+//! let bytes = writer.take();
 //! ```
 
 pub mod reader;

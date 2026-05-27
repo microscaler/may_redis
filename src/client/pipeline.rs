@@ -32,12 +32,14 @@ pub trait FromPipelineResponse: Sized {
 ///
 /// # Example
 ///
-/// ```ignore
-/// let client = RedisClient::connect("127.0.0.1", 6379)?;
+/// ```no_run
+/// use may_redis::{RedisClient, Pipeline, Commands};
+///
+/// let client = RedisClient::connect("127.0.0.1", 6379).unwrap();
 /// let mut pipeline = client.pipeline();
 /// pipeline.add(client.set("key1", "value1"));
 /// pipeline.add(client.set("key2", "value2"));
-/// let results: ((), ()) = pipeline.execute()?;
+/// let results: ((), ()) = pipeline.execute().unwrap();
 /// ```
 pub struct Pipeline<'a> {
     connection: &'a Connection,

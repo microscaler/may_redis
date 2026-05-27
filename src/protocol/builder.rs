@@ -83,8 +83,8 @@ impl CommandBuilder {
 
 /// Convenience function to create a `CommandBuilder`.
 ///
-/// ```ignore
-/// use crate::protocol::cmd;
+/// ```no_run
+/// use may_redis::cmd;
 ///
 /// let builder = cmd("SET").arg("key").arg("value");
 /// ```

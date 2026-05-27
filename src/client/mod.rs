@@ -30,8 +30,8 @@
 //!
 //! ## Example
 //!
-//! ```ignore
-//! use crate::client::{RedisClient, pipeline::FromPipelineResponse};
+//! ```no_run
+//! use may_redis::{RedisClient, Commands};
 //!
 //! let client = RedisClient::connect("127.0.0.1", 6379).unwrap();
 //! let val: Option<String> = client.execute(client.get("mykey")).unwrap();
