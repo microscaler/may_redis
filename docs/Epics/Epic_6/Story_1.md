@@ -1,28 +1,26 @@
 # Story 6.1 — Full test pass
 
-**Objective:** Ensure all tests pass across the entire codebase with all features enabled.
+**Objective:** All unit, integration, and doc tests pass with zero warnings.
 
 **Epic:** 6 — Integration & Migration
 
-**Dependencies:** Epic 5 (client) — all prior epics complete
+**Dependencies:** Stories 6.2, 6.3
 
-**Status:** COMPLETE — all tests pass, all lints clean.
+**Status:** COMPLETE
 
 **Source docs:** `docs/10-test-strategy.md`
 
-## Tasks
+## Code Anchors
 
-- [x] Run `cargo test` — verify all tests compile and pass
-- [x] Run `cargo test --features test` — verify InMemoryClient compiles
-- [x] Fix all clippy deny-level warnings across the codebase
-- [x] Verify `cargo doc --no-deps` builds without errors
-- [x] Verify `cargo fmt --check` passes on all files
-- [x] All doctests use `no_run` instead of `ignore` for compile-checked documentation
+- `src/client/client.rs` — integration tests
+- `src/protocol/fake.rs` — protocol tests
+- `src/client/in_memory.rs` — feature-gated unit tests
+- `.github/workflows/ci.yaml` — CI pipeline
 
 ## Verification
 
-- `cargo test --lib` — 147 tests: 136 unit + 11 integration pass
-- `cargo test --doc` — 6 doc tests pass (all `no_run`)
-- `cargo clippy --all-targets --all-features` — zero warnings
-- `cargo fmt --check` — all files formatted
-- `cargo doc --no-deps` — builds without warnings
+- `cargo test --lib --features test` — 164 unit tests pass
+- `cargo clippy --lib --tests --all-features -- -D warnings` — zero warnings
+- `cargo fmt --all --check` — clean
+- `cargo test --doc` — 6 doc tests pass
+- CI pipeline runs unit → lint → integration → doc in DAG
