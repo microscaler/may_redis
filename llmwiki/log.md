@@ -190,6 +190,44 @@
   the `llmwiki/index.md` / `llmwiki/docs-catalog.md` pointers in the
   same commit.
 
+## [2026-05-27] ci | fixed `unit-tests` job running Redis-dependent tests without a Redis service (uncommitted)
+
+- Symptom: GitHub Actions `unit-tests` job failed with
+  `Connect("Connection refused (os error 111)")` against
+  `127.0.0.1:6379` for all 11 `test_integration_*` tests in
+  `src/client/client.rs`. Because the `integration-tests` job is
+  gated on `needs: unit-tests`, the whole pipeline died before the
+  Redis-equipped job ever ran.
+- Root cause: `.github/workflows/ci.yaml` `unit-tests` step ran
+  `cargo test --features test --lib -- --test-threads=1` which
+  includes the `test_integration_*` family but had no Redis service
+  attached. The `integration-tests` job ran the *exact same* command
+  with a Redis service, so it was both functionally correct and
+  wastefully re-executing every unit test.
+- Verified scope before patching: the only Redis-touching tests in
+  the whole lib are the 11 `test_integration_*` fns in
+  `src/client/client.rs`. `test_connection_connect`,
+  `test_connection_send_tags`, `test_connection_id`,
+  `test_connection_drop` in `src/connection/connection.rs` all use
+  `if let Ok(c) = Connection::connect(..) { ... }` so they no-op
+  when Redis is unavailable — safe under either job.
+- Fix in `.github/workflows/ci.yaml`:
+  - `unit-tests` job → appended `--skip test_integration_` so the
+    job runs the 136 unit tests with no Redis dependency.
+  - `integration-tests` job → added positional filter
+    `test_integration_` before `--` so it runs only the 11 Redis
+    tests instead of the full 147.
+  - Both edits have inline comments explaining the convention and
+    why `--test-threads=1` is mandatory.
+- Verified on ms02 (Redis available) by running both commands:
+  - `unit-tests` cmd: `136 passed; 0 failed; 11 filtered out`.
+  - `integration-tests` cmd: `11 passed; 0 failed; 136 filtered
+    out`.
+  - Total still 147, all green, distributed exactly as the comments
+    claim.
+- File modified (still uncommitted on ms02):
+  `.github/workflows/ci.yaml`.
+
 ## [2026-05-27] fix | resolved all 6 ignored doctests
 
 - All 6 `/// ```ignore` doctests converted to `/// ```no_run` and fixed so they compile.
@@ -201,3 +239,14 @@
 - `src/protocol/mod.rs` — replaced trait-receiver example (`Commands::get`) with standalone `cmd()` example
 - Result: 6/6 doctests passing (compile-only via `no_run`), 0 ignored. Full test suite: 153 passed, 0 failed.
 - All files updated in `src/`, wiki log updated.
+
+## [2026-05-27] fix | fix integration test panics on CI runners
+
+- Root cause: `unsafe { spawn(...) }` panics on fresh std threads (CI runners)
+  because the may coroutine scheduler hasn't been initialized on that thread.
+- Fix: introduced `init_may_runtime()` that calls `config().set_workers(1)`
+  once per thread, lazily starting the may scheduler. Switched from unsafe
+  spawn to `go!` macro (may crate's documented safe wrapper).
+- All 11 integration tests pass, 147 unit tests pass, 6 doc-tests pass.
+  Total: 153 passed, 0 failed, 0 ignored.
+- Committed as `bac707a`.

@@ -204,8 +204,25 @@ impl Commands for RedisClient {
 #[allow(clippy::used_underscore_items)]
 mod tests {
     use super::*;
-    use may::coroutine::spawn;
+    use may::config;
+    use may::go;
+    use std::sync::Once;
     use std::sync::Mutex;
+
+    /// One-time initialization of the may coroutine runtime.
+    ///
+    /// The may scheduler is lazily initialized on first call to
+    /// `config().set_workers()`. We initialize it once so that every
+    /// test thread has a valid may context before spawning coroutines.
+    ///
+    /// Without this, `go!` panics on fresh std threads (e.g. CI runners)
+    /// because the may scheduler hasn't been started yet.
+    fn init_may_runtime() {
+        static INIT: Once = Once::new();
+        INIT.call_once(|| {
+            config().set_workers(1);
+        });
+    }
 
     /// Test that RedisClient struct is constructible
     #[test]
@@ -224,11 +241,10 @@ mod tests {
     // ---------------------------------------------------------------------------
     // Integration tests — require a Redis server on localhost:6379
     // ---------------------------------------------------------------------------
-    // Each test runs inside `run_may()` which spawns the test as a may coroutine.
-    // rx.recv() cooperatively yields (suspends the test coroutine, not the std
-    // thread), letting the connection-loop coroutine run and dispatch responses.
-    // JoinHandle::join() blocks at the coroutine level (park/unpark) so the
-    // scheduler keeps running the connection loop while the test coroutine waits.
+    // Each test runs inside `run_may()` which spawns the test body as a
+    // coroutine via `go!` (the may crate's coroutine spawning macro). This
+    // ensures the may scheduler is properly initialized on the current thread
+    // before spawning any coroutines.
     //
     // CRITICAL: We reuse a SINGLE shared RedisClient across all integration
     // tests. Creating a new connection per test spawns a new epoll coroutine
@@ -252,34 +268,44 @@ mod tests {
     }
 
     /// Run e2e test logic inside the may scheduler.
-    /// Spawns the test body as a coroutine so rx.recv() cooperatively yields
-    /// (suspends the test coroutine, not the std thread), letting the
+    ///
+    /// Uses `go!` to spawn the test body as a may coroutine, then joins it.
+    /// The coroutine's `rx.recv()` calls cooperatively yield, letting the
     /// connection-loop coroutine run and dispatch responses.
     ///
-    /// We use `JoinHandle::join()` (coroutine-level blocking via park/unpark)
-    /// instead of `SyncFlag::wait()` (std thread blocking). The latter deadlocks
-    /// because it blocks the scheduler thread, preventing the spawned coroutine
-    /// (and the connection loop) from ever running.
+    /// `init_may_runtime()` must be called before `go!` to ensure the may
+    /// scheduler is initialized. Without this, spawning coroutines on a fresh
+    /// std thread (as happens in CI) will panic.
     fn run_may<F, T>(f: F) -> T
     where
         F: FnOnce() -> T + Send + 'static,
         T: Send + 'static,
     {
+        // Ensure the may scheduler is initialized on this thread before spawning
+        // any coroutines. Without this, go! panics on fresh std threads.
+        init_may_runtime();
+
         let wrapper = Arc::new(Mutex::new(None::<T>));
         let wrapper2 = Arc::clone(&wrapper);
 
-        let handle = unsafe {
-            spawn(move || {
-                let val = f();
-                *wrapper2.lock().unwrap() = Some(val);
-            })
-        };
+        // `go!` spawns a coroutine and returns JoinHandle<()>.
+        // The test value is stored in the wrapper; we extract it after join.
+        let handle = go!(move || {
+            let val = f();
+            *wrapper2.lock().unwrap() = Some(val);
+        });
 
-        // JoinHandle::join() uses coroutine-level blocking (park/unpark),
+        // JoinHandle::join() blocks at the coroutine level (park/unpark),
         // so it cooperatively yields while the scheduler runs the connection loop.
-        handle.join().unwrap();
-        let x = wrapper.lock().unwrap().take().unwrap();
-        x
+        let result = handle.join();
+        match result {
+            Ok(()) => wrapper
+                .lock()
+                .unwrap()
+                .take()
+                .expect("test coroutine did not store result"),
+            Err(e) => panic!("test coroutine panicked: {:?}", e),
+        }
     }
 
     #[test]

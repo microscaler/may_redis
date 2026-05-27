@@ -32,8 +32,13 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-may-redis-
 
-      - name: Run unit tests
-        run: cargo test --features test --lib -- --test-threads=1
+      # NOTE: Skip integration tests here — they require a live Redis
+      # and are exercised by the `integration-tests` job below. Every
+      # Redis-touching test in the lib follows the `test_integration_*`
+      # naming convention (see `src/client/client.rs`), so a single
+      # `--skip` clause is sufficient and self-maintaining.
+      - name: Run unit tests (no Redis)
+        run: cargo test --features test --lib -- --test-threads=1 --skip test_integration_
 
       - name: Clippy
         run: cargo clippy --lib --tests --all-features -- -D warnings
@@ -79,8 +84,10 @@ jobs:
             sleep 1
           done
 
+      # Run ONLY the test_integration_* family. They share Redis state
+      # and FLUSHDB between assertions, so --test-threads=1 is mandatory.
       - name: Run integration tests
-        run: cargo test --features test --lib -- --test-threads=1
+        run: cargo test --features test --lib test_integration_ -- --test-threads=1
 
   # ── Doc tests ──
   doc-tests:
