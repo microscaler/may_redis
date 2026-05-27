@@ -1,5 +1,9 @@
 # may-redis
 
+[![CI](https://github.com/microscaler/may_redis/actions/workflows/ci.yaml/badge.svg)](https://github.com/microscaler/may_redis/actions/workflows/ci.yaml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE-MIT)
+[![License: Apache-2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE-Apache)
+
 A coroutine-native Redis client built on the
 [`may`](https://crates.io/crates/may) stackful-coroutine runtime.
 
