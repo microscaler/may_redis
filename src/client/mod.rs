@@ -39,6 +39,7 @@
 
 #[allow(clippy::module_inception)]
 pub mod client;
+#[cfg(feature = "test")]
 pub mod in_memory;
 pub mod pipeline;
 
