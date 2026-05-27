@@ -38,5 +38,5 @@ pub mod value;
 
 // Re-export public types at the crate root for convenience
 pub use error::{FromRedisValue, RedisError, RedisResult};
-pub use value::RedisValue;
 pub use to_args::ToRedisArgs;
+pub use value::RedisValue;

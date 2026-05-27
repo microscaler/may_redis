@@ -13,7 +13,11 @@ fn main() {
             println!("SENT PING");
             let mut buf = [0u8; 1024];
             let n = stream.read(&mut buf).unwrap();
-            println!("Got {} bytes: {}", n, std::str::from_utf8(&buf[..n]).unwrap_or("<binary>"));
+            println!(
+                "Got {} bytes: {}",
+                n,
+                std::str::from_utf8(&buf[..n]).unwrap_or("<binary>")
+            );
         }
         Err(e) => println!("TCP connect error: {}", e),
     }

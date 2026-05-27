@@ -1,8 +1,8 @@
 // Additional FromRedisValue implementations for types used by the Sesame-IDAM
 // Redis command set.
 
-use super::{FromRedisValue, RedisError, RedisValue};
 use super::error::RedisResult;
+use super::{FromRedisValue, RedisError, RedisValue};
 
 impl FromRedisValue for Vec<String> {
     fn from_redis_value(value: &RedisValue) -> RedisResult<Self> {

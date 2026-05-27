@@ -1,8 +1,8 @@
 // CommandBuilder — Fluent API for building Redis commands.
 
+use crate::codec::writer::RESPWriter;
 use crate::core::{RedisValue, ToRedisArgs};
 use bytes::BytesMut;
-use crate::codec::writer::RESPWriter;
 
 /// A fluent builder for Redis commands.
 ///
