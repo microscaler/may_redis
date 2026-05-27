@@ -6,6 +6,8 @@
 
 **Dependencies:** Story 6.2
 
+**Status:** PARTIAL — one error propagation test exists but the full error scenario coverage is not implemented.
+
 **Source docs:** `docs/10-test-strategy.md`
 
 ## Error Scenarios
@@ -24,20 +26,22 @@ flowchart TD
 
 ## Code Anchors
 
-- `crates/client/tests/error_tests.rs` — error handling integration tests
+- `src/client/client.rs` — integration tests in `#[cfg(test)]` module
 
 ## Tasks
 
-1. Create `crates/client/tests/error_tests.rs`
-2. Test: Connection refused — attempt to connect to non-existent server, verify ConnectionError
-3. Test: Protocol error — simulate malformed RESP response, verify Parse error
-4. Test: Wrong type extraction — response is Integer but caller expects String, verify FromRedisValue error
-5. Test: Empty pipeline — execute pipeline with no commands, verify error
-6. Test: Server returns error — Redis returns "-ERR msg\r\n", verify RedisError bubbles up with correct message
-7. Test: Null response — response is `$-1\r\n`, verify Null → appropriate FromRedisValue result
+- [x] `test_integration_error_propagation` exists — verifies errors bubble up correctly
+- [ ] Connection refused — attempt to connect to non-existent server, verify ConnectionError
+- [ ] Protocol error — simulate malformed RESP response, verify Parse error
+- [ ] Wrong type extraction — response is Integer but caller expects String, verify FromRedisValue error
+- [ ] Empty pipeline — execute pipeline with no commands, verify error
+- [ ] Server returns error — Redis returns "-ERR msg\r\n", verify RedisError bubbles up with correct message
+- [ ] Null response — response is "$-1\r\n", verify Null → appropriate FromRedisValue result
 
 ## Verification
 
-- `cargo test -p client --test error_tests` — all 7 tests pass
-- Each test produces a RedisError (not a panic or unwrap failure)
-- Error messages are descriptive and include the operation context
+- `test_integration_error_propagation` passes — basic error bubbling verified
+- **Gap:** Full error test suite not implemented:
+  - Missing: connection refused, protocol/malformed, wrong type extraction, empty pipeline, server error messages, null handling
+- Each test should produce a RedisError (not a panic or unwrap failure)
+- Error messages should be descriptive and include the operation context

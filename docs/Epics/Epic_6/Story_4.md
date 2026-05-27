@@ -1,17 +1,14 @@
 # Story 6.4 — Migration guide documentation
 
-**Objective:** Finalize and verify the migration guide from `redis` crate to `may-redis`.
+**Objective:** Create and verify the migration guide from the `redis` crate to `may-redis`.
 
 **Epic:** 6 — Integration & Migration
 
 **Dependencies:** Story 6.3
 
-**Source docs:** `docs/09-migration-guide.md`, `docs/03-sesame-idam-redis-usage.md`
+**Status:** MISSING — `docs/09-migration-guide.md` does not exist.
 
-## Code Anchors
-
-- `docs/09-migration-guide.md` — migration guide
-- `docs/03-sesame-idam-redis-usage.md` — Sesame-IDAM usage inventory
+**Source docs:** `docs/03-sesame-idam-redis-usage.md`
 
 ## Migration Phases
 
@@ -24,13 +21,24 @@
 | 5 | Replace tokio::sync::Mutex | Medium |
 | 6 | Fix test code | Easy |
 
+## Code Anchors
+
+- `docs/09-migration-guide.md` — **DOES NOT EXIST** — needs to be created
+- `docs/03-sesame-idam-redis-usage.md` — Sesame-IDAM usage inventory
+
 ## Tasks
 
-1. Review and update `docs/09-migration-guide.md` against actual may-redis API
-2. Verify all code examples in the migration guide are syntactically correct (copy-paste testable)
-3. Add a "Verification checklist" section — exact steps to validate migration in sesame-idam
-4. Add "Known differences" section — what works differently between redis and may-redis
-5. Verify all Sesame-IDAM modules listed in `docs/03-sesame-idam-redis-usage.md` have a migration path documented
+- [ ] Create `docs/09-migration-guide.md` from scratch
+  - [ ] Phase 1: Drop tokio-comp feature — example diff
+  - [ ] Phase 2: Replace imports (`redis::Client` → `may_redis::RedisClient`)
+  - [ ] Phase 3: Replace connection pattern — `redis::Client::open()` → `may_redis::RedisClient::connect()`
+  - [ ] Phase 4: Replace query_async calls — show `redis::Commands` vs `may_redis::Commands` side-by-side
+  - [ ] Phase 5: Replace tokio::sync::Mutex — may uses coroutines, no mutex needed for single-client
+  - [ ] Phase 6: Fix test code — replace `#[tokio::test]` with `may::run` + `may::go`
+- [ ] Verify all code examples are syntactically correct (copy-paste testable)
+- [ ] Add a "Verification checklist" section — exact steps to validate migration in sesame-idam
+- [ ] Add "Known differences" section — what works differently between redis and may-redis
+- [ ] Verify all Sesame-IDAM modules listed in `docs/03-sesame-idam-redis-usage.md` have a migration path documented
 
 ## Verification
 
