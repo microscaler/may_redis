@@ -206,8 +206,8 @@ mod tests {
     use super::*;
     use may::config;
     use may::go;
-    use std::sync::Once;
     use std::sync::Mutex;
+    use std::sync::Once;
 
     /// One-time initialization of the may coroutine runtime.
     ///
@@ -304,7 +304,7 @@ mod tests {
                 .unwrap()
                 .take()
                 .expect("test coroutine did not store result"),
-            Err(e) => panic!("test coroutine panicked: {:?}", e),
+            Err(e) => panic!("test coroutine panicked: {e:?}"),
         }
     }
 
