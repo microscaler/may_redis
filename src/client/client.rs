@@ -205,7 +205,6 @@ impl Commands for RedisClient {
 mod tests {
     use super::*;
     use may::coroutine::spawn;
-    use may::sync::SyncFlag;
     use std::sync::Mutex;
 
     /// Test that RedisClient struct is constructible
@@ -224,14 +223,12 @@ mod tests {
 
     // ---------------------------------------------------------------------------
     // Integration tests — require a Redis server on localhost:6379
-    // Run with: cargo test -p client -- --ignored --test-threads=1
     // ---------------------------------------------------------------------------
-    // Each test uses may::sync::SyncFlag to coordinate between the test
-    // coroutine and the main test thread. The may scheduler runs coroutines
-    // cooperatively — rx.recv() suspends the calling coroutine (not the std
-    // thread) allowing the connection loop to run and dispatch responses.
-    // SyncFlag::wait() blocks the std thread but the scheduler keeps running
-    // other coroutines (the connection loop) on the same thread.
+    // Each test runs inside `run_may()` which spawns the test as a may coroutine.
+    // rx.recv() cooperatively yields (suspends the test coroutine, not the std
+    // thread), letting the connection-loop coroutine run and dispatch responses.
+    // JoinHandle::join() blocks at the coroutine level (park/unpark) so the
+    // scheduler keeps running the connection loop while the test coroutine waits.
     //
     // CRITICAL: We reuse a SINGLE shared RedisClient across all integration
     // tests. Creating a new connection per test spawns a new epoll coroutine
@@ -258,34 +255,34 @@ mod tests {
     /// Spawns the test body as a coroutine so rx.recv() cooperatively yields
     /// (suspends the test coroutine, not the std thread), letting the
     /// connection-loop coroutine run and dispatch responses.
+    ///
+    /// We use `JoinHandle::join()` (coroutine-level blocking via park/unpark)
+    /// instead of `SyncFlag::wait()` (std thread blocking). The latter deadlocks
+    /// because it blocks the scheduler thread, preventing the spawned coroutine
+    /// (and the connection loop) from ever running.
     fn run_may<F, T>(f: F) -> T
     where
         F: FnOnce() -> T + Send + 'static,
         T: Send + 'static,
     {
-        let flag = Arc::new(SyncFlag::new());
         let wrapper = Arc::new(Mutex::new(None::<T>));
-        let flag2 = Arc::clone(&flag);
         let wrapper2 = Arc::clone(&wrapper);
 
-        unsafe {
+        let handle = unsafe {
             spawn(move || {
                 let val = f();
                 *wrapper2.lock().unwrap() = Some(val);
-                flag2.fire();
-            });
-        }
+            })
+        };
 
-        // SyncFlag::wait() blocks the std thread but the may scheduler
-        // keeps running the connection-loop coroutine in the background
-        // because it shares the same OS thread's event loop.
-        flag.wait();
+        // JoinHandle::join() uses coroutine-level blocking (park/unpark),
+        // so it cooperatively yields while the scheduler runs the connection loop.
+        handle.join().unwrap();
         let x = wrapper.lock().unwrap().take().unwrap();
         x
     }
 
     #[test]
-    #[ignore = "requires live Redis server"]
     fn test_integration_ping() {
         run_may(|| {
             let client = shared_client();
@@ -296,7 +293,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "requires live Redis server"]
     fn test_integration_set_get() {
         run_may(|| {
             let client = shared_client();
@@ -310,7 +306,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "requires live Redis server"]
     fn test_integration_incr() {
         run_may(|| {
             let client = shared_client();
@@ -327,7 +322,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "requires live Redis server"]
     fn test_integration_exists_del() {
         run_may(|| {
             let client = shared_client();
@@ -349,7 +343,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "requires live Redis server"]
     fn test_integration_dbsize() {
         run_may(|| {
             let client = shared_client();
@@ -368,7 +361,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "requires live Redis server"]
     fn test_integration_set_ex_ttl() {
         run_may(|| {
             let client = shared_client();
@@ -388,7 +380,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "requires live Redis server"]
     fn test_integration_keys() {
         run_may(|| {
             let client = shared_client();
@@ -408,7 +399,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "requires live Redis server"]
     fn test_integration_send_sync_clone() {
         run_may(|| {
             let client = shared_client();
@@ -426,7 +416,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "requires live Redis server"]
     fn test_integration_error_propagation() {
         run_may(|| {
             let client = shared_client();
@@ -443,7 +432,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "requires live Redis server"]
     fn test_integration_pipeline() {
         run_may(|| {
             let client = shared_client();
@@ -464,7 +452,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "requires live Redis server"]
     fn test_integration_concurrent() {
         // Test that the shared client can be cloned and used from multiple
         // places. The may runtime handles coroutine yielding for I/O so

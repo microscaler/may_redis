@@ -88,10 +88,104 @@
     `Connection::send` — expanded with ownership-flow / lifecycle /
     coroutine-context / non-blocking-contract sections so the public
     API explains its concurrency contract in-source.
-- Verification on `ms02`:
-  - `cargo clippy --lib --tests --all-features` clean (zero errors,
-    zero warnings).
-  - `cargo doc --no-deps --lib` — only 2 pre-existing
-    `connection::ConnectionError` warnings in `src/client/client.rs`
-    remain (untouched by this change).
-  - `cargo test --features test -- --test-threads=1` — 147 passed.
+  - Verification on `ms02`:
+    - `cargo clippy --lib --tests --all-features` clean (zero errors,
+      zero warnings).
+    - `cargo doc --no-deps --lib` — only 2 pre-existing
+      `connection::ConnectionError` warnings in `src/client/client.rs`
+      remain (untouched by this change).
+    - `cargo test --features test -- --test-threads=1` — 147 passed.
+
+## [2026-05-27] commit | landed connection-loop fix + wiki docs as two commits on main
+
+- `5695836 fix(connection): stop integration tests hanging on PING and pipelines`
+  — single-file change to `src/connection/connection.rs` covering both
+  bug fixes, both regression tests, and the enriched rustdocs. Body
+  documents Bug 1 / Bug 2 root causes and points at the pitfalls page.
+- `72005b6 docs(llmwiki): add connection-loop pitfalls topic and correct nonblock_read semantics`
+  — wiki side of the change: new `topics/connection-loop-pitfalls.md`,
+  corrected `topics/may-coroutine-pattern.md` (the `nonblock_read`
+  doc-sketch was reversed), `index.md` link, and earlier `log.md`
+  entries from this session.
+- Branch `main` is `[ahead 2]` of `origin/main`; not pushed
+  (project rule: never push without explicit human authorization).
+- Both commits authored as `Charles Sibbald <casibbald@gmail.com>` with
+  no `Co-authored-by` trailer.
+- Pre-existing uncommitted WIP in `examples/debug_redis.rs` and
+  `src/client/client.rs` (the test-harness `SyncFlag` -> `run_may`
+  cleanup) was left untouched in the working tree for the human to
+  commit separately.
+- Removed an `._connection-loop-pitfalls.md` AppleDouble file that had
+  leaked into the worktree via NFS-from-macOS before it could be
+  committed. Adding `._*` to `.gitignore` would harden this.
+
+## [2026-05-27] docs | wrote canonical docs/architecture.md (uncommitted)
+
+- Created `docs/architecture.md` (~489 lines) as the canonical,
+  code-accurate architecture reference, replacing the drift in
+  `README.md`'s Architecture section and `docs/Epics/Epic_0/Story_0.md`.
+- Drift corrected in the new doc:
+  - 6-crate workspace claim -> single crate (per ADR-001).
+  - `base` module -> `core` module.
+  - `redis_*` prefixed filenames -> bare filenames.
+  - Bogus `default = ["connection", "client"]` features ->
+    real `default = []`, `test` only.
+  - Tokio-style `.block_on()` example -> real `may::run` / `may::go!`
+    + `client.execute(client.get(..))` example.
+  - Single-arg `connect("127.0.0.1:6379")` -> real
+    `connect("127.0.0.1", 6379)`.
+  - Dead links to moved/missing docs replaced with live links.
+- Sections: goals/non-goals; crate shape with full src/ file tree;
+  runtime architecture (mermaid: app coroutines -> mpsc Queue ->
+  loop -> spsc senders); end-to-end request sequence diagram;
+  numbered 5-step connection-loop breakdown mirroring the new
+  rustdoc and surfacing Bug 1 / Bug 2 with cross-references to
+  `llmwiki/topics/connection-loop-pitfalls.md`; error handling
+  graph (`ConnectionError` vs `RedisError`, fatal-drain semantics);
+  full `Commands` trait method table; `Pipeline` tuple shapes;
+  real feature-flag table; testing architecture (`run_may`,
+  `shared_client`, `--test-threads=1`, multi-value decoder tests
+  rule); reference-pattern pointers; explicit "what this doc does
+  NOT cover" section pointing to rustdoc / Epics / sesame-IDAM doc.
+- All 10 internal links verified to resolve.
+- File is untracked in the working tree; not committed yet — pending
+  user decision on whether to also wire README / AGENTS / llmwiki
+  pointers in the same commit.
+
+## [2026-05-27] docs | replaced README.md with a code-accurate landing page (uncommitted)
+
+- Replaced the entire `README.md` (was 102 stale lines, now 136 lines
+  of verified-against-the-code content) with a focused landing-page
+  README that delegates deep architecture content to
+  `docs/architecture.md`.
+- Drift removed from the old README:
+  - 6-crate workspace mermaid + "Dependency Chain" diagram
+    (contradicted ADR-001 single-crate structure).
+  - Workspace Structure table listing `base` (renamed to `core`) and
+    five other "crates" that don't exist.
+  - Bogus Feature Flags section (`default = ["connection", "client"]`,
+    `pool`, `connection`, `client` — real `Cargo.toml` has
+    `default = []` and `test` only).
+  - `.block_on()` quick-start example (tokio-style API the crate
+    doesn't have; explicitly forbidden by project rules).
+  - Single-string `RedisClient::connect("127.0.0.1:6379")` signature
+    (real API is two-arg `connect(host, port)`).
+  - Dead link to `docs/08-module-structure.md` (file was moved into
+    `docs/Epics/Epic_0/docs/` during the Epics restructure).
+- New sections:
+  - Status callout explicitly stating v1 scope vs non-goals.
+  - Working Quick start example calling the real
+    `may::run` + `may::go` + `client.execute(client.get(..))` API,
+    including a Pipeline tuple decode.
+  - Building and testing block with all day-to-day commands and the
+    `--test-threads=1` integration-test requirement.
+  - Short Project Conventions section pointing at `AGENTS.md` for
+    the full rule set, with a connection-loop-pitfalls warning
+    callout for anyone touching `src/connection/connection.rs`.
+  - "Where to read next" 9-row routing table by audience / intent.
+- All 9 internal links verified to resolve.
+- Both `README.md` (modified) and `docs/architecture.md` (untracked)
+  remain uncommitted, pending user decision on whether to commit them
+  together vs separately and whether to also wire `AGENTS.md` and
+  the `llmwiki/index.md` / `llmwiki/docs-catalog.md` pointers in the
+  same commit.
