@@ -3,6 +3,10 @@
 // Provides TcpConnector for establishing may-aware TCP connections
 // to Redis servers with TCP_NODELAY.
 
+#![allow(clippy::doc_markdown)]
+#![allow(clippy::use_self)]
+#![allow(clippy::single_match_else)]
+
 use may::net::TcpStream;
 use std::net::{SocketAddr, ToSocketAddrs};
 
@@ -20,9 +24,9 @@ pub enum ConnectionError {
 impl std::fmt::Display for ConnectionError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ConnectionError::Resolve(msg) => write!(f, "resolve error: {msg}"),
-            ConnectionError::Connect(msg) => write!(f, "connect error: {msg}"),
-            ConnectionError::SetNodelay(msg) => write!(f, "set nodelay error: {msg}"),
+            Self::Resolve(msg) => write!(f, "resolve error: {msg}"),
+            Self::Connect(msg) => write!(f, "connect error: {msg}"),
+            Self::SetNodelay(msg) => write!(f, "set nodelay error: {msg}"),
         }
     }
 }
@@ -35,7 +39,7 @@ pub struct TcpConnector;
 impl TcpConnector {
     /// Establish a TCP connection to the given host and port.
     ///
-    /// Resolves the address, creates a may-aware TcpStream (which internally
+    /// Resolves the address, creates a may-aware [`TcpStream`] (which internally
     /// sets non-blocking mode and registers with epoll), sets TCP_NODELAY,
     /// and returns the stream ready for use.
     ///
@@ -73,25 +77,24 @@ impl TcpConnector {
     }
 }
 
-/// Resolve host and port to a list of SocketAddrs.
+/// Resolve host and port to a list of [`SocketAddr`].
 fn resolve(host: &str, port: u16) -> Result<Vec<SocketAddr>, String> {
-    match host.parse::<std::net::IpAddr>() {
-        Ok(ip) => Ok(vec![SocketAddr::new(ip, port)]),
-        Err(_) => {
-            let addrs = (host, port)
-                .to_socket_addrs()
-                .map_err(|e| e.to_string())?
-                .collect::<Vec<_>>();
-            if addrs.is_empty() {
-                Err("resolved 0 addresses".to_string())
-            } else {
-                Ok(addrs)
-            }
+    if let Ok(ip) = host.parse::<std::net::IpAddr>() {
+        Ok(vec![SocketAddr::new(ip, port)])
+    } else {
+        let addrs = (host, port)
+            .to_socket_addrs()
+            .map_err(|e| e.to_string())?
+            .collect::<Vec<_>>();
+        if addrs.is_empty() {
+            Err("resolved 0 addresses".to_string())
+        } else {
+            Ok(addrs)
         }
     }
 }
 
-/// Connect to a specific SocketAddr with TCP_NODELAY enabled.
+/// Connect to a specific [`SocketAddr`] with TCP_NODELAY enabled.
 fn connect_addr(addr: &SocketAddr) -> Result<TcpStream, ConnectionError> {
     // may::net::TcpStream::connect handles the full connect cycle
     // within the coroutine context (blocking connects are cooperative in may).

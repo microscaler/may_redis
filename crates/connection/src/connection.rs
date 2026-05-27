@@ -8,8 +8,15 @@
 // - Non-blocking read/write with BytesMut buffers
 // - WaitIoWaker to wake the connection loop on new requests
 
+#![allow(clippy::doc_markdown)]
+#![allow(clippy::useless_let_if_seq)]
+#![allow(clippy::transmute_ptr_to_ptr)]
+#![allow(clippy::transmute_ptr_to_ref)]
+#![allow(clippy::io_other_error)]
+#![allow(clippy::ref_as_ptr)]
+
 use base::{RedisError, RedisValue};
-use bytes::{BufMut, BytesMut};
+use bytes::{Buf, BufMut, BytesMut};
 use codec::reader::RESPReader;
 use may::coroutine::JoinHandle;
 use may::go;
@@ -68,17 +75,60 @@ impl Drop for Connection {
     }
 }
 
-#[inline]
-fn reserve_buf(buf: &mut BytesMut) {
-    let rem = buf.capacity() - buf.len();
-    if rem < 512 {
-        buf.reserve(65536 - rem);
+/// Process queued requests: add to response queue and write buffer.
+fn process_req(
+    queue: &Queue<Request>,
+    resp_queue: &mut VecDeque<PendingRequest>,
+    write_buf: &mut BytesMut,
+) {
+    while let Some(req) = queue.pop() {
+        let rem = write_buf.capacity() - write_buf.len();
+        if rem < 512 {
+            write_buf.reserve(65536 - rem);
+        }
+        resp_queue.push_back(PendingRequest { sender: req.sender });
+        write_buf.put_slice(&req.data);
     }
+}
+
+/// Read from the inner raw socket into a [`BytesMut`] buffer.
+/// Returns `Ok(true)` if more data might be available, `Ok(false)` if [`WouldBlock`].
+fn nonblock_read(stream: &mut std::net::TcpStream, read_buf: &mut BytesMut) -> io::Result<bool> {
+    let buf: &mut [u8] = unsafe { &mut *(read_buf.chunk_mut() as *mut _ as *mut [u8]) };
+    let len = buf.len();
+    let mut read_cnt = 0;
+    while read_cnt < len {
+        match stream.read(unsafe { buf.get_unchecked_mut(read_cnt..) }) {
+            Ok(0) => return Err(io::Error::new(io::ErrorKind::BrokenPipe, "closed")),
+            Ok(n) => read_cnt += n,
+            Err(e) if e.kind() == io::ErrorKind::WouldBlock => break,
+            Err(e) => return Err(e),
+        }
+    }
+    unsafe { read_buf.advance_mut(read_cnt) };
+    Ok(read_cnt < len)
+}
+
+/// Write from a [`BytesMut`] buffer to the inner raw socket.
+fn nonblock_write(stream: &mut std::net::TcpStream, write_buf: &mut BytesMut) -> io::Result<usize> {
+    let buf = write_buf.chunk();
+    let len = buf.len();
+    let mut write_cnt = 0;
+    while write_cnt < len {
+        match stream.write(unsafe { buf.get_unchecked(write_cnt..) }) {
+            Ok(0) => return Err(io::Error::new(io::ErrorKind::BrokenPipe, "closed")),
+            Ok(n) => write_cnt += n,
+            Err(e) if e.kind() == io::ErrorKind::WouldBlock => break,
+            Err(e) => return Err(e),
+        }
+    }
+    write_buf.advance(write_cnt);
+    Ok(write_cnt)
 }
 
 /// Decode all complete RESP values from the buffer.
 /// On decode error (incomplete data), the buffer is unchanged.
-/// On parse error, the buffer is restored and Err is returned.
+/// On parse error, the buffer is restored and [`Err`] is returned.
 fn decode_responses(
     read_buf: &mut BytesMut,
     resp_queue: &mut VecDeque<PendingRequest>,
@@ -94,14 +144,13 @@ fn decode_responses(
                 }
             }
             Err(RedisError::Parse(_)) => {
-                // Incomplete data — wait for more.
                 read_buf.unsplit(reader.take_buf());
                 break;
             }
             Err(e) => {
                 log::error!("decode error: {e}");
                 read_buf.unsplit(reader.take_buf());
-                return Err(io::Error::new(io::ErrorKind::Other, e));
+                return Err(io::Error::other(e));
             }
         }
     }
@@ -117,51 +166,39 @@ fn spawn_connection_loop(mut stream: TcpStream, req_queue: Arc<Queue<Request>>) 
         let mut io_events = 1;
 
         loop {
+            // Get a mutable reference to the inner raw socket.
+            // Re-acquired each iteration to satisfy the borrow checker.
+            let inner = stream.inner_mut();
+
             // Process any queued requests
             process_req(&req_queue, &mut resp_queue, &mut write_buf);
 
-            // Flush write buffer to socket (may's write handles WouldBlock via cooperative yielding)
-            if !write_buf.is_empty() {
-                if stream.write(&write_buf).is_err() {
-                    let e = std::io::Error::new(std::io::ErrorKind::Other, "write");
-                    log::error!("write error: {e}");
+            // Flush write buffer to inner socket
+            if let Err(e) = nonblock_write(inner, &mut write_buf) {
+                log::error!("write error: {e}");
+                while let Some(pending) = resp_queue.pop_front() {
+                    let _ = pending
+                        .sender
+                        .send(RedisValue::Error(format!("Write error: {e}")));
+                }
+                break;
+            }
+
+            // Read from inner socket if allowed
+            let read_blocked = if io_events & 1 != 0 {
+                if let Err(e) = nonblock_read(inner, &mut read_buf) {
+                    log::error!("read error: {e}");
                     while let Some(pending) = resp_queue.pop_front() {
                         let _ = pending
                             .sender
-                            .send(RedisValue::Error(format!("Write error: {e}")));
+                            .send(RedisValue::Error(format!("Read error: {e}")));
                     }
                     break;
                 }
-                write_buf.clear();
-            }
-
-            // Read from socket if allowed
-            if io_events & 1 != 0 {
-                let mut tmp_buf = [0u8; 65536];
-                match stream.read(&mut tmp_buf) {
-                    Ok(0) => {
-                        log::error!("connection closed by server");
-                        while let Some(pending) = resp_queue.pop_front() {
-                            let _ = pending
-                                .sender
-                                .send(RedisValue::Error("Connection closed".into()));
-                        }
-                        break;
-                    }
-                    Ok(n) => {
-                        read_buf.extend_from_slice(&tmp_buf[..n]);
-                    }
-                    Err(e) => {
-                        log::error!("read error: {e}");
-                        while let Some(pending) = resp_queue.pop_front() {
-                            let _ = pending
-                                .sender
-                                .send(RedisValue::Error(format!("Read error: {e}")));
-                        }
-                        break;
-                    }
-                }
-            }
+                false
+            } else {
+                true
+            };
 
             // Decode responses from read buffer
             if let Err(e) = decode_responses(&mut read_buf, &mut resp_queue) {
@@ -175,26 +212,13 @@ fn spawn_connection_loop(mut stream: TcpStream, req_queue: Arc<Queue<Request>>) 
             }
 
             // Wait for I/O events using epoll
-            io_events = if io_events & 1 != 0 || write_offset < write_buf.len() {
+            io_events = if read_blocked || !write_buf.is_empty() {
                 stream.wait_io()
             } else {
                 1
             }
         }
     })
-}
-
-/// Process queued requests: add to response queue and write buffer.
-fn process_req(
-    queue: &Queue<Request>,
-    resp_queue: &mut VecDeque<PendingRequest>,
-    write_buf: &mut BytesMut,
-) {
-    while let Some(req) = queue.pop() {
-        reserve_buf(write_buf);
-        resp_queue.push_back(PendingRequest { sender: req.sender });
-        write_buf.put_slice(&req.data);
-    }
 }
 
 impl Connection {
