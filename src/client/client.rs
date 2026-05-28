@@ -76,6 +76,11 @@ impl RedisClient {
     /// a timeout coroutine that signals on a separate spsc channel. If the
     /// response arrives first it is returned immediately; if the timeout fires
     /// first a `Connection` error is returned.
+    ///
+    /// # Errors
+    /// Returns [`RedisError::Connection`] if the TCP connection fails, the
+    /// response channel is closed, or the timeout expires before a response
+    /// is received.
     pub fn execute_with_timeout<T: FromRedisValue>(
         &self,
         cmd: CommandBuilder,
@@ -137,6 +142,11 @@ impl RedisClient {
     ///
     /// # Returns
     /// The decoded response of type `T`, or a [`RedisError::Connection`] timeout error.
+    ///
+    /// # Errors
+    /// Returns [`RedisError::Connection`] if the TCP connection fails, the
+    /// response channel is closed, or the timeout expires before a response
+    /// is received.
     pub fn execute_timeout<T: FromRedisValue>(
         &self,
         cmd: CommandBuilder,
@@ -152,6 +162,12 @@ impl RedisClient {
     ///
     /// # Returns
     /// The decoded response of type `T`, or a [`RedisError`] on failure.
+    ///
+    /// # Errors
+    /// Returns [`RedisError::Connection`] if the TCP connection fails, the
+    /// response channel is closed, or the timeout expires before a response
+    /// is received. Returns [`RedisError::Parse`] if the response cannot be
+    /// converted to the requested type.
     pub fn execute<T: FromRedisValue>(&self, cmd: CommandBuilder) -> Result<T, RedisError> {
         self.execute_with_timeout(cmd, Duration::from_secs(30))
     }
@@ -160,6 +176,10 @@ impl RedisClient {
     ///
     /// # Returns
     /// `Ok(String)` with "PONG" on success, or a [`RedisError`] on failure.
+    ///
+    /// # Errors
+    /// Returns [`RedisError::Parse`] if the server responds with anything other
+    /// than "PONG", or if the connection fails.
     pub fn ping(&self) -> Result<String, RedisError> {
         let cmd = CommandBuilder::new("PING");
         let response = self.execute::<String>(cmd)?;

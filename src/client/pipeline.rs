@@ -22,6 +22,11 @@ use may::sync::spsc;
 /// `(T1, T2, T3)`, and `Vec<T>` to cover the most common pipeline use cases.
 pub trait FromPipelineResponse: Sized {
     /// Convert a vector of `RedisValue` responses into `Self`.
+    ///
+    /// # Errors
+    /// Returns [`RedisError::Parse`] if the number of responses does not match
+    /// the expected count for the target type, or if a response cannot be
+    /// converted to the requested Rust type.
     fn from_responses(responses: Vec<RedisValue>) -> Result<Self, RedisError>;
 }
 
@@ -78,6 +83,9 @@ impl<'a> Pipeline<'a> {
     }
 
     /// Execute all queued commands and collect raw `RedisValue` responses.
+    ///
+    /// # Errors
+    /// Returns [`RedisError::Parse`] if the response channel is closed.
     pub fn execute_raw(&mut self) -> Result<Vec<RedisValue>, RedisError> {
         // Push all commands to the connection's request queue at once
         // using the senders we stored during `add()`
@@ -151,6 +159,12 @@ impl<'a> Pipeline<'a> {
     }
 
     /// Execute all queued commands and decode typed results via `FromPipelineResponse`.
+    ///
+    /// # Errors
+    /// Returns [`RedisError::Parse`] if the number of responses does not match
+    /// the expected count for the target type, or if a response cannot be
+    /// converted to the requested Rust type. Delegates to the underlying
+    /// `execute_raw()` which can also return connection errors.
     pub fn execute<T: FromPipelineResponse>(&mut self) -> Result<T, RedisError> {
         let responses = self.execute_raw()?;
         T::from_responses(responses)
