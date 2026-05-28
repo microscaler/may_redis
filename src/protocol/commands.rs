@@ -435,6 +435,96 @@ pub trait Commands: Sized {
             .arg("MATCH")
             .arg(pattern)
     }
+
+    /// LPUSH key values — Prepend one or multiple values to a list
+    #[must_use = "call .build() to encode the command"]
+    fn lpush<K: ToRedisArgs, V: ToRedisArgs>(&self, key: K, values: &[V]) -> CommandBuilder {
+        let mut builder = CommandBuilder::new("LPUSH");
+        builder = builder.arg(key);
+        for v in values {
+            builder = builder.arg(v);
+        }
+        builder
+    }
+
+    /// RPUSH key values — Append one or multiple values to a list
+    #[must_use = "call .build() to encode the command"]
+    fn rpush<K: ToRedisArgs, V: ToRedisArgs>(&self, key: K, values: &[V]) -> CommandBuilder {
+        let mut builder = CommandBuilder::new("RPUSH");
+        builder = builder.arg(key);
+        for v in values {
+            builder = builder.arg(v);
+        }
+        builder
+    }
+
+    /// LPOP key — Remove and return the first element of a list
+    #[must_use = "call .build() to encode the command"]
+    fn lpop<K: ToRedisArgs>(&self, key: K) -> CommandBuilder {
+        CommandBuilder::new("LPOP").arg(key)
+    }
+
+    /// RPOP key — Remove and return the last element of a list
+    #[must_use = "call .build() to encode the command"]
+    fn rpop<K: ToRedisArgs>(&self, key: K) -> CommandBuilder {
+        CommandBuilder::new("RPOP").arg(key)
+    }
+
+    /// LLEN key — Get the length of a list
+    #[must_use = "call .build() to encode the command"]
+    fn llen<K: ToRedisArgs>(&self, key: K) -> CommandBuilder {
+        CommandBuilder::new("LLEN").arg(key)
+    }
+
+    /// LRANGE key start stop — Get a range of elements from a list
+    #[must_use = "call .build() to encode the command"]
+    fn lrange<K: ToRedisArgs>(&self, key: K, start: i64, stop: i64) -> CommandBuilder {
+        CommandBuilder::new("LRANGE").arg(key).arg(start).arg(stop)
+    }
+
+    /// LINDEX key index — Get an element from a list by its index
+    #[must_use = "call .build() to encode the command"]
+    fn lindex<K: ToRedisArgs>(&self, key: K, index: i64) -> CommandBuilder {
+        CommandBuilder::new("LINDEX").arg(key).arg(index)
+    }
+
+    /// LSET key index value — Set the value of an element in a list by its index
+    #[must_use = "call .build() to encode the command"]
+    fn lset<K: ToRedisArgs, V: ToRedisArgs>(&self, key: K, index: i64, value: V) -> CommandBuilder {
+        CommandBuilder::new("LSET").arg(key).arg(index).arg(value)
+    }
+
+    /// LREM key count value — Remove elements matching a value from a list
+    #[must_use = "call .build() to encode the command"]
+    fn lrem<K: ToRedisArgs, V: ToRedisArgs>(&self, key: K, count: i64, value: V) -> CommandBuilder {
+        CommandBuilder::new("LREM").arg(key).arg(count).arg(value)
+    }
+
+    /// LTRIM key start stop — Trim a list to the specified range
+    #[must_use = "call .build() to encode the command"]
+    fn ltrim<K: ToRedisArgs>(&self, key: K, start: i64, stop: i64) -> CommandBuilder {
+        CommandBuilder::new("LTRIM").arg(key).arg(start).arg(stop)
+    }
+
+    /// BLPOP keys timeout — Remove and get the first element from a list, or block until one is available
+    #[must_use = "call .build() to encode the command"]
+    fn blpop<K: ToRedisArgs>(&self, keys: &[K], timeout: i64) -> CommandBuilder {
+        let mut builder = CommandBuilder::new("BLPOP");
+        for key in keys {
+            builder = builder.arg(key);
+        }
+        builder.arg(timeout)
+    }
+
+    /// BRPOP keys timeout — Remove and get the last element from a list, or block until one is available
+    #[must_use = "call .build() to encode the command"]
+    fn brpop<K: ToRedisArgs>(&self, keys: &[K], timeout: i64) -> CommandBuilder {
+        let mut builder = CommandBuilder::new("BRPOP");
+        for key in keys {
+            builder = builder.arg(key);
+        }
+        builder.arg(timeout)
+    }
 }
 
 // Blanket impl so () implements Commands
@@ -755,7 +845,7 @@ mod tests {
         let buf = ().hmset("myhash", &[("f1", "v1"), ("f2", "v2")]).build();
         assert_eq!(
             buf.as_ref(),
-            b"*5\r\n$5\r\nHMSET\r\n$6\r\nmyhash\r\n$2\r\nf1\r\n$2\r\nv1\r\n$2\r\nf2\r\n$2\r\nv2\r\n"
+            b"*6\r\n$5\r\nHMSET\r\n$6\r\nmyhash\r\n$2\r\nf1\r\n$2\r\nv1\r\n$2\r\nf2\r\n$2\r\nv2\r\n"
         );
     }
 
@@ -885,6 +975,105 @@ mod tests {
         assert_eq!(
             buf.as_ref(),
             b"*5\r\n$5\r\nSSCAN\r\n$5\r\nmyset\r\n$1\r\n0\r\n$5\r\nMATCH\r\n$2\r\nm*\r\n"
+        );
+    }
+
+    #[test]
+    fn test_command_lpush_encoding() {
+        let buf = ().lpush("mylist", &["v1", "v2"]).build();
+        assert_eq!(
+            buf.as_ref(),
+            b"*4\r\n$5\r\nLPUSH\r\n$6\r\nmylist\r\n$2\r\nv1\r\n$2\r\nv2\r\n"
+        );
+    }
+
+    #[test]
+    fn test_command_rpush_encoding() {
+        let buf = ().rpush("mylist", &["v1", "v2"]).build();
+        assert_eq!(
+            buf.as_ref(),
+            b"*4\r\n$5\r\nRPUSH\r\n$6\r\nmylist\r\n$2\r\nv1\r\n$2\r\nv2\r\n"
+        );
+    }
+
+    #[test]
+    fn test_command_lpop_encoding() {
+        let buf = ().lpop("mylist").build();
+        assert_eq!(buf.as_ref(), b"*2\r\n$4\r\nLPOP\r\n$6\r\nmylist\r\n");
+    }
+
+    #[test]
+    fn test_command_rpop_encoding() {
+        let buf = ().rpop("mylist").build();
+        assert_eq!(buf.as_ref(), b"*2\r\n$4\r\nRPOP\r\n$6\r\nmylist\r\n");
+    }
+
+    #[test]
+    fn test_command_llen_encoding() {
+        let buf = ().llen("mylist").build();
+        assert_eq!(buf.as_ref(), b"*2\r\n$4\r\nLLEN\r\n$6\r\nmylist\r\n");
+    }
+
+    #[test]
+    fn test_command_lrange_encoding() {
+        let buf = ().lrange("mylist", 0, -1).build();
+        assert_eq!(
+            buf.as_ref(),
+            b"*4\r\n$6\r\nLRANGE\r\n$6\r\nmylist\r\n$1\r\n0\r\n$2\r\n-1\r\n"
+        );
+    }
+
+    #[test]
+    fn test_command_lindex_encoding() {
+        let buf = ().lindex("mylist", 0).build();
+        assert_eq!(
+            buf.as_ref(),
+            b"*3\r\n$6\r\nLINDEX\r\n$6\r\nmylist\r\n$1\r\n0\r\n"
+        );
+    }
+
+    #[test]
+    fn test_command_lset_encoding() {
+        let buf = ().lset("mylist", 0, "v").build();
+        assert_eq!(
+            buf.as_ref(),
+            b"*4\r\n$4\r\nLSET\r\n$6\r\nmylist\r\n$1\r\n0\r\n$1\r\nv\r\n"
+        );
+    }
+
+    #[test]
+    fn test_command_lrem_encoding() {
+        let buf = ().lrem("mylist", 0, "v").build();
+        assert_eq!(
+            buf.as_ref(),
+            b"*4\r\n$4\r\nLREM\r\n$6\r\nmylist\r\n$1\r\n0\r\n$1\r\nv\r\n"
+        );
+    }
+
+    #[test]
+    fn test_command_ltrim_encoding() {
+        let buf = ().ltrim("mylist", 0, 10).build();
+        assert_eq!(
+            buf.as_ref(),
+            b"*4\r\n$5\r\nLTRIM\r\n$6\r\nmylist\r\n$1\r\n0\r\n$2\r\n10\r\n"
+        );
+    }
+
+    #[test]
+    fn test_command_blpop_encoding() {
+        let buf = ().blpop(&["list1", "list2"], 0).build();
+        assert_eq!(
+            buf.as_ref(),
+            b"*4\r\n$5\r\nBLPOP\r\n$5\r\nlist1\r\n$5\r\nlist2\r\n$1\r\n0\r\n"
+        );
+    }
+
+    #[test]
+    fn test_command_brpop_encoding() {
+        let buf = ().brpop(&["list1", "list2"], 0).build();
+        assert_eq!(
+            buf.as_ref(),
+            b"*4\r\n$5\r\nBRPOP\r\n$5\r\nlist1\r\n$5\r\nlist2\r\n$1\r\n0\r\n"
         );
     }
 }
