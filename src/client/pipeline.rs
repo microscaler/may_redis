@@ -73,7 +73,10 @@ impl<'a> Pipeline<'a> {
     /// were added.
     pub fn add(&mut self, cmd: CommandBuilder) {
         // Encode the command into RESP bytes
-        let data = cmd.build().to_vec();
+        // AC-3.11: build() returns None if the command is blocked by the CommandPolicy.
+        // We use unwrap() here because invalid commands should be caught at build time,
+        // not silently dropped in a pipeline.
+        let data = cmd.build().unwrap().to_vec();
         // Create a spsc channel for this command's response
         let (tx, rx) = spsc::channel();
         // Queue the command and store sender/receiver pair

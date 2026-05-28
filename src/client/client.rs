@@ -333,7 +333,11 @@ impl RedisClient {
         timeout: Duration,
     ) -> Result<T, RedisError> {
         // Step 1: Build the command into RESP bytes
-        let data = cmd.build();
+        // AC-3.11: build() returns None if the command is blocked by the
+        // CommandPolicy, so we return a Protocol error here.
+        let data = cmd
+            .build()
+            .ok_or_else(|| RedisError::Protocol("command blocked by command policy".into()))?;
 
         // Step 2: Create a channel for this request's response
         let (tx, rx) = spsc::channel();

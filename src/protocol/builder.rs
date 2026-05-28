@@ -131,6 +131,42 @@ impl CommandBuilder {
     /// [`CommandPolicy`], `None` if it is blocked.
     #[must_use]
     pub fn build(self) -> Option<BytesMut> {
+        let cmd_name = self.args.first().and_then(|arg| {
+            if let RedisValue::BulkString(data) = arg {
+                Some(data.clone())
+            } else {
+                None
+            }
+        });
+        if let Some(ref name) = cmd_name {
+            if let Ok(cmd_str) = std::str::from_utf8(name) {
+                if !self.policy.is_allowed(cmd_str) {
+                    return None;
+                }
+            }
+        }
+
+        let mut writer = RESPWriter::new();
+        writer.write_array_header(self.args.len());
+        for arg in &self.args {
+            writer.write_value(arg);
+        }
+        Some(writer.take())
+    }
+
+    /// Encode the command into RESP2 wire format using a custom policy.
+    ///
+    /// # Returns
+    ///
+    /// `Some(BytesMut)` if the command is allowed by the given
+    /// policy, `None` if it is blocked.
+    ///
+    /// AC-3.11: Commands are validated at build time, not at execution time.
+    /// If a command is blocked, this returns `None` and no data is
+    /// sent to the connection loop.
+    #[must_use]
+    pub fn build_with_policy(mut self, policy: CommandPolicy) -> Option<BytesMut> {
+        self.policy = policy;
         // AC-3.11: validate command against policy before encoding
         let cmd = self.args.first()?;
         if let RedisValue::BulkString(data) = cmd {
@@ -312,8 +348,8 @@ mod tests {
     fn test_command_policy_partial_allow_dangerous() {
         let mut p = CommandPolicy::DEFAULT;
         p.allow_dangerous_writes = true;
-        let cmd = cmd("FLUSHALL").build_with_policy(p);
-        assert!(cmd.is_some());
+        let result = cmd("FLUSHALL").build_with_policy(p);
+        assert!(result.is_some());
         // But scan-heavy should still be blocked
         assert!(cmd("KEYS").build_with_policy(p).is_none());
     }
