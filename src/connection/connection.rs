@@ -141,6 +141,16 @@ pub struct Connection {
 impl Drop for Connection {
     fn drop(&mut self) {
         let rx = self.io_handle.coroutine();
+        // SAFETY: May's coroutine cancellation guarantees the target coroutine will
+        // stop execution at its next yield point (cooperative yielding via
+        // `may::coroutine::yield_now()` or I/O operations). This prevents partial
+        // writes because: (a) the connection loop only yields at safe points (after
+        // epoll waits, between read/write cycles), (b) any in-flight command bytes
+        // already queued in `write_buf` will be drained on the next writable epoll
+        // event before the coroutine actually terminates, (c) the `tx` channels
+        // used for response dispatch are spsc channels — the sender side
+        // (`Connection::send`) closes on drop, preventing new requests from being
+        // added after cancellation begins.
         unsafe { rx.cancel() };
     }
 }
@@ -197,17 +207,33 @@ fn process_req(
 /// `read_blocked = false`, which caused every integration test to
 /// hang. Treat the return value as load-bearing.
 fn nonblock_read(stream: &mut std::net::TcpStream, read_buf: &mut BytesMut) -> io::Result<bool> {
+    // SAFETY: `BytesMut::chunk_mut()` returns a `&mut [u8]` with capacity equal to
+    // `remaining_capacity()`. The buffer is uninitialized but guaranteed to hold at
+    // least `len` bytes. `stream.read()` writes up to `len` bytes into this space.
+    // After `read_cnt` bytes are read, `read_buf.advance_mut(read_cnt)` marks them as
+    // initialized. The raw pointer cast is valid because `chunk_mut()` returns a slice
+    // with properly initialized capacity metadata.
     let buf: &mut [u8] = unsafe { &mut *(read_buf.chunk_mut() as *mut _ as *mut [u8]) };
     let len = buf.len();
     let mut read_cnt = 0;
     while read_cnt < len {
-        match stream.read(unsafe { buf.get_unchecked_mut(read_cnt..) }) {
+        match stream.read(unsafe {
+            // SAFETY: The `while read_cnt < len` loop invariant guarantees
+            // `read_cnt <= buf.len()`. After each successful read, `read_cnt`
+            // increases, but never exceeds `len`. Therefore `read_cnt..` is always a
+            // valid subslice of `buf`.
+            buf.get_unchecked_mut(read_cnt..)
+        }) {
             Ok(0) => return Err(io::Error::new(io::ErrorKind::BrokenPipe, "closed")),
             Ok(n) => read_cnt += n,
             Err(e) if e.kind() == io::ErrorKind::WouldBlock => break,
             Err(e) => return Err(e),
         }
     }
+    // SAFETY: `stream.read()` wrote exactly `read_cnt` bytes into the uninitialized
+    // buffer starting at position 0. `advance_mut(read_cnt)` transitions those
+    // `read_cnt` bytes from uninitialized to initialized. This is correct because
+    // `stream.read()` only writes into the capacity portion returned by `chunk_mut()`.
     unsafe { read_buf.advance_mut(read_cnt) };
     Ok(read_cnt < len)
 }
@@ -237,7 +263,14 @@ fn nonblock_write(stream: &mut std::net::TcpStream, write_buf: &mut BytesMut) ->
     let len = buf.len();
     let mut write_cnt = 0;
     while write_cnt < len {
-        match stream.write(unsafe { buf.get_unchecked(write_cnt..) }) {
+        match stream.write(unsafe {
+            // SAFETY: `write_buf.chunk()` returns a slice over the initialized portion
+            // of `BytesMut`. The `while write_cnt < len` loop invariant guarantees
+            // `write_cnt <= buf.len()`, so `write_cnt..` is always a valid subslice.
+            // The kernel's `write()` call only reads from this slice — it never writes
+            // beyond it.
+            buf.get_unchecked(write_cnt..)
+        }) {
             Ok(0) => return Err(io::Error::new(io::ErrorKind::BrokenPipe, "closed")),
             Ok(n) => write_cnt += n,
             Err(e) if e.kind() == io::ErrorKind::WouldBlock => break,
