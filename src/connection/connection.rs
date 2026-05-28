@@ -164,6 +164,15 @@ impl Drop for Connection {
 /// strictly ordered: the position in `resp_queue` is what later
 /// matches a decoded response back to its `spsc::Sender`. Do not
 /// reorder, deduplicate, or coalesce entries here.
+/// Minimum remaining buffer capacity before we trigger a reserve.
+/// A value of 512 bytes ensures we always have room for at least one
+/// typical RESP command without checking on every iteration.
+const MIN_BUFFER_CAPACITY: usize = 512;
+
+/// Reserve target for the write buffer. We grow by 64 KiB chunks to
+/// amortize allocation costs while keeping memory bounded.
+const WRITE_BUF_RESERVE_TARGET: usize = 65536;
+
 fn process_req(
     queue: &Queue<Request>,
     resp_queue: &mut VecDeque<PendingRequest>,
@@ -171,8 +180,8 @@ fn process_req(
 ) {
     while let Some(req) = queue.pop() {
         let rem = write_buf.capacity() - write_buf.len();
-        if rem < 512 {
-            write_buf.reserve(65536 - rem);
+        if rem < MIN_BUFFER_CAPACITY {
+            write_buf.reserve(WRITE_BUF_RESERVE_TARGET - rem);
         }
         resp_queue.push_back(PendingRequest { sender: req.sender });
         write_buf.put_slice(&req.data);
