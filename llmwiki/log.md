@@ -156,3 +156,14 @@
 - Clippy: zero warnings across lib + tests + all features
 - Files created: clippy.toml, docs/JSF_COMPLIANCE.md, llmwiki/concepts/jsf-compliance.md
 - Files modified: src/client/pipeline.rs, src/protocol/builder.rs, src/codec/roundtrip.rs, Cargo.toml, src/lib.rs test modules (14 files)
+
+## [2026-05-28] audit — JSF-AV compliance audit (updated)
+- Created `docs/JSF_AUDIT_2026_05_28.md` — comprehensive audit of all 6 JSF rules
+- Result: 5/6 PASS, 1/6 PARTIAL
+- AV1 (Function Size): PASS — max 51 SLOC (spawn_connection_loop), no function >100 SLOC
+- AV3 (Cyclomatic Complexity): PASS — clippy cognitive-complexity threshold=20, zero warnings
+- AV119 (No Recursion): PASS — no direct recursion in dispatch or codec paths
+- AV148/209 (Explicit Types): PASS — RedisValue strongly typed enum
+- AV206 (No Heap After Init): PARTIAL — hot path pre-allocated buffers, error formatting uses format!() (bounded, rare)
+- AV208 (No Panics): PASS — zero panic-inducing calls in production dispatch
+- 297 tests pass, clippy clean across lib+tests+all features
