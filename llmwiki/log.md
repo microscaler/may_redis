@@ -22,3 +22,19 @@
 - Story 5: Sorted Set (ZADD, ZREM, ZRANGE, ZRANK, ZSCORE, ZCARD, ZCOUNT, ZINCRBY, ZPOPMAX, ZPOPMIN, ZSCAN, ZRANGEBYSCORE)
 - Story 6: Pub/Sub + Transactions (SUBSCRIBE, UNSUBSCRIBE, PSUBSCRIBE, PUNSUBSCRIBE, MULTI, EXEC, DISCARD, WATCH, UNWATCH)
 - Story 7: Server/Admin (SELECT, TYPE, MOVE, RENAME, RENAMENX, SORT, SCAN, TOUCH, SAVE, BGSAVE, FLUSHALL, PTTL, PEXPIRE, PERSIST, SHUTDOWN, INFO, CONFIG)
+
+## [2026-06-01] update | Epic 7 Story 1 implemented
+- Added 13 String Extension commands to `src/protocol/commands.rs`: DECR, DECRBY, SETNX, MGET, MSET, MSETNX, STRLEN, GETRANGE, SETRANGE, SETBIT, GETBIT, BITCOUNT (basic), BITCOUNT_RANGE
+- Added 13 corresponding unit tests verifying RESP2 wire encoding
+- Total Commands trait methods: 22 → 35
+- Total command tests: 21 → 34
+- All 35 tests pass (lib only, no runtime needed)
+- Clippy --lib: zero warnings
+
+## [2026-06-01] update | Epic 7 Story 1 verified complete
+- All 13 checklist items verified against Story_1.md requirements
+- `cargo check --lib`: PASS
+- All 13 specific command tests pass: DECR, DECRBY, SETNX, MGET, MSET, MSETNX, STRLEN, GETRANGE, SETRANGE, SETBIT, GETBIT, BITCOUNT, BITCOUNT_RANGE
+- `cargo clippy --lib -- -D warnings`: zero warnings
+- Coverage: 35/82+ commands (~43%), sesame-idam still 100% covered
+- Story 7.2 (Hash): 0 commands implemented, still PENDING — 10 hash extension commands remain

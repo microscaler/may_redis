@@ -162,6 +162,107 @@ pub trait Commands: Sized {
     fn append<K: ToRedisArgs, V: ToRedisArgs>(&self, key: K, value: V) -> CommandBuilder {
         CommandBuilder::new("APPEND").arg(key).arg(value)
     }
+
+    /// DECR key — Decrement the integer value of key by one
+    #[must_use = "call .build() to encode the command"]
+    fn decr<K: ToRedisArgs>(&self, key: K) -> CommandBuilder {
+        CommandBuilder::new("DECR").arg(key)
+    }
+
+    /// DECRBY key decrement — Decrement the integer value of key by decrement
+    #[must_use = "call .build() to encode the command"]
+    fn decrby<K: ToRedisArgs>(&self, key: K, decrement: i64) -> CommandBuilder {
+        CommandBuilder::new("DECRBY").arg(key).arg(decrement)
+    }
+
+    /// SETNX key value — Set key to value only if key does not exist
+    #[must_use = "call .build() to encode the command"]
+    fn setnx<K: ToRedisArgs, V: ToRedisArgs>(&self, key: K, value: V) -> CommandBuilder {
+        CommandBuilder::new("SETNX").arg(key).arg(value)
+    }
+
+    /// MGET keys — Get the values of all the given keys
+    #[must_use = "call .build() to encode the command"]
+    fn mget<K: ToRedisArgs>(keys: &[K]) -> CommandBuilder {
+        let mut builder = CommandBuilder::new("MGET");
+        for key in keys {
+            builder = builder.arg(key);
+        }
+        builder
+    }
+
+    /// MSET key value [key value ...] — Set multiple keys to multiple values
+    #[must_use = "call .build() to encode the command"]
+    fn mset<K: ToRedisArgs, V: ToRedisArgs>(pairs: &[(K, V)]) -> CommandBuilder {
+        let mut builder = CommandBuilder::new("MSET");
+        for (key, value) in pairs {
+            builder = builder.arg(key).arg(value);
+        }
+        builder
+    }
+
+    /// MSETNX key value [key value ...] — Set multiple keys to multiple values, only if none of the keys exist
+    #[must_use = "call .build() to encode the command"]
+    fn msetnx<K: ToRedisArgs, V: ToRedisArgs>(pairs: &[(K, V)]) -> CommandBuilder {
+        let mut builder = CommandBuilder::new("MSETNX");
+        for (key, value) in pairs {
+            builder = builder.arg(key).arg(value);
+        }
+        builder
+    }
+
+    /// STRLEN key — Get the length of the value stored in key
+    #[must_use = "call .build() to encode the command"]
+    fn strlen<K: ToRedisArgs>(&self, key: K) -> CommandBuilder {
+        CommandBuilder::new("STRLEN").arg(key)
+    }
+
+    /// GETRANGE key start end — Get a substring of the string stored at key
+    #[must_use = "call .build() to encode the command"]
+    fn getrange<K: ToRedisArgs>(&self, key: K, start: i64, end: i64) -> CommandBuilder {
+        CommandBuilder::new("GETRANGE").arg(key).arg(start).arg(end)
+    }
+
+    /// SETRANGE key offset value — Overwrite part of a string at key starting at offset
+    #[must_use = "call .build() to encode the command"]
+    fn setrange<K: ToRedisArgs, V: ToRedisArgs>(
+        &self,
+        key: K,
+        offset: i64,
+        value: V,
+    ) -> CommandBuilder {
+        CommandBuilder::new("SETRANGE")
+            .arg(key)
+            .arg(offset)
+            .arg(value)
+    }
+
+    /// SETBIT key offset value — Sets or clears the bit at offset in the string value stored at key
+    #[must_use = "call .build() to encode the command"]
+    fn setbit<K: ToRedisArgs>(&self, key: K, offset: i64, value: i64) -> CommandBuilder {
+        CommandBuilder::new("SETBIT")
+            .arg(key)
+            .arg(offset)
+            .arg(value)
+    }
+
+    /// GETBIT key offset — Returns the bit value at offset in the string value stored at key
+    #[must_use = "call .build() to encode the command"]
+    fn getbit<K: ToRedisArgs>(&self, key: K, offset: i64) -> CommandBuilder {
+        CommandBuilder::new("GETBIT").arg(key).arg(offset)
+    }
+
+    /// BITCOUNT key — Count set bits in a string
+    #[must_use = "call .build() to encode the command"]
+    fn bitcount<K: ToRedisArgs>(&self, key: K) -> CommandBuilder {
+        CommandBuilder::new("BITCOUNT").arg(key)
+    }
+
+    /// BITCOUNT key start end — Count set bits in a string with byte range
+    #[must_use = "call .build() to encode the command"]
+    fn bitcount_range<K: ToRedisArgs>(&self, key: K, start: i64, end: i64) -> CommandBuilder {
+        CommandBuilder::new("BITCOUNT").arg(key).arg(start).arg(end)
+    }
 }
 
 // Blanket impl so () implements Commands
@@ -336,6 +437,114 @@ mod tests {
         assert_eq!(
             buf.as_ref(),
             b"*3\r\n$6\r\nAPPEND\r\n$3\r\nkey\r\n$5\r\nhello\r\n"
+        );
+    }
+
+    #[test]
+    fn test_command_decr_encoding() {
+        let buf = ().decr("key").build();
+        assert_eq!(buf.as_ref(), b"*2\r\n$4\r\nDECR\r\n$3\r\nkey\r\n");
+    }
+
+    #[test]
+    fn test_command_decrby_encoding() {
+        let buf = ().decrby("counter", 5).build();
+        assert_eq!(
+            buf.as_ref(),
+            b"*3\r\n$6\r\nDECRBY\r\n$7\r\ncounter\r\n$1\r\n5\r\n"
+        );
+    }
+
+    #[test]
+    fn test_command_setnx_encoding() {
+        let buf = ().setnx("key", "value").build();
+        assert_eq!(
+            buf.as_ref(),
+            b"*3\r\n$5\r\nSETNX\r\n$3\r\nkey\r\n$5\r\nvalue\r\n"
+        );
+    }
+
+    #[test]
+    fn test_command_mget_encoding() {
+        let buf = <() as Commands>::mget(&["key1", "key2"]).build();
+        assert_eq!(
+            buf.as_ref(),
+            b"*3\r\n$4\r\nMGET\r\n$4\r\nkey1\r\n$4\r\nkey2\r\n"
+        );
+    }
+
+    #[test]
+    fn test_command_mset_encoding() {
+        let buf = <() as Commands>::mset(&[("key1", "val1"), ("key2", "val2")]).build();
+        assert_eq!(
+            buf.as_ref(),
+            b"*5\r\n$4\r\nMSET\r\n$4\r\nkey1\r\n$4\r\nval1\r\n$4\r\nkey2\r\n$4\r\nval2\r\n"
+        );
+    }
+
+    #[test]
+    fn test_command_msetnx_encoding() {
+        let buf = <() as Commands>::msetnx(&[("key1", "val1"), ("key2", "val2")]).build();
+        assert_eq!(
+            buf.as_ref(),
+            b"*5\r\n$6\r\nMSETNX\r\n$4\r\nkey1\r\n$4\r\nval1\r\n$4\r\nkey2\r\n$4\r\nval2\r\n"
+        );
+    }
+
+    #[test]
+    fn test_command_strlen_encoding() {
+        let buf = ().strlen("key").build();
+        assert_eq!(buf.as_ref(), b"*2\r\n$6\r\nSTRLEN\r\n$3\r\nkey\r\n");
+    }
+
+    #[test]
+    fn test_command_getrange_encoding() {
+        let buf = ().getrange("key", 0, -1).build();
+        assert_eq!(
+            buf.as_ref(),
+            b"*4\r\n$8\r\nGETRANGE\r\n$3\r\nkey\r\n$1\r\n0\r\n$2\r\n-1\r\n"
+        );
+    }
+
+    #[test]
+    fn test_command_setrange_encoding() {
+        let buf = ().setrange("key", 5, "value").build();
+        assert_eq!(
+            buf.as_ref(),
+            b"*4\r\n$8\r\nSETRANGE\r\n$3\r\nkey\r\n$1\r\n5\r\n$5\r\nvalue\r\n"
+        );
+    }
+
+    #[test]
+    fn test_command_setbit_encoding() {
+        let buf = ().setbit("key", 0, 1).build();
+        assert_eq!(
+            buf.as_ref(),
+            b"*4\r\n$6\r\nSETBIT\r\n$3\r\nkey\r\n$1\r\n0\r\n$1\r\n1\r\n"
+        );
+    }
+
+    #[test]
+    fn test_command_getbit_encoding() {
+        let buf = ().getbit("key", 0).build();
+        assert_eq!(
+            buf.as_ref(),
+            b"*3\r\n$6\r\nGETBIT\r\n$3\r\nkey\r\n$1\r\n0\r\n"
+        );
+    }
+
+    #[test]
+    fn test_command_bitcount_encoding() {
+        let buf = ().bitcount("key").build();
+        assert_eq!(buf.as_ref(), b"*2\r\n$8\r\nBITCOUNT\r\n$3\r\nkey\r\n");
+    }
+
+    #[test]
+    fn test_command_bitcount_range_encoding() {
+        let buf = ().bitcount_range("key", 0, -1).build();
+        assert_eq!(
+            buf.as_ref(),
+            b"*4\r\n$8\r\nBITCOUNT\r\n$3\r\nkey\r\n$1\r\n0\r\n$2\r\n-1\r\n"
         );
     }
 }
