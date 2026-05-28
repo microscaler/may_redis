@@ -93,8 +93,9 @@ impl FromRedisValue for String {
                 .map(ToString::to_string)
                 .map_err(|_| RedisError::Parse("BulkString is not valid UTF-8".to_string())),
             RedisValue::SimpleString(s) => Ok(s.clone()),
+            RedisValue::Integer(n) => Ok(n.to_string()),
             other => Err(RedisError::Parse(format!(
-                "expected BulkString or SimpleString, got {other:?}"
+                "expected BulkString, SimpleString, or Integer, got {other:?}"
             ))),
         }
     }
@@ -104,9 +105,9 @@ impl FromRedisValue for () {
     fn from_redis_value(value: &RedisValue) -> RedisResult<Self> {
         match value {
             RedisValue::SimpleString(s) if s == "OK" => Ok(()),
-            RedisValue::Integer(1) => Ok(()),
+            RedisValue::Integer(1 | 0) => Ok(()),
             other => Err(RedisError::Parse(format!(
-                "expected OK or Integer(1), got {other:?}"
+                "expected OK, Integer(0), or Integer(1), got {other:?}"
             ))),
         }
     }

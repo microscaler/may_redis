@@ -33,8 +33,8 @@ impl CommandBuilder {
         let mut builder = self;
         let mut buf = Vec::new();
         val.write_redis_args(&mut buf);
-        if let Some(first) = buf.into_iter().next() {
-            builder.args.push(RedisValue::BulkString(first));
+        for item in buf {
+            builder.args.push(RedisValue::BulkString(item));
         }
         builder
     }

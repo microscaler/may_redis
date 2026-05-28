@@ -2,7 +2,7 @@
 //
 // Provides the main user-facing API for connecting to Redis and executing commands.
 
-use crate::core::{FromRedisValue, RedisError, ToRedisArgs};
+use crate::core::{FromRedisValue, RedisError, RedisValue, ToRedisArgs};
 use crate::protocol::{builder::CommandBuilder, commands::Commands};
 use std::sync::Arc;
 
@@ -82,6 +82,13 @@ impl RedisClient {
         let response = rx
             .recv()
             .map_err(|_| RedisError::Parse("response channel closed".into()))?;
+
+        // Check for Redis protocol errors before type conversion.
+        // This preserves the original Redis error message instead of
+        // wrapping it in a generic Parse error.
+        if let RedisValue::Error(msg) = response {
+            return Err(RedisError::Protocol(msg));
+        }
 
         // Convert RedisValue to the requested type
         T::from_redis_value(&response)
