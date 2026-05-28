@@ -10,7 +10,7 @@ description = "A coroutine-based Redis client for the may runtime"
 bytes = "1.7"
 itoa = "1.0"
 log = "0.4"
-may = { version = "0.3", default-features = false }
+may = { version = "0.3", default-features = false, features = ["io_timeout"] }
 socket2 = "0.5"
 
 [features]

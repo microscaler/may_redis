@@ -133,6 +133,20 @@ impl ToRedisArgs for &[u8] {
     }
 }
 
+impl ToRedisArgs for bool {
+    fn write_redis_args(&self, buf: &mut Vec<Vec<u8>>) {
+        if *self {
+            buf.push(b"1".to_vec());
+        } else {
+            buf.push(b"0".to_vec());
+        }
+    }
+
+    fn is_simple_arg(&self) -> bool {
+        true
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -200,5 +214,67 @@ mod tests {
         let v: Vec<String> = vec![];
         v.write_redis_args(&mut buf);
         assert!(buf.is_empty());
+    }
+
+    // ---------------------------------------------------------------------------
+    // bool tests
+    // ---------------------------------------------------------------------------
+
+    #[test]
+    fn test_bool_to_args_true() {
+        let mut buf = Vec::new();
+        true.write_redis_args(&mut buf);
+        assert_eq!(buf, vec![b"1".to_vec()]);
+    }
+
+    #[test]
+    fn test_bool_to_args_false() {
+        let mut buf = Vec::new();
+        false.write_redis_args(&mut buf);
+        assert_eq!(buf, vec![b"0".to_vec()]);
+    }
+
+    #[test]
+    fn test_bool_to_redis_args_is_simple() {
+        assert!(true.is_simple_arg());
+        assert!(false.is_simple_arg());
+    }
+
+    // ---------------------------------------------------------------------------
+    // Vec<&str> tests
+    // ---------------------------------------------------------------------------
+
+    #[test]
+    fn test_vec_str_single() {
+        let mut buf = Vec::new();
+        let v: Vec<&str> = vec!["hello"];
+        v.write_redis_args(&mut buf);
+        assert_eq!(buf, vec![b"hello".to_vec()]);
+    }
+
+    #[test]
+    fn test_vec_str_multi() {
+        let mut buf = Vec::new();
+        let v: Vec<&str> = vec!["a", "b", "c"];
+        v.write_redis_args(&mut buf);
+        assert_eq!(buf, vec![b"a".to_vec(), b"b".to_vec(), b"c".to_vec()]);
+    }
+
+    #[test]
+    fn test_vec_str_empty() {
+        let mut buf = Vec::new();
+        let v: Vec<&str> = vec![];
+        v.write_redis_args(&mut buf);
+        assert!(buf.is_empty());
+    }
+
+    #[test]
+    fn test_vec_str_preserves_order() {
+        let mut buf = Vec::new();
+        let v: Vec<&str> = vec!["first", "second", "third"];
+        v.write_redis_args(&mut buf);
+        assert_eq!(buf[0], b"first");
+        assert_eq!(buf[1], b"second");
+        assert_eq!(buf[2], b"third");
     }
 }

@@ -19,7 +19,7 @@ fn main() {
                 std::str::from_utf8(&buf[..n]).unwrap_or("<binary>")
             );
         }
-        Err(e) => println!("TCP connect error: {}", e),
+        Err(e) => println!("TCP connect error: {e}"),
     }
 
     println!("Done");
