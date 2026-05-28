@@ -101,6 +101,67 @@ pub trait Commands: Sized {
     fn auth(&self, password: &str) -> CommandBuilder {
         CommandBuilder::new("AUTH").arg(password)
     }
+
+    /// HSET key field value [field value ...]
+    #[must_use = "call .build() to encode the command"]
+    fn hset<K: ToRedisArgs, F: ToRedisArgs, V: ToRedisArgs>(
+        &self,
+        key: K,
+        field: F,
+        value: V,
+    ) -> CommandBuilder {
+        CommandBuilder::new("HSET").arg(key).arg(field).arg(value)
+    }
+
+    /// HGET key field
+    #[must_use = "call .build() to encode the command"]
+    fn hget<K: ToRedisArgs, F: ToRedisArgs>(&self, key: K, field: F) -> CommandBuilder {
+        CommandBuilder::new("HGET").arg(key).arg(field)
+    }
+
+    /// SADD key member [member ...]
+    #[must_use = "call .build() to encode the command"]
+    fn sadd<K: ToRedisArgs, M: ToRedisArgs>(&self, key: K, member: M) -> CommandBuilder {
+        CommandBuilder::new("SADD").arg(key).arg(member)
+    }
+
+    /// SISMEMBER key member
+    #[must_use = "call .build() to encode the command"]
+    fn sismember<K: ToRedisArgs, M: ToRedisArgs>(&self, key: K, member: M) -> CommandBuilder {
+        CommandBuilder::new("SISMEMBER").arg(key).arg(member)
+    }
+
+    /// SREM key member [member ...]
+    #[must_use = "call .build() to encode the command"]
+    fn srem<K: ToRedisArgs, M: ToRedisArgs>(&self, key: K, member: M) -> CommandBuilder {
+        CommandBuilder::new("SREM").arg(key).arg(member)
+    }
+
+    /// SETEX key seconds value
+    #[must_use = "call .build() to encode the command"]
+    fn setex<K: ToRedisArgs, V: ToRedisArgs>(
+        &self,
+        key: K,
+        seconds: u32,
+        value: V,
+    ) -> CommandBuilder {
+        CommandBuilder::new("SETEX")
+            .arg(key)
+            .arg(seconds)
+            .arg(value)
+    }
+
+    /// INCRBY key increment
+    #[must_use = "call .build() to encode the command"]
+    fn incrby<K: ToRedisArgs>(&self, key: K, increment: i64) -> CommandBuilder {
+        CommandBuilder::new("INCRBY").arg(key).arg(increment)
+    }
+
+    /// APPEND key value
+    #[must_use = "call .build() to encode the command"]
+    fn append<K: ToRedisArgs, V: ToRedisArgs>(&self, key: K, value: V) -> CommandBuilder {
+        CommandBuilder::new("APPEND").arg(key).arg(value)
+    }
 }
 
 // Blanket impl so () implements Commands
@@ -204,5 +265,77 @@ mod tests {
     fn test_command_auth_encoding() {
         let buf = ().auth("secret").build();
         assert_eq!(buf.as_ref(), b"*2\r\n$4\r\nAUTH\r\n$6\r\nsecret\r\n");
+    }
+
+    #[test]
+    fn test_command_hset_encoding() {
+        let buf = ().hset("myhash", "field1", "value1").build();
+        assert_eq!(
+            buf.as_ref(),
+            b"*4\r\n$4\r\nHSET\r\n$6\r\nmyhash\r\n$6\r\nfield1\r\n$6\r\nvalue1\r\n"
+        );
+    }
+
+    #[test]
+    fn test_command_hget_encoding() {
+        let buf = ().hget("myhash", "field1").build();
+        assert_eq!(
+            buf.as_ref(),
+            b"*3\r\n$4\r\nHGET\r\n$6\r\nmyhash\r\n$6\r\nfield1\r\n"
+        );
+    }
+
+    #[test]
+    fn test_command_sadd_encoding() {
+        let buf = ().sadd("myset", "member1").build();
+        assert_eq!(
+            buf.as_ref(),
+            b"*3\r\n$4\r\nSADD\r\n$5\r\nmyset\r\n$7\r\nmember1\r\n"
+        );
+    }
+
+    #[test]
+    fn test_command_sismember_encoding() {
+        let buf = ().sismember("myset", "member1").build();
+        assert_eq!(
+            buf.as_ref(),
+            b"*3\r\n$9\r\nSISMEMBER\r\n$5\r\nmyset\r\n$7\r\nmember1\r\n"
+        );
+    }
+
+    #[test]
+    fn test_command_srem_encoding() {
+        let buf = ().srem("myset", "member1").build();
+        assert_eq!(
+            buf.as_ref(),
+            b"*3\r\n$4\r\nSREM\r\n$5\r\nmyset\r\n$7\r\nmember1\r\n"
+        );
+    }
+
+    #[test]
+    fn test_command_setex_encoding() {
+        let buf = ().setex("key", 60, "val").build();
+        assert_eq!(
+            buf.as_ref(),
+            b"*4\r\n$5\r\nSETEX\r\n$3\r\nkey\r\n$2\r\n60\r\n$3\r\nval\r\n"
+        );
+    }
+
+    #[test]
+    fn test_command_incrby_encoding() {
+        let buf = ().incrby("counter", 5).build();
+        assert_eq!(
+            buf.as_ref(),
+            b"*3\r\n$6\r\nINCRBY\r\n$7\r\ncounter\r\n$1\r\n5\r\n"
+        );
+    }
+
+    #[test]
+    fn test_command_append_encoding() {
+        let buf = ().append("key", "hello").build();
+        assert_eq!(
+            buf.as_ref(),
+            b"*3\r\n$6\r\nAPPEND\r\n$3\r\nkey\r\n$5\r\nhello\r\n"
+        );
     }
 }

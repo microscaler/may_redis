@@ -17,6 +17,11 @@ socket2 = "0.5"
 default = []
 test = []
 
+[dev-dependencies]
+fastrand = "2.0"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
 [lints.clippy]
 all = { level = "deny", priority = -1 }
 pedantic = { level = "deny", priority = -1 }

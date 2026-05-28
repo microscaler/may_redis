@@ -23,21 +23,30 @@ pub trait ToRedisArgs {
 // Primitive implementations
 // ---------------------------------------------------------------------------
 
-impl<T: ToRedisArgs> ToRedisArgs for Vec<T> {
+// ---------------------------------------------------------------------------
+// Blanket impl: &T delegates to T's implementation
+// ---------------------------------------------------------------------------
+// If T implements ToRedisArgs, then &T also works by delegating.
+// This is the standard Rust pattern and avoids &String not implementing
+// ToRedisArgs when only String does.
+
+impl<T: ToRedisArgs> ToRedisArgs for &T {
     fn write_redis_args(&self, buf: &mut Vec<Vec<u8>>) {
-        for item in self {
-            item.write_redis_args(buf);
-        }
+        (*self).write_redis_args(buf);
     }
 
     fn is_simple_arg(&self) -> bool {
-        false
+        (*self).is_simple_arg()
     }
 }
 
-impl<T: ToRedisArgs> ToRedisArgs for &[T] {
+// ---------------------------------------------------------------------------
+// Vec<T> delegates to T's implementation
+// ---------------------------------------------------------------------------
+
+impl<T: ToRedisArgs> ToRedisArgs for Vec<T> {
     fn write_redis_args(&self, buf: &mut Vec<Vec<u8>>) {
-        for item in *self {
+        for item in self {
             item.write_redis_args(buf);
         }
     }
