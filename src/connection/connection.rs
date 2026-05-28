@@ -719,6 +719,7 @@ mod tests {
 
     /// Test Connection::connect establishes and returns valid connection
     #[test]
+    #[ignore = "requires live Redis server"]
     fn test_connection_connect() {
         let conn = Connection::connect("127.0.0.1", 6379);
         if let Ok(c) = conn {
@@ -730,6 +731,7 @@ mod tests {
 
     /// Test Connection::send returns monotonically increasing tags
     #[test]
+    #[ignore = "requires live Redis server"]
     fn test_connection_send_tags() {
         let conn = Connection::connect("127.0.0.1", 6379);
         if let Ok(c) = conn {
@@ -744,6 +746,7 @@ mod tests {
 
     /// Test Connection::id returns the socket fd
     #[test]
+    #[ignore = "requires live Redis server"]
     fn test_connection_id() {
         let conn = Connection::connect("127.0.0.1", 6379);
         if let Ok(c) = conn {
@@ -754,6 +757,7 @@ mod tests {
 
     /// Test Drop cancels the connection loop coroutine
     #[test]
+    #[ignore = "requires live Redis server"]
     fn test_connection_drop() {
         let conn = Connection::connect("127.0.0.1", 6379);
         if let Ok(c) = conn {

@@ -309,6 +309,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "requires live Redis server"]
     fn test_integration_ping() {
         run_may(|| {
             let client = shared_client();
@@ -319,6 +320,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "requires live Redis server"]
     fn test_integration_set_get() {
         run_may(|| {
             let client = shared_client();
@@ -332,6 +334,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "requires live Redis server"]
     fn test_integration_incr() {
         run_may(|| {
             let client = shared_client();
@@ -348,6 +351,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "requires live Redis server"]
     fn test_integration_exists_del() {
         run_may(|| {
             let client = shared_client();
@@ -369,6 +373,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "requires live Redis server"]
     fn test_integration_dbsize() {
         run_may(|| {
             let client = shared_client();
@@ -387,6 +392,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "requires live Redis server"]
     fn test_integration_set_ex_ttl() {
         run_may(|| {
             let client = shared_client();
@@ -406,6 +412,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "requires live Redis server"]
     fn test_integration_keys() {
         run_may(|| {
             let client = shared_client();
@@ -425,6 +432,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "requires live Redis server"]
     fn test_integration_send_sync_clone() {
         run_may(|| {
             let client = shared_client();
@@ -442,6 +450,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "requires live Redis server"]
     fn test_integration_error_propagation() {
         run_may(|| {
             let client = shared_client();
@@ -458,6 +467,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "requires live Redis server"]
     fn test_integration_pipeline() {
         run_may(|| {
             let client = shared_client();
@@ -478,6 +488,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "requires live Redis server"]
     fn test_integration_concurrent() {
         // Test that the shared client can be cloned and used from multiple
         // places. The may runtime handles coroutine yielding for I/O so
@@ -514,6 +525,7 @@ mod tests {
     /// Test that 3 coroutines can each send GET for different keys
     /// and all receive correct responses.
     #[test]
+    #[ignore = "requires live Redis server"]
     fn test_integration_concurrent_requests() {
         run_may(|| {
             let client = shared_client();
@@ -550,6 +562,7 @@ mod tests {
     /// Test that a pipeline and single commands can interleave without
     /// cross-talk.
     #[test]
+    #[ignore = "requires live Redis server"]
     fn test_integration_pipeline_concurrent() {
         run_may(|| {
             let client = shared_client();
@@ -582,6 +595,7 @@ mod tests {
 
     /// Test two concurrent pipelines running simultaneously.
     #[test]
+    #[ignore = "requires live Redis server"]
     fn test_integration_concurrent_pipelines() {
         run_may(|| {
             let client = shared_client();
@@ -614,6 +628,7 @@ mod tests {
     /// Test that monotonically increasing tags are unique across many
     /// requests (proves AtomicUsize ordering).
     #[test]
+    #[ignore = "requires live Redis server"]
     fn test_integration_request_ordering() {
         run_may(|| {
             let client = shared_client();
@@ -645,6 +660,7 @@ mod tests {
     /// Send 10 commands from 10 coroutines (cloned clients), verify
     /// each gets its own response.
     #[test]
+    #[ignore = "requires live Redis server"]
     fn test_integration_response_correlation() {
         run_may(|| {
             let client = shared_client();
@@ -674,8 +690,9 @@ mod tests {
     // -----------------------------------------------------------------------
 
     /// Test that a server error message propagates as RedisError.
-    /// Redis returns "-ERR WRONG_TYPE..." for INCR on a string value.
+    /// Redis returns "ERR WRONG_TYPE..." for INCR on a string value.
     #[test]
+    #[ignore = "requires live Redis server"]
     fn test_integration_server_error_propagation() {
         run_may(|| {
             let client = shared_client();
@@ -706,6 +723,7 @@ mod tests {
     /// Test wrong-type FromRedisValue error: response is Integer but
     /// caller expects String.
     #[test]
+    #[ignore = "requires live Redis server"]
     fn test_integration_wrong_type_extraction() {
         run_may(|| {
             let client = shared_client();
@@ -728,6 +746,7 @@ mod tests {
     /// Test empty pipeline handling — pipeline with no commands added
     /// should not panic and should return an appropriate error or empty result.
     #[test]
+    #[ignore = "requires live Redis server"]
     fn test_integration_empty_pipeline() {
         run_may(|| {
             let client = shared_client();
@@ -750,6 +769,7 @@ mod tests {
     /// Test Null response handling: GET a missing key returns Null,
     /// which FromRedisValue converts to None.
     #[test]
+    #[ignore = "requires live Redis server"]
     fn test_integration_null_response_handling() {
         run_may(|| {
             let client = shared_client();
@@ -772,6 +792,7 @@ mod tests {
     /// Test that Redis errors from the server (e.g., WRONGTYPE) propagate
     /// as a parse error when FromRedisValue can't convert.
     #[test]
+    #[ignore = "requires live Redis server"]
     fn test_integration_redis_server_error_value() {
         run_may(|| {
             let client = shared_client();
@@ -803,6 +824,7 @@ mod tests {
     /// Test that pipeline error handling: a failing command in a
     /// pipeline returns the server error response.
     #[test]
+    #[ignore = "requires live Redis server"]
     fn test_integration_pipeline_error_handling() {
         run_may(|| {
             let client = shared_client();
@@ -833,6 +855,7 @@ mod tests {
     /// Test error message content for INCR on string — should include
     /// a descriptive error.
     #[test]
+    #[ignore = "requires live Redis server"]
     fn test_integration_incr_string_error_message() {
         run_may(|| {
             let client = shared_client();

@@ -1881,7 +1881,7 @@ mod tests {
 
     #[test]
     fn test_command_pexpireat_encoding() {
-        let buf = ().pexpireat("mykey", 1609459200000).build();
+        let buf = ().pexpireat("mykey", 1_609_459_200_000).build();
         assert_eq!(
             buf.as_ref(),
             b"*3\r\n$9\r\nPEXPIREAT\r\n$5\r\nmykey\r\n$13\r\n1609459200000\r\n"
