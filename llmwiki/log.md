@@ -38,3 +38,18 @@
 - `cargo clippy --lib -- -D warnings`: zero warnings
 - Coverage: 35/82+ commands (~43%), sesame-idam still 100% covered
 - Story 7.2 (Hash): 0 commands implemented, still PENDING — 10 hash extension commands remain
+
+## [2026-06-01] fix | Zero clippy warnings across entire codebase
+- Fixed 63 clippy errors in `tests/perf/main.rs`:
+  - `unreadable_literal`: 4 occurrences of `2592000` → `2_592_000`
+  - `unused-variables`: `jti_value` → `_jti_value`, `elapsed_ms` → `_elapsed_ms`
+  - `format_collect`: replaced `.map().collect()` fold pattern with `fold(String::new(), |mut acc, _| write!(...) ... acc)`
+  - `uninlined-format-args`: ~35 `format!("...", var)` → `format!("{var}")` inline patterns
+  - `manual-div-ceil`: `(count + workers - 1) / workers` → `count.div_ceil(workers)`
+  - `cast_lossless`: `i32 as f64` → `f64::from(i32)` for all ops_per_sec calculations
+  - `unused-must-use`: added `let _ =` to 12 unchecked `client.execute()` calls
+  - `needless-borrows-for-generic-args`: removed `&` before `format!(...)` in `client.get()` calls
+  - `no-effect-underscore-binding`: `_ops_per_sec` already ignored, fixed cast_lossless
+  - `manual-range-patterns`: `10 | 11 | 12 | 13` → `10..=13`, `14 | 15 | 16` → `14..=16`
+  - Added `use std::fmt::Write` for `write!` macro in `random_hex()`
+- All 35 command tests pass, clippy --lib --tests --all-features: ZERO warnings
