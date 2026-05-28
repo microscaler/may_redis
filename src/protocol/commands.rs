@@ -66,7 +66,26 @@ pub trait Commands: Sized {
         CommandBuilder::new("EXPIRE").arg(key).arg(seconds)
     }
 
-    /// PUBLISH channel message
+    /// PUBLISH channel message — Publish a message to a channel.
+    ///
+    /// # Warning: pub/sub requires a dedicated connection
+    ///
+    /// `SUBSCRIBE`, `PSUBSCRIBE`, `UNSUBSCRIBE`, and `PUNSUBSCRIBE` put the
+    /// connection into a *subscription state* where the Redis server sends
+    /// unsolicited messages (the published payloads) to the client. This
+    /// means:
+    /// - The connection loop **must** handle both request-response messages
+    ///   and incoming pub/sub messages on the same socket.
+    /// - **This client does not yet support pub/sub.** A subscribe call will
+    ///   put the connection in a state where normal request-response
+    ///   correlation breaks, because messages arrive out of order.
+    /// - **Do NOT use** `subscribe`, `psubscribe`, `unsubscribe`, or
+    ///   `punsubscribe` with this client. They will likely cause data loss
+    ///   or deadlocks.
+    ///
+    /// `PUBLISH` (fire-and-forget) is safe because it does not change the
+    /// connection state — it just sends a command and returns the number
+    /// of subscribers.
     #[must_use = "call .build() to encode the command"]
     fn publish<K: ToRedisArgs, M: ToRedisArgs>(&self, channel: K, message: M) -> CommandBuilder {
         CommandBuilder::new("PUBLISH").arg(channel).arg(message)
@@ -506,7 +525,24 @@ pub trait Commands: Sized {
         CommandBuilder::new("LTRIM").arg(key).arg(start).arg(stop)
     }
 
-    /// BLPOP keys timeout — Remove and get the first element from a list, or block until one is available
+    /// BLPOP keys timeout — Remove and get the first element from a list, or block until one is available.
+    ///
+    /// # Timeout semantics
+    ///
+    /// * `timeout == 0`: Block **indefinitely** until a list element is available.
+    ///   The default `execute()` method has a 30-second timeout, so calling this
+    ///   with `timeout == 0` will **always** return `RedisError::Connection` after
+    ///   30 seconds. Use `client.execute_timeout(cmd, 60)` (or similar) to wait
+    ///   longer.
+    /// * `timeout > 0`: Block for at most `timeout` seconds. If no element is
+    ///   available, returns `None` (converted from Redis's nil bulk string).
+    ///
+    /// # Warning: default timeout may interfere
+    ///
+    /// `RedisClient::execute()` uses a 30-second timeout internally. For
+    /// blocking commands with `timeout > 0`, the Redis-side timeout must be
+    /// **strictly less** than the client-side 30-second timeout, or the
+    /// client will cancel the request before Redis can respond.
     #[must_use = "call .build() to encode the command"]
     fn blpop<K: ToRedisArgs>(&self, keys: &[K], timeout: i64) -> CommandBuilder {
         let mut builder = CommandBuilder::new("BLPOP");

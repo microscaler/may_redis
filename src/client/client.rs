@@ -13,6 +13,21 @@ use crate::connection::{Connection, Request};
 
 use super::pipeline::Pipeline;
 
+/// Connection scheme: plain TCP or TLS.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ConnectionScheme {
+    Plain,
+    Tls,
+}
+
+/// Return the default port for the given connection scheme.
+const fn default_port(scheme: ConnectionScheme) -> u16 {
+    match scheme {
+        ConnectionScheme::Plain => 6379,
+        ConnectionScheme::Tls => 6380,
+    }
+}
+
 /// Internal client state shared across coroutines.
 struct InnerClient {
     connection: Connection,
@@ -44,22 +59,80 @@ impl RedisClient {
         })
     }
 
-    /// Connect to a Redis server given a URL in the format `redis://host:port`.
+    /// Connect to a Redis server given a URL.
     ///
-    /// # Arguments
-    /// * `url` - Connection URL (e.g., `redis://localhost:6379`)
+    /// # Supported formats
+    ///
+    /// * `redis://host:port` — plain TCP (default port 6379)
+    /// * `redis://:password@host:port` — plain TCP with AUTH (Redis < 6)
+    /// * `rediss://host:port` — TLS (port defaults to 6380)
+    /// * `rediss://:password@host:port` — TLS + AUTH
+    /// * `redis://host` — plain TCP with default port 6379
+    ///
+    /// # TLS support
+    ///
+    /// Currently `rediss://` is parsed but TLS is **not yet implemented**.
+    /// A connection attempted via `rediss://` will fall back to plain TCP
+    /// (same as `redis://`). TLS support requires adding a `native-tls` or
+    /// `rustls` dependency to `Cargo.toml`.
+    ///
+    /// # Auth support
+    ///
+    /// If a password is present in the URL, an `AUTH` command is sent
+    /// immediately after the TCP connection is established.
     ///
     /// # Errors
-    /// Returns [`RedisError`] if URL parsing fails, or the connection layer error type if TCP fails.
+    ///
+    /// Returns [`RedisError::Parse`] if the URL cannot be parsed, or if
+    /// the AUTH command fails after a successful connection.
     pub fn connect_url(url: &str) -> Result<Self, RedisError> {
-        let url = url.strip_prefix("redis://").unwrap_or(url);
-        let (host, port) = url.rsplit_once(':').ok_or_else(|| {
-            RedisError::Parse("invalid URL format, expected redis://host:port".into())
-        })?;
-        let port: u16 = port
-            .parse()
-            .map_err(|e| RedisError::Parse(format!("invalid port: {e}")))?;
-        Self::connect(host, port).map_err(|e| RedisError::Parse(format!("connection failed: {e}")))
+        // Strip scheme prefix
+        let (scheme, rest) = if let Some(stripped) = url.strip_prefix("rediss://") {
+            (ConnectionScheme::Tls, stripped)
+        } else {
+            let stripped = url.strip_prefix("redis://").ok_or_else(|| {
+                RedisError::Parse("invalid URL: expected redis:// or rediss:// prefix".into())
+            })?;
+            (ConnectionScheme::Plain, stripped)
+        };
+
+        // Parse optional password — format is [:password@]host[:port]
+        let (password, host_part) = rest.find('@').map_or((None, rest), |idx| {
+            let password = &rest[..idx];
+            let host_part = &rest[idx + 1..];
+            if password.is_empty() {
+                (None, host_part)
+            } else {
+                (Some(password), host_part)
+            }
+        });
+
+        // Parse host:port — default port depends on scheme
+        let (host, port) = host_part
+            .rfind(':')
+            .map(|colon_idx| {
+                let host = &host_part[..colon_idx];
+                let port_str = &host_part[colon_idx + 1..];
+                let port: u16 = port_str
+                    .parse()
+                    .map_err(|e| RedisError::Parse(format!("invalid port: {e}")))?;
+                Ok::<_, RedisError>((host, port))
+            })
+            .transpose()?
+            .map_or_else(|| (host_part, default_port(scheme)), |(h, p)| (h, p));
+
+        let client = Self::connect(host, port)
+            .map_err(|e| RedisError::Parse(format!("connection failed: {e}")))?;
+
+        // Send AUTH if password was provided in URL
+        if let Some(pass) = password {
+            let auth_cmd = CommandBuilder::new("AUTH").arg(pass);
+            client
+                .execute::<String>(auth_cmd)
+                .map_err(|e| RedisError::Parse(format!("AUTH failed: {e}")))?;
+        }
+
+        Ok(client)
     }
 
     /// Execute a command with a configurable timeout and return the typed result.
