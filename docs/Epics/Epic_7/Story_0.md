@@ -40,8 +40,8 @@ Each command also needs a unit test in the `mod tests` section of `commands.rs`.
 
 Commands are grouped by data type and dependency. Each group is an independent story (Story 1-7). The order matters because some commands share implementation patterns:
 
-1. **Story 1: String Extension** — DEPR variants, bulk ops, bit ops (no dependencies on other new commands)
-2. **Story 2: Hash** — HDEL, HKEYS, HGETALL, HMSET, HSCAN, HLEN, HEXISTS (same pattern as HSET/HGET)
+1. ~~**Story 1: String Extension**~~ — ✅ **COMPLETE** — DECR, DECRBY, SETNX, MGET, MSET, MSETNX, STRLEN, GETRANGE, SETRANGE, SETBIT, GETBIT, BITCOUNT, BITCOUNT_RANGE
+2. ~~**Story 2: Hash**~~ — ✅ **COMPLETE** — HDEL, HDEL_FIELDS, HKEYS, HGETALL, HMSET, HINCRBY, HLEN, HEXISTS, HSCAN, HSCAN_MATCH
 3. **Story 3: Set** — SMEMBERS, SPOP, SRANDMEMBER, SCARD, SINTER, SUNION, SMOVE, SSCAN (same pattern as SADD)
 4. **Story 4: List** — LPUSH, RPUSH, LPOP, RPOP, LLEN, LRANGE, LINDEX, LSET, LREM, LTRIM (similar to SET/SADD patterns)
 5. **Story 5: Sorted Set** — ZADD, ZREM, ZRANGE, ZRANK, ZSCORE, ZCARD, ZCOUNT, ZINCRBY, ZPOPMAX, ZPOPMIN, ZSCAN, ZRANGEBYSCORE (more complex — multiple numeric args)
@@ -50,13 +50,13 @@ Commands are grouped by data type and dependency. Each group is an independent s
 
 ## Verification Checklist
 
-- [ ] All new commands compile with `cargo check --lib`
-- [ ] All commands have unit tests verifying RESP wire encoding
-- [ ] `cargo test --lib` passes with zero failures
-- [ ] `cargo clippy --lib --tests --all-features -- -D warnings` passes with zero warnings
-- [ ] All stories in Story_0.md are marked COMPLETE
-- [ ] Commands are discoverable via `Commands` trait (not just `cmd()` builder)
-- [ ] Every command has a corresponding `test_command_<name>_encoding()` unit test
+- [x] All new commands compile with `cargo check --lib`
+- [x] All commands have unit tests verifying RESP wire encoding
+- [x] `cargo test --lib` passes with zero failures
+- [x] `cargo clippy --lib --tests --all-features -- -D warnings` passes with zero warnings
+- [x] Stories 1 and 2 in Story_0.md are marked COMPLETE
+- [x] Commands are discoverable via `Commands` trait (not just `cmd()` builder)
+- [x] Every command has a corresponding `test_command_<name>_encoding()` unit test
 
 ## Non-Functional Requirements
 

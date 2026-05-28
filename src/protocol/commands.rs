@@ -263,6 +263,92 @@ pub trait Commands: Sized {
     fn bitcount_range<K: ToRedisArgs>(&self, key: K, start: i64, end: i64) -> CommandBuilder {
         CommandBuilder::new("BITCOUNT").arg(key).arg(start).arg(end)
     }
+
+    /// HDEL key field [field ...] — Delete one or more hash fields
+    #[must_use = "call .build() to encode the command"]
+    fn hdel<K: ToRedisArgs, F: ToRedisArgs>(&self, key: K, field: F) -> CommandBuilder {
+        CommandBuilder::new("HDEL").arg(key).arg(field)
+    }
+
+    /// HDEL fields — Delete multiple hash fields (variadic)
+    #[must_use = "call .build() to encode the command"]
+    fn hdel_fields<K: ToRedisArgs, F: ToRedisArgs>(&self, key: K, fields: &[F]) -> CommandBuilder {
+        let mut builder = CommandBuilder::new("HDEL");
+        builder = builder.arg(key);
+        for f in fields {
+            builder = builder.arg(f);
+        }
+        builder
+    }
+
+    /// HKEYS key — Get all field names in a hash
+    #[must_use = "call .build() to encode the command"]
+    fn hkeys<K: ToRedisArgs>(&self, key: K) -> CommandBuilder {
+        CommandBuilder::new("HKEYS").arg(key)
+    }
+
+    /// HGETALL key — Get all fields and values in a hash
+    #[must_use = "call .build() to encode the command"]
+    fn hgetall<K: ToRedisArgs>(&self, key: K) -> CommandBuilder {
+        CommandBuilder::new("HGETALL").arg(key)
+    }
+
+    /// HMSET key field value [field value ...] — Set multiple hash fields to multiple values
+    #[must_use = "call .build() to encode the command"]
+    fn hmset<K: ToRedisArgs, V: ToRedisArgs>(
+        &self,
+        key: K,
+        pairs: &[(impl ToRedisArgs, V)],
+    ) -> CommandBuilder {
+        let mut builder = CommandBuilder::new("HMSET");
+        builder = builder.arg(key);
+        for (field, value) in pairs {
+            builder = builder.arg(field).arg(value);
+        }
+        builder
+    }
+
+    /// HINCRBY key field increment — Increment the integer value of a hash field by increment
+    #[must_use = "call .build() to encode the command"]
+    fn hincrby<K: ToRedisArgs, F: ToRedisArgs>(
+        &self,
+        key: K,
+        field: F,
+        increment: i64,
+    ) -> CommandBuilder {
+        CommandBuilder::new("HINCRBY")
+            .arg(key)
+            .arg(field)
+            .arg(increment)
+    }
+
+    /// HLEN key — Get the number of fields in a hash
+    #[must_use = "call .build() to encode the command"]
+    fn hlen<K: ToRedisArgs>(&self, key: K) -> CommandBuilder {
+        CommandBuilder::new("HLEN").arg(key)
+    }
+
+    /// HEXISTS key field — Check if a hash field exists
+    #[must_use = "call .build() to encode the command"]
+    fn hexists<K: ToRedisArgs, F: ToRedisArgs>(&self, key: K, field: F) -> CommandBuilder {
+        CommandBuilder::new("HEXISTS").arg(key).arg(field)
+    }
+
+    /// HSCAN key cursor — Incrementally iterate hash fields and values
+    #[must_use = "call .build() to encode the command"]
+    fn hscan<K: ToRedisArgs>(&self, key: K, cursor: i64) -> CommandBuilder {
+        CommandBuilder::new("HSCAN").arg(key).arg(cursor)
+    }
+
+    /// HSCAN MATCH key cursor pattern — Incrementally iterate hash fields matching a pattern
+    #[must_use = "call .build() to encode the command"]
+    fn hscan_match<K: ToRedisArgs>(&self, key: K, cursor: i64, pattern: &str) -> CommandBuilder {
+        CommandBuilder::new("HSCAN")
+            .arg(key)
+            .arg(cursor)
+            .arg("MATCH")
+            .arg(pattern)
+    }
 }
 
 // Blanket impl so () implements Commands
@@ -545,6 +631,87 @@ mod tests {
         assert_eq!(
             buf.as_ref(),
             b"*4\r\n$8\r\nBITCOUNT\r\n$3\r\nkey\r\n$1\r\n0\r\n$2\r\n-1\r\n"
+        );
+    }
+
+    #[test]
+    fn test_command_hdel_encoding() {
+        let buf = ().hdel("myhash", "field1").build();
+        assert_eq!(
+            buf.as_ref(),
+            b"*3\r\n$4\r\nHDEL\r\n$6\r\nmyhash\r\n$6\r\nfield1\r\n"
+        );
+    }
+
+    #[test]
+    fn test_command_hdel_fields_encoding() {
+        let buf = ().hdel_fields("myhash", &["f1", "f2"]).build();
+        assert_eq!(
+            buf.as_ref(),
+            b"*4\r\n$4\r\nHDEL\r\n$6\r\nmyhash\r\n$2\r\nf1\r\n$2\r\nf2\r\n"
+        );
+    }
+
+    #[test]
+    fn test_command_hkeys_encoding() {
+        let buf = ().hkeys("myhash").build();
+        assert_eq!(buf.as_ref(), b"*2\r\n$5\r\nHKEYS\r\n$6\r\nmyhash\r\n");
+    }
+
+    #[test]
+    fn test_command_hgetall_encoding() {
+        let buf = ().hgetall("myhash").build();
+        assert_eq!(buf.as_ref(), b"*2\r\n$7\r\nHGETALL\r\n$6\r\nmyhash\r\n");
+    }
+
+    #[test]
+    fn test_command_hmset_encoding() {
+        let buf = ().hmset("myhash", &[("f1", "v1"), ("f2", "v2")]).build();
+        assert_eq!(
+            buf.as_ref(),
+            b"*5\r\n$5\r\nHMSET\r\n$6\r\nmyhash\r\n$2\r\nf1\r\n$2\r\nv1\r\n$2\r\nf2\r\n$2\r\nv2\r\n"
+        );
+    }
+
+    #[test]
+    fn test_command_hincrby_encoding() {
+        let buf = ().hincrby("myhash", "counter", 5).build();
+        assert_eq!(
+            buf.as_ref(),
+            b"*4\r\n$7\r\nHINCRBY\r\n$6\r\nmyhash\r\n$7\r\ncounter\r\n$1\r\n5\r\n"
+        );
+    }
+
+    #[test]
+    fn test_command_hlen_encoding() {
+        let buf = ().hlen("myhash").build();
+        assert_eq!(buf.as_ref(), b"*2\r\n$4\r\nHLEN\r\n$6\r\nmyhash\r\n");
+    }
+
+    #[test]
+    fn test_command_hexists_encoding() {
+        let buf = ().hexists("myhash", "field1").build();
+        assert_eq!(
+            buf.as_ref(),
+            b"*3\r\n$7\r\nHEXISTS\r\n$6\r\nmyhash\r\n$6\r\nfield1\r\n"
+        );
+    }
+
+    #[test]
+    fn test_command_hscan_encoding() {
+        let buf = ().hscan("myhash", 0).build();
+        assert_eq!(
+            buf.as_ref(),
+            b"*3\r\n$5\r\nHSCAN\r\n$6\r\nmyhash\r\n$1\r\n0\r\n"
+        );
+    }
+
+    #[test]
+    fn test_command_hscan_match_encoding() {
+        let buf = ().hscan_match("myhash", 0, "f*").build();
+        assert_eq!(
+            buf.as_ref(),
+            b"*5\r\n$5\r\nHSCAN\r\n$6\r\nmyhash\r\n$1\r\n0\r\n$5\r\nMATCH\r\n$2\r\nf*\r\n"
         );
     }
 }
