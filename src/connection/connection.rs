@@ -136,7 +136,41 @@ pub struct Connection {
     /// responses. This counter is exposed via the return value of
     /// [`Self::send`] so callers can correlate log entries / metrics.
     tag_counter: Arc<AtomicUsize>,
+    /// Maximum number of pending requests in the queue (Story 3, Issue #7).
+    max_queue_depth: usize,
+    /// Maximum size in bytes for a single request's RESP data (Story 3, Issue #7).
+    max_request_size: usize,
+    /// Current pending request count (for O(1) bounded queue check, NFR-012).
+    pending_count: Arc<AtomicUsize>,
 }
+
+/// Connection errors for resource limit violations (Story 3, Issue #7).
+#[derive(Debug)]
+pub enum ConnectionLimitError {
+    /// Request queue is full.
+    QueueFull(usize),
+    /// Request exceeds the maximum size.
+    RequestTooLarge(usize, usize),
+}
+
+impl std::fmt::Display for ConnectionLimitError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ConnectionLimitError::QueueFull(max) => {
+                write!(f, "request queue is full (max {max} pending requests)")
+            }
+            ConnectionLimitError::RequestTooLarge(max, got) => {
+                write!(f, "request too large (max {max} bytes, got {got})")
+            }
+        }
+    }
+}
+
+impl std::error::Error for ConnectionLimitError {}
+
+/// Default limits for a safe connection (Story 3, Issue #7, AC-3.1, AC-3.4).
+const DEFAULT_MAX_QUEUE_DEPTH: usize = 1024;
+const DEFAULT_MAX_REQUEST_SIZE: usize = 65536; // 64 KiB
 
 impl Drop for Connection {
     fn drop(&mut self) {
@@ -186,6 +220,12 @@ fn process_req(
         resp_queue.push_back(PendingRequest { sender: req.sender });
         write_buf.put_slice(&req.data);
     }
+}
+
+/// Decrement the pending request counter after a response is dispatched
+/// or an error forces a request out of the pipeline.
+fn release_pending(pending_count: &Arc<AtomicUsize>) {
+    pending_count.fetch_sub(1, Ordering::SeqCst);
 }
 
 /// Read from the inner raw socket into a `BytesMut` buffer.
@@ -407,7 +447,11 @@ fn decode_responses(
 /// `resp_queue` is signalled with a [`RedisValue::Error`] describing
 /// the failure, and the loop breaks (the coroutine exits, the
 /// `JoinHandle` becomes joinable).
-fn spawn_connection_loop(mut stream: TcpStream, req_queue: Arc<Queue<Request>>) -> JoinHandle<()> {
+fn spawn_connection_loop(
+    mut stream: TcpStream,
+    req_queue: Arc<Queue<Request>>,
+    pending_count: Arc<AtomicUsize>,
+) -> JoinHandle<()> {
     go!(move || {
         let mut read_buf = BytesMut::with_capacity(65536);
         let mut write_buf = BytesMut::with_capacity(65536);
@@ -430,6 +474,7 @@ fn spawn_connection_loop(mut stream: TcpStream, req_queue: Arc<Queue<Request>>) 
                     let _ = pending
                         .sender
                         .send(RedisValue::Error(format!("Write error: {e}")));
+                    release_pending(&pending_count);
                 }
                 break;
             }
@@ -449,6 +494,7 @@ fn spawn_connection_loop(mut stream: TcpStream, req_queue: Arc<Queue<Request>>) 
                             let _ = pending
                                 .sender
                                 .send(RedisValue::Error(format!("Read error: {e}")));
+                            release_pending(&pending_count);
                         }
                         break;
                     }
@@ -466,8 +512,14 @@ fn spawn_connection_loop(mut stream: TcpStream, req_queue: Arc<Queue<Request>>) 
                     let _ = pending
                         .sender
                         .send(RedisValue::Error(format!("Decode error: {e}")));
+                    release_pending(&pending_count);
                 }
                 break;
+            }
+
+            // Decrement pending count for each dispatched response.
+            while resp_queue.pop_front().is_some() {
+                release_pending(&pending_count);
             }
 
             // (5) Park on epoll until something useful happens.
@@ -482,6 +534,14 @@ fn spawn_connection_loop(mut stream: TcpStream, req_queue: Arc<Queue<Request>>) 
             } else {
                 1
             }
+        }
+
+        // On loop exit (fatal error), drain remaining pending requests.
+        while let Some(pending) = resp_queue.pop_front() {
+            let _ = pending
+                .sender
+                .send(RedisValue::Error("Connection loop terminated".into()));
+            release_pending(&pending_count);
         }
     })
 }
@@ -520,7 +580,9 @@ impl Connection {
         let waker = stream.waker();
         let req_queue = Arc::new(Queue::new());
 
-        let io_handle = spawn_connection_loop(stream, req_queue.clone());
+        let pending_count = Arc::new(AtomicUsize::new(0));
+
+        let io_handle = spawn_connection_loop(stream, req_queue.clone(), pending_count.clone());
 
         Ok(Self {
             io_handle,
@@ -528,6 +590,9 @@ impl Connection {
             waker,
             id,
             tag_counter: Arc::new(AtomicUsize::new(0)),
+            max_queue_depth: DEFAULT_MAX_QUEUE_DEPTH,
+            max_request_size: DEFAULT_MAX_REQUEST_SIZE,
+            pending_count,
         })
     }
 
@@ -535,26 +600,44 @@ impl Connection {
     ///
     /// Atomically:
     ///
-    /// 1. assigns a monotonic tag (returned to the caller — useful for
+    /// 1. checks resource limits (Story 3, Issue #7): queue depth and request size;
+    ///    returns [`ConnectionLimitError`] if a limit is exceeded;
+    /// 2. assigns a monotonic tag (returned to the caller — useful for
     ///    correlating logs / metrics but **not** used for response
     ///    matching, which is purely positional);
-    /// 2. pushes the [`Request`] (including its `spsc::Sender`) onto
+    /// 3. pushes the [`Request`] (including its `spsc::Sender`) onto
     ///    the shared mpsc queue;
-    /// 3. signals the connection loop's [`WaitIoWaker`] so any
+    /// 4. signals the connection loop's [`WaitIoWaker`] so any
     ///    in-flight `stream.wait_io()` returns immediately and the
     ///    freshly-queued request is processed on the very next
     ///    iteration instead of waiting for socket I/O readiness.
+    ///
+    /// # Returns
+    ///
+    /// `Ok(tag)` on success. `Err(ConnectionLimitError)` if the queue is
+    /// full or the request exceeds the maximum size.
     ///
     /// This method is non-blocking: it does NOT wait for the request
     /// to be written or for the response to come back. The caller is
     /// expected to keep the matching `may::sync::spsc::Receiver` and
     /// call `recv()` on it to obtain the [`RedisValue`] response.
     #[must_use]
-    pub fn send(&self, request: Request) -> usize {
+    pub fn send(&self, request: Request) -> Result<usize, ConnectionLimitError> {
+        // Story 3, Issue #7: enforce resource limits before sending (AC-3.1–AC-3.4)
+        if self.pending_count.load(Ordering::SeqCst) >= self.max_queue_depth {
+            return Err(ConnectionLimitError::QueueFull(self.max_queue_depth));
+        }
+        if request.data.len() > self.max_request_size {
+            return Err(ConnectionLimitError::RequestTooLarge(
+                self.max_request_size,
+                request.data.len(),
+            ));
+        }
         let tag = self.tag_counter.fetch_add(1, Ordering::SeqCst);
+        self.pending_count.fetch_add(1, Ordering::SeqCst);
         self.req_queue.push(request);
         self.waker.wakeup();
-        tag
+        Ok(tag)
     }
 
     /// Returns the unique connection identifier (socket fd).
