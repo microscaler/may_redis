@@ -327,6 +327,10 @@ impl RedisClient {
     /// Returns [`RedisError::Connection`] if the TCP connection fails, the
     /// response channel is closed, or the timeout expires before a response
     /// is received.
+    /// # Panics
+    ///
+    /// Panics if the command is blocked by the default [`CommandPolicy`].
+    /// Blocked commands should be caught at build time, not at execution time.
     pub fn execute_with_timeout<T: FromRedisValue>(
         &self,
         cmd: CommandBuilder,
