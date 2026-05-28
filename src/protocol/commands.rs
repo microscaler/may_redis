@@ -795,6 +795,166 @@ pub trait Commands: Sized {
     fn unwatch(&self) -> CommandBuilder {
         CommandBuilder::new("UNWATCH")
     }
+
+    /// SELECT index — Select database
+    #[must_use = "call .build() to encode the command"]
+    fn select(&self, index: i64) -> CommandBuilder {
+        CommandBuilder::new("SELECT").arg(index)
+    }
+
+    /// TYPE key — Get the type of a key
+    #[must_use = "call .build() to encode the command"]
+    fn type_(&self, key: impl ToRedisArgs) -> CommandBuilder {
+        CommandBuilder::new("TYPE").arg(key)
+    }
+
+    /// MOVE key db — Move a key to another database
+    #[must_use = "call .build() to encode the command"]
+    fn move_key<K: ToRedisArgs>(&self, key: K, db: i64) -> CommandBuilder {
+        CommandBuilder::new("MOVE").arg(key).arg(db)
+    }
+
+    /// RENAME key newkey — Rename a key
+    #[must_use = "call .build() to encode the command"]
+    fn rename<K: ToRedisArgs>(&self, key: K, newkey: K) -> CommandBuilder {
+        CommandBuilder::new("RENAME").arg(key).arg(newkey)
+    }
+
+    /// RENAMENX key newkey — Rename a key only if it doesn't exist
+    #[must_use = "call .build() to encode the command"]
+    fn renamemx<K: ToRedisArgs>(&self, key: K, newkey: K) -> CommandBuilder {
+        CommandBuilder::new("RENAMENX").arg(key).arg(newkey)
+    }
+
+    /// SORT key — Sort a list/set/zset
+    #[must_use = "call .build() to encode the command"]
+    fn sort<K: ToRedisArgs>(&self, key: K) -> CommandBuilder {
+        CommandBuilder::new("SORT").arg(key)
+    }
+
+    /// SORT key LIMIT offset count — Sort with pagination
+    #[must_use = "call .build() to encode the command"]
+    fn sort_limit<K: ToRedisArgs>(&self, key: K, offset: i64, count: i64) -> CommandBuilder {
+        CommandBuilder::new("SORT")
+            .arg(key)
+            .arg("LIMIT")
+            .arg(offset)
+            .arg(count)
+    }
+
+    /// SORT key LIMIT offset count ORDER — Sort with pagination and ordering
+    #[must_use = "call .build() to encode the command"]
+    fn sort_limit_order<K: ToRedisArgs>(
+        &self,
+        key: K,
+        offset: i64,
+        count: i64,
+        order: &str,
+    ) -> CommandBuilder {
+        CommandBuilder::new("SORT")
+            .arg(key)
+            .arg("LIMIT")
+            .arg(offset)
+            .arg(count)
+            .arg(order)
+    }
+
+    /// SCAN cursor — Incrementally iterate keyspace
+    #[must_use = "call .build() to encode the command"]
+    fn scan(&self, cursor: i64) -> CommandBuilder {
+        CommandBuilder::new("SCAN").arg(cursor)
+    }
+
+    /// SCAN cursor MATCH pattern [COUNT count] — Incrementally iterate with pattern matching
+    #[must_use = "call .build() to encode the command"]
+    fn scan_match(&self, cursor: i64, pattern: &str) -> CommandBuilder {
+        CommandBuilder::new("SCAN")
+            .arg(cursor)
+            .arg("MATCH")
+            .arg(pattern)
+    }
+
+    /// TOUCH key [key ...] — Update access time of keys
+    #[must_use = "call .build() to encode the command"]
+    fn touch<K: ToRedisArgs>(&self, keys: &[K]) -> CommandBuilder {
+        let mut builder = CommandBuilder::new("TOUCH");
+        for key in keys {
+            builder = builder.arg(key);
+        }
+        builder
+    }
+
+    /// SAVE — Synchronously save to disk
+    #[must_use = "call .build() to encode the command"]
+    fn save(&self) -> CommandBuilder {
+        CommandBuilder::new("SAVE")
+    }
+
+    /// BGSAVE — Asynchronously save to disk
+    #[must_use = "call .build() to encode the command"]
+    fn bgsave(&self) -> CommandBuilder {
+        CommandBuilder::new("BGSAVE")
+    }
+
+    /// FLUSHALL — Delete all keys from all databases
+    #[must_use = "call .build() to encode the command"]
+    fn flushall(&self) -> CommandBuilder {
+        CommandBuilder::new("FLUSHALL")
+    }
+
+    /// PTTL key — Get time to live in milliseconds
+    #[must_use = "call .build() to encode the command"]
+    fn pttl<K: ToRedisArgs>(&self, key: K) -> CommandBuilder {
+        CommandBuilder::new("PTTL").arg(key)
+    }
+
+    /// PEXPIRE key milliseconds — Set expiry in milliseconds
+    #[must_use = "call .build() to encode the command"]
+    fn pexpire<K: ToRedisArgs>(&self, key: K, ms: i64) -> CommandBuilder {
+        CommandBuilder::new("PEXPIRE").arg(key).arg(ms)
+    }
+
+    /// PEXPIREAT key timestamp-ms — Set expiry at unix time in milliseconds
+    #[must_use = "call .build() to encode the command"]
+    fn pexpireat<K: ToRedisArgs>(&self, key: K, timestamp_ms: i64) -> CommandBuilder {
+        CommandBuilder::new("PEXPIREAT").arg(key).arg(timestamp_ms)
+    }
+
+    /// PERSIST key — Remove the existing timeout on a key
+    #[must_use = "call .build() to encode the command"]
+    fn persist<K: ToRedisArgs>(&self, key: K) -> CommandBuilder {
+        CommandBuilder::new("PERSIST").arg(key)
+    }
+
+    /// SHUTDOWN — Synchronously shut down the server
+    #[must_use = "call .build() to encode the command"]
+    fn shutdown(&self) -> CommandBuilder {
+        CommandBuilder::new("SHUTDOWN")
+    }
+
+    /// SHUTDOWN NOSAVE — Shut down without saving
+    #[must_use = "call .build() to encode the command"]
+    fn shutdown_nosave(&self) -> CommandBuilder {
+        CommandBuilder::new("SHUTDOWN").arg("NOSAVE")
+    }
+
+    /// INFO — Get server information
+    #[must_use = "call .build() to encode the command"]
+    fn info(&self) -> CommandBuilder {
+        CommandBuilder::new("INFO")
+    }
+
+    /// INFO server — Get server section information
+    #[must_use = "call .build() to encode the command"]
+    fn info_section(&self, section: &str) -> CommandBuilder {
+        CommandBuilder::new("INFO").arg(section)
+    }
+
+    /// CONFIG GET parameter — Get a config parameter
+    #[must_use = "call .build() to encode the command"]
+    fn config_get(&self, parameter: &str) -> CommandBuilder {
+        CommandBuilder::new("CONFIG").arg("GET").arg(parameter)
+    }
 }
 
 // Blanket impl so () implements Commands
@@ -1597,5 +1757,173 @@ mod tests {
     fn test_command_unwatch_encoding() {
         let buf = ().unwatch().build();
         assert_eq!(buf.as_ref(), b"*1\r\n$7\r\nUNWATCH\r\n");
+    }
+
+    #[test]
+    fn test_command_select_encoding() {
+        let buf = ().select(1).build();
+        assert_eq!(buf.as_ref(), b"*2\r\n$6\r\nSELECT\r\n$1\r\n1\r\n");
+    }
+
+    #[test]
+    fn test_command_type_encoding() {
+        let buf = ().type_("mykey").build();
+        assert_eq!(buf.as_ref(), b"*2\r\n$4\r\nTYPE\r\n$5\r\nmykey\r\n");
+    }
+
+    #[test]
+    fn test_command_move_encoding() {
+        let buf = ().move_key("mykey", 1).build();
+        assert_eq!(
+            buf.as_ref(),
+            b"*3\r\n$4\r\nMOVE\r\n$5\r\nmykey\r\n$1\r\n1\r\n"
+        );
+    }
+
+    #[test]
+    fn test_command_rename_encoding() {
+        let buf = ().rename("mykey", "newkey").build();
+        assert_eq!(
+            buf.as_ref(),
+            b"*3\r\n$6\r\nRENAME\r\n$5\r\nmykey\r\n$6\r\nnewkey\r\n"
+        );
+    }
+
+    #[test]
+    fn test_command_renamemx_encoding() {
+        let buf = ().renamemx("mykey", "newkey").build();
+        assert_eq!(
+            buf.as_ref(),
+            b"*3\r\n$8\r\nRENAMENX\r\n$5\r\nmykey\r\n$6\r\nnewkey\r\n"
+        );
+    }
+
+    #[test]
+    fn test_command_sort_encoding() {
+        let buf = ().sort("mylist").build();
+        assert_eq!(buf.as_ref(), b"*2\r\n$4\r\nSORT\r\n$6\r\nmylist\r\n");
+    }
+
+    #[test]
+    fn test_command_sort_limit_encoding() {
+        let buf = ().sort_limit("mylist", 0, 10).build();
+        assert_eq!(
+            buf.as_ref(),
+            b"*5\r\n$4\r\nSORT\r\n$6\r\nmylist\r\n$5\r\nLIMIT\r\n$1\r\n0\r\n$2\r\n10\r\n"
+        );
+    }
+
+    #[test]
+    fn test_command_sort_limit_order_encoding() {
+        let buf = ().sort_limit_order("mylist", 0, 10, "DESC").build();
+        assert_eq!(
+            buf.as_ref(),
+            b"*6\r\n$4\r\nSORT\r\n$6\r\nmylist\r\n$5\r\nLIMIT\r\n$1\r\n0\r\n$2\r\n10\r\n$4\r\nDESC\r\n"
+        );
+    }
+
+    #[test]
+    fn test_command_scan_encoding() {
+        let buf = ().scan(0).build();
+        assert_eq!(buf.as_ref(), b"*2\r\n$4\r\nSCAN\r\n$1\r\n0\r\n");
+    }
+
+    #[test]
+    fn test_command_scan_match_encoding() {
+        let buf = ().scan_match(0, "foo*").build();
+        assert_eq!(
+            buf.as_ref(),
+            b"*4\r\n$4\r\nSCAN\r\n$1\r\n0\r\n$5\r\nMATCH\r\n$4\r\nfoo*\r\n"
+        );
+    }
+
+    #[test]
+    fn test_command_touch_encoding() {
+        let buf = ().touch(&["k1", "k2", "k3"]).build();
+        assert_eq!(
+            buf.as_ref(),
+            b"*4\r\n$5\r\nTOUCH\r\n$2\r\nk1\r\n$2\r\nk2\r\n$2\r\nk3\r\n"
+        );
+    }
+
+    #[test]
+    fn test_command_save_encoding() {
+        let buf = ().save().build();
+        assert_eq!(buf.as_ref(), b"*1\r\n$4\r\nSAVE\r\n");
+    }
+
+    #[test]
+    fn test_command_bgsave_encoding() {
+        let buf = ().bgsave().build();
+        assert_eq!(buf.as_ref(), b"*1\r\n$6\r\nBGSAVE\r\n");
+    }
+
+    #[test]
+    fn test_command_flushall_encoding() {
+        let buf = ().flushall().build();
+        assert_eq!(buf.as_ref(), b"*1\r\n$8\r\nFLUSHALL\r\n");
+    }
+
+    #[test]
+    fn test_command_pttl_encoding() {
+        let buf = ().pttl("mykey").build();
+        assert_eq!(buf.as_ref(), b"*2\r\n$4\r\nPTTL\r\n$5\r\nmykey\r\n");
+    }
+
+    #[test]
+    fn test_command_pexpire_encoding() {
+        let buf = ().pexpire("mykey", 10000).build();
+        assert_eq!(
+            buf.as_ref(),
+            b"*3\r\n$7\r\nPEXPIRE\r\n$5\r\nmykey\r\n$5\r\n10000\r\n"
+        );
+    }
+
+    #[test]
+    fn test_command_pexpireat_encoding() {
+        let buf = ().pexpireat("mykey", 1609459200000).build();
+        assert_eq!(
+            buf.as_ref(),
+            b"*3\r\n$9\r\nPEXPIREAT\r\n$5\r\nmykey\r\n$13\r\n1609459200000\r\n"
+        );
+    }
+
+    #[test]
+    fn test_command_persist_encoding() {
+        let buf = ().persist("mykey").build();
+        assert_eq!(buf.as_ref(), b"*2\r\n$7\r\nPERSIST\r\n$5\r\nmykey\r\n");
+    }
+
+    #[test]
+    fn test_command_shutdown_encoding() {
+        let buf = ().shutdown().build();
+        assert_eq!(buf.as_ref(), b"*1\r\n$8\r\nSHUTDOWN\r\n");
+    }
+
+    #[test]
+    fn test_command_shutdown_nosave_encoding() {
+        let buf = ().shutdown_nosave().build();
+        assert_eq!(buf.as_ref(), b"*2\r\n$8\r\nSHUTDOWN\r\n$6\r\nNOSAVE\r\n");
+    }
+
+    #[test]
+    fn test_command_info_encoding() {
+        let buf = ().info().build();
+        assert_eq!(buf.as_ref(), b"*1\r\n$4\r\nINFO\r\n");
+    }
+
+    #[test]
+    fn test_command_info_server_encoding() {
+        let buf = ().info_section("server").build();
+        assert_eq!(buf.as_ref(), b"*2\r\n$4\r\nINFO\r\n$6\r\nserver\r\n");
+    }
+
+    #[test]
+    fn test_command_config_get_encoding() {
+        let buf = ().config_get("maxmemory").build();
+        assert_eq!(
+            buf.as_ref(),
+            b"*3\r\n$6\r\nCONFIG\r\n$3\r\nGET\r\n$9\r\nmaxmemory\r\n"
+        );
     }
 }
