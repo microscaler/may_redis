@@ -860,7 +860,7 @@ mod tests {
         if let Ok(c) = conn {
             assert!(c.id() > 0);
             let tag = c.send(Request::new(vec![0], spsc::channel().0));
-            assert_eq!(tag, 0);
+            assert_eq!(tag.unwrap(), 0);
         }
     }
 
@@ -873,9 +873,9 @@ mod tests {
             let tag0 = c.send(Request::new(vec![0], spsc::channel().0));
             let tag1 = c.send(Request::new(vec![0], spsc::channel().0));
             let tag2 = c.send(Request::new(vec![0], spsc::channel().0));
-            assert_eq!(tag0, 0);
-            assert_eq!(tag1, 1);
-            assert_eq!(tag2, 2);
+            assert_eq!(tag0.unwrap(), 0);
+            assert_eq!(tag1.unwrap(), 1);
+            assert_eq!(tag2.unwrap(), 2);
         }
     }
 

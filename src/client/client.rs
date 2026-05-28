@@ -376,7 +376,10 @@ impl RedisClient {
         }
 
         // Step 6: Send the request to the connection loop
-        let _tag = self.inner.connection.send(Request::new(data.to_vec(), tx));
+        let _tag = self
+            .inner
+            .connection
+            .send(Request::new(data.unwrap().to_vec(), tx));
 
         // Step 7: Poll loop — wait for response or timeout signal
         let response = loop {
