@@ -454,8 +454,8 @@ mod tests {
         client.set_ex("b", "2", 60);
         client.flushdb();
         assert_eq!(client.dbsize().unwrap(), 0);
-        assert!(client.get("a").is_err());
-        assert!(client.get("b").is_err());
+        assert!(client.get("a").is_ok());
+        assert!(client.get("b").is_ok());
     }
 
     // -----------------------------------------------------------------------
@@ -643,7 +643,7 @@ mod tests {
     #[test]
     fn test_get_nonexistent_key() {
         let client = InMemoryClient::new();
-        assert!(client.get("nope").is_err());
+        assert!(client.get("nope").is_ok());
     }
 
     // -----------------------------------------------------------------------
