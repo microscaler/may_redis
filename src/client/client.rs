@@ -4,10 +4,12 @@
 
 use crate::core::{FromRedisValue, RedisError, RedisValue, ToRedisArgs};
 use crate::protocol::{builder::CommandBuilder, commands::Commands};
+use may::go;
+use may::sync::spsc;
 use std::sync::Arc;
+use std::time::Duration;
 
 use crate::connection::{Connection, Request};
-use may::sync::spsc;
 
 use super::pipeline::Pipeline;
 
@@ -60,14 +62,25 @@ impl RedisClient {
         Self::connect(host, port).map_err(|e| RedisError::Parse(format!("connection failed: {e}")))
     }
 
-    /// Execute a command and return the typed result.
+    /// Execute a command with a configurable timeout and return the typed result.
     ///
     /// # Arguments
     /// * `cmd` - The command to execute, built with [`CommandBuilder`]
+    /// * `timeout` - Maximum duration to wait for a response
     ///
     /// # Returns
-    /// The decoded response of type `T`, or a [`RedisError`] on failure.
-    pub fn execute<T: FromRedisValue>(&self, cmd: CommandBuilder) -> Result<T, RedisError> {
+    /// The decoded response of type `T`, or a [`RedisError::Connection`] timeout error.
+    ///
+    /// # Timeout behavior
+    /// Polls the response channel with `try_recv()` in a loop, racing against
+    /// a timeout coroutine that signals on a separate spsc channel. If the
+    /// response arrives first it is returned immediately; if the timeout fires
+    /// first a `Connection` error is returned.
+    pub fn execute_with_timeout<T: FromRedisValue>(
+        &self,
+        cmd: CommandBuilder,
+        timeout: Duration,
+    ) -> Result<T, RedisError> {
         // Build the command into RESP bytes
         let data = cmd.build();
 
@@ -78,10 +91,33 @@ impl RedisClient {
         let request = Request::new(data.to_vec(), tx);
         let _tag = self.inner.connection.send(request);
 
-        // Wait for response from the connection loop
-        let response = rx
-            .recv()
-            .map_err(|_| RedisError::Parse("response channel closed".into()))?;
+        // Spsc channel for timeout signaling — keeps `rx` on the main thread.
+        let (timeout_tx, timeout_rx) = spsc::channel::<()>();
+
+        // Spawn a timeout coroutine that signals via the separate channel.
+        go!(move || {
+            std::thread::sleep(timeout);
+            let _ = timeout_tx.send(());
+        });
+
+        // Poll loop: wait for response or timeout signal.
+        // `rx.try_recv()` is non-blocking so the main coroutine yields
+        // and lets the connection-loop epoll coroutine run.
+        let response = loop {
+            // Try to receive the response first.
+            if let Ok(resp) = rx.try_recv() {
+                break resp;
+            }
+            // Check for timeout.
+            if timeout_rx.try_recv().is_ok() {
+                return Err(RedisError::Connection(format!(
+                    "command execution timed out after {:?}",
+                    timeout
+                )));
+            }
+            // Yield to let the connection loop make progress.
+            may::coroutine::yield_now();
+        };
 
         // Check for Redis protocol errors before type conversion.
         // This preserves the original Redis error message instead of
@@ -92,6 +128,33 @@ impl RedisClient {
 
         // Convert RedisValue to the requested type
         T::from_redis_value(&response)
+    }
+
+    /// Execute a command with a timeout in seconds and return the typed result.
+    ///
+    /// # Arguments
+    /// * `cmd` - The command to execute, built with [`CommandBuilder`]
+    /// * `seconds` - Maximum seconds to wait for a response
+    ///
+    /// # Returns
+    /// The decoded response of type `T`, or a [`RedisError::Connection`] timeout error.
+    pub fn execute_timeout<T: FromRedisValue>(
+        &self,
+        cmd: CommandBuilder,
+        seconds: u32,
+    ) -> Result<T, RedisError> {
+        self.execute_with_timeout(cmd, Duration::from_secs(seconds as u64))
+    }
+
+    /// Execute a command and return the typed result (30-second default timeout).
+    ///
+    /// # Arguments
+    /// * `cmd` - The command to execute, built with [`CommandBuilder`]
+    ///
+    /// # Returns
+    /// The decoded response of type `T`, or a [`RedisError`] on failure.
+    pub fn execute<T: FromRedisValue>(&self, cmd: CommandBuilder) -> Result<T, RedisError> {
+        self.execute_with_timeout(cmd, Duration::from_secs(30))
     }
 
     /// Send a PING command and return the response.
