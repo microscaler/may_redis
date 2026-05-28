@@ -111,7 +111,7 @@ impl ToRedisArgs for f64 {
             // f64::to_string() drops the trailing .0 for whole numbers (e.g., "1" not "1.0")
             // Redis expects the decimal point to always be present.
             if !s.contains('.') && !s.contains('e') && !s.contains('E') {
-                buf.push(format!("{}.0", s).into_bytes());
+                buf.push(format!("{s}.0").into_bytes());
             } else {
                 buf.push(s.into_bytes());
             }
