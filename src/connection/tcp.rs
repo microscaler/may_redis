@@ -59,6 +59,11 @@ impl TcpConnector {
     /// # Arguments
     /// * `host` - Server hostname or IP address
     /// * `port` - Server port
+    ///
+    /// # Errors
+    /// Returns [`ConnectionError`] on DNS resolution failure, TCP connect
+    /// failure, TCP_NODELAY failure, or if all resolved addresses fail to
+    /// connect.
     pub fn connect(host: &str, port: u16) -> Result<TcpStream, ConnectionError> {
         Self::connect_with_timeout(host, port, Duration::from_secs(5))
     }
@@ -73,6 +78,12 @@ impl TcpConnector {
     /// * `host` - Server hostname or IP address
     /// * `port` - Server port
     /// * `timeout` - Maximum duration to wait for the connection
+    ///
+    /// # Errors
+    /// Returns [`ConnectionError::Resolve`] on DNS failure,
+    /// [`ConnectionError::Connect`] on TCP failure,
+    /// [`ConnectionError::SetNodelay`] on socket option failure, or
+    /// [`ConnectionError::Timeout`] on timeout.
     pub fn connect_with_timeout(
         host: &str,
         port: u16,
@@ -96,12 +107,16 @@ impl TcpConnector {
     /// Establish a TCP connection with timeout in seconds.
     ///
     /// Convenience method that converts seconds to a Duration and calls
-    /// [`connect_with_timeout`].
+    /// `connect_with_timeout`.
     ///
     /// # Arguments
     /// * `host` - Server hostname or IP address
     /// * `port` - Server port
     /// * `seconds` - Maximum seconds to wait for the connection
+    ///
+    /// # Errors
+    /// Returns [`ConnectionError`] on resolution, connection, nodelay,
+    /// or timeout failure.
     pub fn connect_timeout(
         host: &str,
         port: u16,
@@ -114,6 +129,11 @@ impl TcpConnector {
     ///
     /// # Arguments
     /// * `url` - Connection URL in the format `redis://host:port`
+    ///
+    /// # Errors
+    /// Returns [`ConnectionError::Connect`] if the URL is malformed or the
+    /// port is invalid, or [`ConnectionError`] from the underlying connect
+    /// call.
     pub fn connect_url(url: &str) -> Result<TcpStream, ConnectionError> {
         let url = url.strip_prefix("redis://").unwrap_or(url);
         let (host, port) = url
@@ -130,6 +150,11 @@ impl TcpConnector {
     /// # Arguments
     /// * `url` - Connection URL in the format `redis://host:port`
     /// * `seconds` - Maximum seconds to wait for the connection
+    ///
+    /// # Errors
+    /// Returns [`ConnectionError::Connect`] if the URL is malformed or the
+    /// port is invalid, or [`ConnectionError`] from the underlying connect
+    /// call.
     pub fn connect_url_timeout(url: &str, seconds: u32) -> Result<TcpStream, ConnectionError> {
         let url = url.strip_prefix("redis://").unwrap_or(url);
         let (host, port) = url

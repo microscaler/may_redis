@@ -66,8 +66,17 @@ pub type RedisResult<T> = Result<T, RedisError>;
 /// this trait. It is the inverse of [`ToRedisArgs`].
 ///
 /// [`ToRedisArgs`]: crate::ToRedisArgs
+///
+/// # Errors
+/// Returns [`RedisError::Parse`] if the `RedisValue` cannot be converted
+/// to the requested Rust type.
 pub trait FromRedisValue: Sized {
     /// Convert a `&RedisValue` into `Self`, returning an error on type mismatch.
+    ///
+    /// # Errors
+    /// Returns [`RedisError::Parse`] if the `RedisValue` does not match the
+    /// expected type for the target Rust type (e.g. `Integer` expected for
+    /// `i64`, `BulkString` expected for `String`).
     fn from_redis_value(value: &RedisValue) -> RedisResult<Self>;
 }
 

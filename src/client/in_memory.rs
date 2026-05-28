@@ -35,6 +35,10 @@ impl InMemoryStore {
     }
 
     /// Get a value, returning Ok("") if missing or expired.
+    ///
+    /// # Errors
+    /// This is an infallible variant — returns an empty `String` for missing
+    /// keys rather than an error.
     pub fn get(&mut self, key: &str) -> Result<String, RedisError> {
         self.cleanup();
         match self.data.get(key) {
@@ -70,6 +74,9 @@ impl InMemoryStore {
     ///
     /// - On a missing key: auto-create with value 1.
     /// - On a non-integer value: return error.
+    ///
+    /// # Errors
+    /// Returns [`RedisError::Other`] if the existing value is not a valid integer.
     pub fn incr(&mut self, key: &str) -> Result<i64, RedisError> {
         self.cleanup();
         let current = self.data.get(key).map(|(v, _)| v.clone());
@@ -90,6 +97,9 @@ impl InMemoryStore {
     }
 
     /// Get remaining TTL in seconds.
+    ///
+    /// # Errors
+    /// Returns [`RedisError::Other`] if the key does not exist.
     pub fn ttl(&mut self, key: &str) -> Result<i64, RedisError> {
         self.cleanup();
         match self.data.get(key) {
@@ -185,6 +195,10 @@ fn glob_match(pattern: &str, text: &str) -> bool {
 ///
 /// Thread-safe: protected by `Arc<Mutex<InMemoryStore>>`.
 /// No dependency on `may` runtime or a running Redis server.
+///
+/// # Panics
+/// All methods panic if the `Arc<Mutex<InMemoryStore>>` is poisoned by a
+/// previous panic in another caller holding the lock.
 pub struct InMemoryClient {
     store: Arc<Mutex<InMemoryStore>>,
 }
@@ -204,57 +218,116 @@ impl InMemoryClient {
         }
     }
 
-    /// GET key
+    /// GET key.
+    ///
+    /// # Errors
+    /// Returns [`RedisError::Parse`] if the mutex is poisoned.
+    ///
+    /// # Panics
+    /// If the `Arc<Mutex<InMemoryStore>>` is poisoned by a previous panic.
     pub fn get(&self, key: &str) -> Result<String, RedisError> {
         self.store.lock().unwrap().get(key)
     }
 
     /// SET key value
+    ///
+    /// # Panics
+    /// If the `Arc<Mutex<InMemoryStore>>` is poisoned.
     pub fn set(&self, key: &str, value: &str) {
         self.store.lock().unwrap().set(key, value);
     }
 
     /// SET key value EX seconds
+    ///
+    /// # Panics
+    /// If the `Arc<Mutex<InMemoryStore>>` is poisoned.
     pub fn set_ex(&self, key: &str, value: &str, seconds: u64) {
         self.store.lock().unwrap().set_ex(key, value, seconds);
     }
 
-    /// DEL key — returns 0 or 1
+    /// DEL key — returns 0 or 1.
+    ///
+    /// # Errors
+    /// Returns [`RedisError::Parse`] if the mutex is poisoned.
+    ///
+    /// # Panics
+    /// If the `Arc<Mutex<InMemoryStore>>` is poisoned.
     pub fn del(&self, key: &str) -> Result<usize, RedisError> {
         Ok(self.store.lock().unwrap().del(key))
     }
 
-    /// EXISTS key
+    /// EXISTS key.
+    ///
+    /// # Errors
+    /// Returns [`RedisError::Parse`] if the mutex is poisoned.
+    ///
+    /// # Panics
+    /// If the `Arc<Mutex<InMemoryStore>>` is poisoned.
     pub fn exists(&self, key: &str) -> Result<bool, RedisError> {
         Ok(self.store.lock().unwrap().exists(key))
     }
 
-    /// INCR key
+    /// INCR key.
+    ///
+    /// # Errors
+    /// Returns [`RedisError::Other`] if the value is not a valid integer, or
+    /// [`RedisError::Parse`] if the mutex is poisoned.
+    ///
+    /// # Panics
+    /// If the `Arc<Mutex<InMemoryStore>>` is poisoned.
     pub fn incr(&self, key: &str) -> Result<i64, RedisError> {
         self.store.lock().unwrap().incr(key)
     }
 
-    /// TTL key
+    /// TTL key.
+    ///
+    /// # Errors
+    /// Returns [`RedisError::Other`] if the key does not exist, or
+    /// [`RedisError::Parse`] if the mutex is poisoned.
+    ///
+    /// # Panics
+    /// If the `Arc<Mutex<InMemoryStore>>` is poisoned.
     pub fn ttl(&self, key: &str) -> Result<i64, RedisError> {
         self.store.lock().unwrap().ttl(key)
     }
 
-    /// EXPIRE key seconds
+    /// EXPIRE key seconds.
+    ///
+    /// # Errors
+    /// Returns [`RedisError::Parse`] if the mutex is poisoned.
+    ///
+    /// # Panics
+    /// If the `Arc<Mutex<InMemoryStore>>` is poisoned.
     pub fn expire(&self, key: &str, seconds: u64) -> Result<bool, RedisError> {
         Ok(self.store.lock().unwrap().expire(key, seconds))
     }
 
-    /// KEYS pattern — glob matching with `*` and `?*`
+    /// KEYS pattern — glob matching with `*` and `?*`.
+    ///
+    /// # Errors
+    /// Returns [`RedisError::Parse`] if the mutex is poisoned.
+    ///
+    /// # Panics
+    /// If the `Arc<Mutex<InMemoryStore>>` is poisoned.
     pub fn keys(&self, pattern: &str) -> Result<Vec<String>, RedisError> {
         Ok(self.store.lock().unwrap().keys(pattern))
     }
 
-    /// DBSIZE
+    /// DBSIZE.
+    ///
+    /// # Errors
+    /// Returns [`RedisError::Parse`] if the mutex is poisoned.
+    ///
+    /// # Panics
+    /// If the `Arc<Mutex<InMemoryStore>>` is poisoned.
     pub fn dbsize(&self) -> Result<usize, RedisError> {
         Ok(self.store.lock().unwrap().dbsize())
     }
 
     /// FLUSHDB
+    ///
+    /// # Panics
+    /// If the `Arc<Mutex<InMemoryStore>>` is poisoned.
     pub fn flushdb(&self) {
         self.store.lock().unwrap().flushdb();
     }

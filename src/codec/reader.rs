@@ -78,6 +78,12 @@ impl RESPReader {
     }
 
     /// Read a single RESP value from the buffer.
+    ///
+    /// # Errors
+    /// Returns [`RedisError::Parse`] on malformed wire format:
+    /// missing CRLF, unknown RESP marker, incomplete bulk string,
+    /// invalid integer length, or array length exceeding [`RESPReader`]
+    /// configured limits.
     pub fn read_value(&mut self) -> Result<RedisValue, RedisError> {
         self.skip_crlf();
         let marker = self.next_byte()?;
