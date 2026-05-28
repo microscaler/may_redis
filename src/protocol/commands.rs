@@ -183,7 +183,7 @@ pub trait Commands: Sized {
 
     /// MGET keys — Get the values of all the given keys
     #[must_use = "call .build() to encode the command"]
-    fn mget<K: ToRedisArgs>(keys: &[K]) -> CommandBuilder {
+    fn mget<K: ToRedisArgs>(&self, keys: &[K]) -> CommandBuilder {
         let mut builder = CommandBuilder::new("MGET");
         for key in keys {
             builder = builder.arg(key);
@@ -193,7 +193,7 @@ pub trait Commands: Sized {
 
     /// MSET key value [key value ...] — Set multiple keys to multiple values
     #[must_use = "call .build() to encode the command"]
-    fn mset<K: ToRedisArgs, V: ToRedisArgs>(pairs: &[(K, V)]) -> CommandBuilder {
+    fn mset<K: ToRedisArgs, V: ToRedisArgs>(&self, pairs: &[(K, V)]) -> CommandBuilder {
         let mut builder = CommandBuilder::new("MSET");
         for (key, value) in pairs {
             builder = builder.arg(key).arg(value);
@@ -203,7 +203,7 @@ pub trait Commands: Sized {
 
     /// MSETNX key value [key value ...] — Set multiple keys to multiple values, only if none of the keys exist
     #[must_use = "call .build() to encode the command"]
-    fn msetnx<K: ToRedisArgs, V: ToRedisArgs>(pairs: &[(K, V)]) -> CommandBuilder {
+    fn msetnx<K: ToRedisArgs, V: ToRedisArgs>(&self, pairs: &[(K, V)]) -> CommandBuilder {
         let mut builder = CommandBuilder::new("MSETNX");
         for (key, value) in pairs {
             builder = builder.arg(key).arg(value);
@@ -388,7 +388,7 @@ pub trait Commands: Sized {
 
     /// SINTER keys — Get the intersection of multiple sets
     #[must_use = "call .build() to encode the command"]
-    fn sinter<K: ToRedisArgs>(keys: &[K]) -> CommandBuilder {
+    fn sinter<K: ToRedisArgs>(&self, keys: &[K]) -> CommandBuilder {
         let mut builder = CommandBuilder::new("SINTER");
         for key in keys {
             builder = builder.arg(key);
@@ -398,7 +398,7 @@ pub trait Commands: Sized {
 
     /// SUNION keys — Get the union of multiple sets
     #[must_use = "call .build() to encode the command"]
-    fn sunion<K: ToRedisArgs>(keys: &[K]) -> CommandBuilder {
+    fn sunion<K: ToRedisArgs>(&self, keys: &[K]) -> CommandBuilder {
         let mut builder = CommandBuilder::new("SUNION");
         for key in keys {
             builder = builder.arg(key);
@@ -1159,7 +1159,7 @@ mod tests {
 
     #[test]
     fn test_command_mget_encoding() {
-        let buf = <() as Commands>::mget(&["key1", "key2"]).build();
+        let buf = <() as Commands>::mget(&(), &["key1", "key2"]).build();
         assert_eq!(
             buf.as_ref(),
             b"*3\r\n$4\r\nMGET\r\n$4\r\nkey1\r\n$4\r\nkey2\r\n"
@@ -1168,7 +1168,7 @@ mod tests {
 
     #[test]
     fn test_command_mset_encoding() {
-        let buf = <() as Commands>::mset(&[("key1", "val1"), ("key2", "val2")]).build();
+        let buf = <() as Commands>::mset(&(), &[("key1", "val1"), ("key2", "val2")]).build();
         assert_eq!(
             buf.as_ref(),
             b"*5\r\n$4\r\nMSET\r\n$4\r\nkey1\r\n$4\r\nval1\r\n$4\r\nkey2\r\n$4\r\nval2\r\n"
@@ -1177,7 +1177,7 @@ mod tests {
 
     #[test]
     fn test_command_msetnx_encoding() {
-        let buf = <() as Commands>::msetnx(&[("key1", "val1"), ("key2", "val2")]).build();
+        let buf = <() as Commands>::msetnx(&(), &[("key1", "val1"), ("key2", "val2")]).build();
         assert_eq!(
             buf.as_ref(),
             b"*5\r\n$6\r\nMSETNX\r\n$4\r\nkey1\r\n$4\r\nval1\r\n$4\r\nkey2\r\n$4\r\nval2\r\n"
@@ -1366,7 +1366,7 @@ mod tests {
 
     #[test]
     fn test_command_sinter_encoding() {
-        let buf = <() as Commands>::sinter(&["set1", "set2"]).build();
+        let buf = <() as Commands>::sinter(&(), &["set1", "set2"]).build();
         assert_eq!(
             buf.as_ref(),
             b"*3\r\n$6\r\nSINTER\r\n$4\r\nset1\r\n$4\r\nset2\r\n"
@@ -1375,7 +1375,7 @@ mod tests {
 
     #[test]
     fn test_command_sunion_encoding() {
-        let buf = <() as Commands>::sunion(&["set1", "set2"]).build();
+        let buf = <() as Commands>::sunion(&(), &["set1", "set2"]).build();
         assert_eq!(
             buf.as_ref(),
             b"*3\r\n$6\r\nSUNION\r\n$4\r\nset1\r\n$4\r\nset2\r\n"
