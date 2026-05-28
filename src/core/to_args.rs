@@ -96,6 +96,33 @@ impl ToRedisArgs for u32 {
     }
 }
 
+impl ToRedisArgs for f64 {
+    fn write_redis_args(&self, buf: &mut Vec<Vec<u8>>) {
+        if self.is_nan() {
+            buf.push(b"nan".to_vec());
+        } else if self.is_infinite() {
+            if self.is_sign_positive() {
+                buf.push(b"inf".to_vec());
+            } else {
+                buf.push(b"-inf".to_vec());
+            }
+        } else {
+            let s = self.to_string();
+            // f64::to_string() drops the trailing .0 for whole numbers (e.g., "1" not "1.0")
+            // Redis expects the decimal point to always be present.
+            if !s.contains('.') && !s.contains('e') && !s.contains('E') {
+                buf.push(format!("{}.0", s).into_bytes());
+            } else {
+                buf.push(s.into_bytes());
+            }
+        }
+    }
+
+    fn is_simple_arg(&self) -> bool {
+        true
+    }
+}
+
 impl ToRedisArgs for &[u8] {
     fn write_redis_args(&self, buf: &mut Vec<Vec<u8>>) {
         buf.push(self.to_vec());

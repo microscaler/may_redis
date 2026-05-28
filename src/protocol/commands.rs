@@ -525,6 +525,190 @@ pub trait Commands: Sized {
         }
         builder.arg(timeout)
     }
+
+    /// ZADD key score member — Add a member with a score to a sorted set
+    #[must_use = "call .build() to encode the command"]
+    fn zadd<K: ToRedisArgs, M: ToRedisArgs>(
+        &self,
+        key: K,
+        score: f64,
+        member: M,
+    ) -> CommandBuilder {
+        CommandBuilder::new("ZADD").arg(key).arg(score).arg(member)
+    }
+
+    /// ZADD key scores — Add multiple members with scores to a sorted set
+    #[must_use = "call .build() to encode the command"]
+    fn zadd_multi<K: ToRedisArgs, M: ToRedisArgs>(
+        &self,
+        key: K,
+        scores: &[(f64, M)],
+    ) -> CommandBuilder {
+        let mut builder = CommandBuilder::new("ZADD");
+        builder = builder.arg(key);
+        for (score, member) in scores {
+            builder = builder.arg(score).arg(member);
+        }
+        builder
+    }
+
+    /// ZREM key member — Remove a member from a sorted set
+    #[must_use = "call .build() to encode the command"]
+    fn zrem<K: ToRedisArgs, M: ToRedisArgs>(&self, key: K, member: M) -> CommandBuilder {
+        CommandBuilder::new("ZREM").arg(key).arg(member)
+    }
+
+    /// ZREM key members — Remove multiple members from a sorted set
+    #[must_use = "call .build() to encode the command"]
+    fn zrem_members<K: ToRedisArgs, M: ToRedisArgs>(
+        &self,
+        key: K,
+        members: &[M],
+    ) -> CommandBuilder {
+        let mut builder = CommandBuilder::new("ZREM");
+        builder = builder.arg(key);
+        for member in members {
+            builder = builder.arg(member);
+        }
+        builder
+    }
+
+    /// ZRANGE key start stop — Return a range of members in a sorted set
+    #[must_use = "call .build() to encode the command"]
+    fn zrange<K: ToRedisArgs>(&self, key: K, start: i64, stop: i64) -> CommandBuilder {
+        CommandBuilder::new("ZRANGE").arg(key).arg(start).arg(stop)
+    }
+
+    /// ZRANGE key start stop WITHSCORES — Return a range with scores
+    #[must_use = "call .build() to encode the command"]
+    fn zrange_withscores<K: ToRedisArgs>(&self, key: K, start: i64, stop: i64) -> CommandBuilder {
+        CommandBuilder::new("ZRANGE")
+            .arg(key)
+            .arg(start)
+            .arg(stop)
+            .arg("WITHSCORES")
+    }
+
+    /// ZRANK key member — Return the rank of a member in a sorted set
+    #[must_use = "call .build() to encode the command"]
+    fn zrank<K: ToRedisArgs, M: ToRedisArgs>(&self, key: K, member: M) -> CommandBuilder {
+        CommandBuilder::new("ZRANK").arg(key).arg(member)
+    }
+
+    /// ZSCORE key member — Return the score of a member in a sorted set
+    #[must_use = "call .build() to encode the command"]
+    fn zscore<K: ToRedisArgs, M: ToRedisArgs>(&self, key: K, member: M) -> CommandBuilder {
+        CommandBuilder::new("ZSCORE").arg(key).arg(member)
+    }
+
+    /// ZCARD key — Return the number of members in a sorted set
+    #[must_use = "call .build() to encode the command"]
+    fn zcard<K: ToRedisArgs>(&self, key: K) -> CommandBuilder {
+        CommandBuilder::new("ZCARD").arg(key)
+    }
+
+    /// ZCOUNT key min max — Count members in a sorted set by score
+    #[must_use = "call .build() to encode the command"]
+    fn zcount<K: ToRedisArgs>(&self, key: K, min: f64, max: f64) -> CommandBuilder {
+        CommandBuilder::new("ZCOUNT").arg(key).arg(min).arg(max)
+    }
+
+    /// ZINCRBY key increment member — Increment the score of a member
+    #[must_use = "call .build() to encode the command"]
+    fn zincrby<K: ToRedisArgs, M: ToRedisArgs>(
+        &self,
+        key: K,
+        increment: f64,
+        member: M,
+    ) -> CommandBuilder {
+        CommandBuilder::new("ZINCRBY")
+            .arg(key)
+            .arg(increment)
+            .arg(member)
+    }
+
+    /// ZPOPMAX key — Remove and return the member with the highest score
+    #[must_use = "call .build() to encode the command"]
+    fn zpopmax<K: ToRedisArgs>(&self, key: K) -> CommandBuilder {
+        CommandBuilder::new("ZPOPMAX").arg(key)
+    }
+
+    /// ZPOPMAX key count — Remove and return up to count members with highest scores
+    #[must_use = "call .build() to encode the command"]
+    fn zpopmax_count<K: ToRedisArgs>(&self, key: K, count: i64) -> CommandBuilder {
+        CommandBuilder::new("ZPOPMAX").arg(key).arg(count)
+    }
+
+    /// ZPOPMIN key — Remove and return the member with the lowest score
+    #[must_use = "call .build() to encode the command"]
+    fn zpopmin<K: ToRedisArgs>(&self, key: K) -> CommandBuilder {
+        CommandBuilder::new("ZPOPMIN").arg(key)
+    }
+
+    /// ZPOPMIN key count — Remove and return up to count members with lowest scores
+    #[must_use = "call .build() to encode the command"]
+    fn zpopmin_count<K: ToRedisArgs>(&self, key: K, count: i64) -> CommandBuilder {
+        CommandBuilder::new("ZPOPMIN").arg(key).arg(count)
+    }
+
+    /// ZSCAN key cursor — Incrementally iterate sorted set members
+    #[must_use = "call .build() to encode the command"]
+    fn zscan<K: ToRedisArgs>(&self, key: K, cursor: i64) -> CommandBuilder {
+        CommandBuilder::new("ZSCAN").arg(key).arg(cursor)
+    }
+
+    /// ZSCAN MATCH key cursor pattern — Incrementally iterate with pattern matching
+    #[must_use = "call .build() to encode the command"]
+    fn zscan_match<K: ToRedisArgs>(&self, key: K, cursor: i64, pattern: &str) -> CommandBuilder {
+        CommandBuilder::new("ZSCAN")
+            .arg(key)
+            .arg(cursor)
+            .arg("MATCH")
+            .arg(pattern)
+    }
+
+    /// ZRANGEBYSCORE key min max — Return members by score range
+    #[must_use = "call .build() to encode the command"]
+    fn zrangebyscore<K: ToRedisArgs>(&self, key: K, min: f64, max: f64) -> CommandBuilder {
+        CommandBuilder::new("ZRANGEBYSCORE")
+            .arg(key)
+            .arg(min)
+            .arg(max)
+    }
+
+    /// ZRANGEBYSCORE key min max WITHSCORES — Return members with scores by score range
+    #[must_use = "call .build() to encode the command"]
+    fn zrangebyscore_withscores<K: ToRedisArgs>(
+        &self,
+        key: K,
+        min: f64,
+        max: f64,
+    ) -> CommandBuilder {
+        CommandBuilder::new("ZRANGEBYSCORE")
+            .arg(key)
+            .arg(min)
+            .arg(max)
+            .arg("WITHSCORES")
+    }
+
+    /// ZRANGEBYSCORE key min max LIMIT offset count — Range with pagination
+    #[must_use = "call .build() to encode the command"]
+    fn zrangebyscore_limit<K: ToRedisArgs>(
+        &self,
+        key: K,
+        min: f64,
+        max: f64,
+        offset: i64,
+        count: i64,
+    ) -> CommandBuilder {
+        CommandBuilder::new("ZRANGEBYSCORE")
+            .arg(key)
+            .arg(min)
+            .arg(max)
+            .arg("LIMIT")
+            .arg(offset)
+            .arg(count)
+    }
 }
 
 // Blanket impl so () implements Commands
@@ -1074,6 +1258,177 @@ mod tests {
         assert_eq!(
             buf.as_ref(),
             b"*4\r\n$5\r\nBRPOP\r\n$5\r\nlist1\r\n$5\r\nlist2\r\n$1\r\n0\r\n"
+        );
+    }
+
+    #[test]
+    fn test_command_zadd_encoding() {
+        let buf = ().zadd("myzset", 1.0, "member1").build();
+        assert_eq!(
+            buf.as_ref(),
+            b"*4\r\n$4\r\nZADD\r\n$6\r\nmyzset\r\n$3\r\n1.0\r\n$7\r\nmember1\r\n"
+        );
+    }
+
+    #[test]
+    fn test_command_zadd_multi_encoding() {
+        let buf = ().zadd_multi("myzset", &[(1.0, "m1"), (2.0, "m2")]).build();
+        assert_eq!(
+            buf.as_ref(),
+            b"*6\r\n$4\r\nZADD\r\n$6\r\nmyzset\r\n$3\r\n1.0\r\n$2\r\nm1\r\n$3\r\n2.0\r\n$2\r\nm2\r\n"
+        );
+    }
+
+    #[test]
+    fn test_command_zrem_encoding() {
+        let buf = ().zrem("myzset", "member1").build();
+        assert_eq!(
+            buf.as_ref(),
+            b"*3\r\n$4\r\nZREM\r\n$6\r\nmyzset\r\n$7\r\nmember1\r\n"
+        );
+    }
+
+    #[test]
+    fn test_command_zrem_members_encoding() {
+        let buf = ().zrem_members("myzset", &["m1", "m2"]).build();
+        assert_eq!(
+            buf.as_ref(),
+            b"*4\r\n$4\r\nZREM\r\n$6\r\nmyzset\r\n$2\r\nm1\r\n$2\r\nm2\r\n"
+        );
+    }
+
+    #[test]
+    fn test_command_zrange_encoding() {
+        let buf = ().zrange("myzset", 0, -1).build();
+        assert_eq!(
+            buf.as_ref(),
+            b"*4\r\n$6\r\nZRANGE\r\n$6\r\nmyzset\r\n$1\r\n0\r\n$2\r\n-1\r\n"
+        );
+    }
+
+    #[test]
+    fn test_command_zrange_withscores_encoding() {
+        let buf = ().zrange_withscores("myzset", 0, -1).build();
+        assert_eq!(
+            buf.as_ref(),
+            b"*5\r\n$6\r\nZRANGE\r\n$6\r\nmyzset\r\n$1\r\n0\r\n$2\r\n-1\r\n$10\r\nWITHSCORES\r\n"
+        );
+    }
+
+    #[test]
+    fn test_command_zrank_encoding() {
+        let buf = ().zrank("myzset", "member1").build();
+        assert_eq!(
+            buf.as_ref(),
+            b"*3\r\n$5\r\nZRANK\r\n$6\r\nmyzset\r\n$7\r\nmember1\r\n"
+        );
+    }
+
+    #[test]
+    fn test_command_zscore_encoding() {
+        let buf = ().zscore("myzset", "member1").build();
+        assert_eq!(
+            buf.as_ref(),
+            b"*3\r\n$6\r\nZSCORE\r\n$6\r\nmyzset\r\n$7\r\nmember1\r\n"
+        );
+    }
+
+    #[test]
+    fn test_command_zcard_encoding() {
+        let buf = ().zcard("myzset").build();
+        assert_eq!(buf.as_ref(), b"*2\r\n$5\r\nZCARD\r\n$6\r\nmyzset\r\n");
+    }
+
+    #[test]
+    fn test_command_zcount_encoding() {
+        let buf = ().zcount("myzset", 1.0, 10.0).build();
+        assert_eq!(
+            buf.as_ref(),
+            b"*4\r\n$6\r\nZCOUNT\r\n$6\r\nmyzset\r\n$3\r\n1.0\r\n$4\r\n10.0\r\n"
+        );
+    }
+
+    #[test]
+    fn test_command_zincrby_encoding() {
+        let buf = ().zincrby("myzset", 5.0, "member1").build();
+        assert_eq!(
+            buf.as_ref(),
+            b"*4\r\n$7\r\nZINCRBY\r\n$6\r\nmyzset\r\n$3\r\n5.0\r\n$7\r\nmember1\r\n"
+        );
+    }
+
+    #[test]
+    fn test_command_zpopmax_encoding() {
+        let buf = ().zpopmax("myzset").build();
+        assert_eq!(buf.as_ref(), b"*2\r\n$7\r\nZPOPMAX\r\n$6\r\nmyzset\r\n");
+    }
+
+    #[test]
+    fn test_command_zpopmax_count_encoding() {
+        let buf = ().zpopmax_count("myzset", 3).build();
+        assert_eq!(
+            buf.as_ref(),
+            b"*3\r\n$7\r\nZPOPMAX\r\n$6\r\nmyzset\r\n$1\r\n3\r\n"
+        );
+    }
+
+    #[test]
+    fn test_command_zpopmin_encoding() {
+        let buf = ().zpopmin("myzset").build();
+        assert_eq!(buf.as_ref(), b"*2\r\n$7\r\nZPOPMIN\r\n$6\r\nmyzset\r\n");
+    }
+
+    #[test]
+    fn test_command_zpopmin_count_encoding() {
+        let buf = ().zpopmin_count("myzset", 3).build();
+        assert_eq!(
+            buf.as_ref(),
+            b"*3\r\n$7\r\nZPOPMIN\r\n$6\r\nmyzset\r\n$1\r\n3\r\n"
+        );
+    }
+
+    #[test]
+    fn test_command_zscan_encoding() {
+        let buf = ().zscan("myzset", 0).build();
+        assert_eq!(
+            buf.as_ref(),
+            b"*3\r\n$5\r\nZSCAN\r\n$6\r\nmyzset\r\n$1\r\n0\r\n"
+        );
+    }
+
+    #[test]
+    fn test_command_zscan_match_encoding() {
+        let buf = ().zscan_match("myzset", 0, "m*").build();
+        assert_eq!(
+            buf.as_ref(),
+            b"*5\r\n$5\r\nZSCAN\r\n$6\r\nmyzset\r\n$1\r\n0\r\n$5\r\nMATCH\r\n$2\r\nm*\r\n"
+        );
+    }
+
+    #[test]
+    fn test_command_zrangebyscore_encoding() {
+        let buf = ().zrangebyscore("myzset", 1.0, 10.0).build();
+        assert_eq!(
+            buf.as_ref(),
+            b"*4\r\n$13\r\nZRANGEBYSCORE\r\n$6\r\nmyzset\r\n$3\r\n1.0\r\n$4\r\n10.0\r\n"
+        );
+    }
+
+    #[test]
+    fn test_command_zrangebyscore_withscores_encoding() {
+        let buf = ().zrangebyscore_withscores("myzset", 1.0, 10.0).build();
+        assert_eq!(
+            buf.as_ref(),
+            b"*5\r\n$13\r\nZRANGEBYSCORE\r\n$6\r\nmyzset\r\n$3\r\n1.0\r\n$4\r\n10.0\r\n$10\r\nWITHSCORES\r\n"
+        );
+    }
+
+    #[test]
+    fn test_command_zrangebyscore_limit_encoding() {
+        let buf = ().zrangebyscore_limit("myzset", 1.0, 10.0, 0, 5).build();
+        assert_eq!(
+            buf.as_ref(),
+            b"*7\r\n$13\r\nZRANGEBYSCORE\r\n$6\r\nmyzset\r\n$3\r\n1.0\r\n$4\r\n10.0\r\n$5\r\nLIMIT\r\n$1\r\n0\r\n$1\r\n5\r\n"
         );
     }
 }
