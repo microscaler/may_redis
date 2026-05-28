@@ -35,7 +35,7 @@ pub struct RESPReader {
 impl RESPReader {
     /// Create a new `RESPReader` backed by the given buffer.
     #[must_use = "must call read_value() to decode data"]
-    pub fn new(buf: BytesMut) -> Self {
+    pub const fn new(buf: BytesMut) -> Self {
         Self {
             buf,
             pos: 0,
@@ -421,7 +421,7 @@ mod tests {
         let err = r.read_value().unwrap_err();
         match &err {
             RedisError::Parse(msg) => assert!(msg.contains("expected CRLF")),
-            _ => panic!("expected Parse error, got {:?}", err),
+            _ => panic!("expected Parse error, got {err:?}"),
         }
     }
 
@@ -433,7 +433,7 @@ mod tests {
         let err = r.read_value().unwrap_err();
         match &err {
             RedisError::Parse(msg) => assert!(msg.contains("expected CRLF")),
-            _ => panic!("expected Parse error, got {:?}", err),
+            _ => panic!("expected Parse error, got {err:?}"),
         }
     }
 
@@ -445,7 +445,7 @@ mod tests {
         let err = r.read_value().unwrap_err();
         match &err {
             RedisError::Parse(msg) => assert!(msg.contains("expected CRLF")),
-            _ => panic!("expected Parse error, got {:?}", err),
+            _ => panic!("expected Parse error, got {err:?}"),
         }
     }
 
@@ -457,7 +457,7 @@ mod tests {
         let err = r.read_value().unwrap_err();
         match &err {
             RedisError::Parse(msg) => assert!(msg.contains("expected CRLF")),
-            _ => panic!("expected Parse error, got {:?}", err),
+            _ => panic!("expected Parse error, got {err:?}"),
         }
     }
 
@@ -469,7 +469,7 @@ mod tests {
         let err = r.read_value().unwrap_err();
         match &err {
             RedisError::Parse(msg) => assert!(msg.contains("expected CRLF")),
-            _ => panic!("expected Parse error, got {:?}", err),
+            _ => panic!("expected Parse error, got {err:?}"),
         }
     }
 
@@ -490,7 +490,7 @@ mod tests {
         let err = r.read_value().unwrap_err();
         match &err {
             RedisError::Parse(msg) => assert!(msg.contains("expected CRLF")),
-            _ => panic!("expected Parse error, got {:?}", err),
+            _ => panic!("expected Parse error, got {err:?}"),
         }
     }
 
@@ -531,7 +531,7 @@ mod tests {
                 assert!(msg.contains("exceeds maximum of 268435456"));
                 assert!(msg.contains("268435457"));
             }
-            _ => panic!("expected Parse error, got {:?}", err),
+            _ => panic!("expected Parse error, got {err:?}"),
         }
     }
 
@@ -545,7 +545,7 @@ mod tests {
             RedisError::Parse(msg) => {
                 assert!(msg.contains("exceeds maximum of 100"));
             }
-            _ => panic!("expected Parse error, got {:?}", err),
+            _ => panic!("expected Parse error, got {err:?}"),
         }
     }
 
@@ -586,7 +586,7 @@ mod tests {
         // Build an array of 1000 strings
         let mut items = Vec::new();
         for i in 0..1000 {
-            items.push(format!("${}\r\n{}\r\n", 4, format!("{:04}", i)));
+            items.push(format!("$4\r\n{:04}\r\n", i));
         }
         let payload = format!("*{}\r\n{}", 1000, items.join(""));
         let buf = BytesMut::from(payload.as_bytes());
@@ -611,7 +611,7 @@ mod tests {
                 assert!(msg.contains("exceeds maximum of 1000000"));
                 assert!(msg.contains("1000001"));
             }
-            _ => panic!("expected Parse error, got {:?}", err),
+            _ => panic!("expected Parse error, got {err:?}"),
         }
     }
 
@@ -625,7 +625,7 @@ mod tests {
             RedisError::Parse(msg) => {
                 assert!(msg.contains("exceeds maximum of 10"));
             }
-            _ => panic!("expected Parse error, got {:?}", err),
+            _ => panic!("expected Parse error, got {err:?}"),
         }
     }
 
@@ -716,7 +716,7 @@ mod tests {
             RedisError::Parse(msg) => {
                 assert!(msg.contains("exceeds maximum of 256"));
             }
-            _ => panic!("expected Parse error, got {:?}", err),
+            _ => panic!("expected Parse error, got {err:?}"),
         }
     }
 
@@ -729,7 +729,7 @@ mod tests {
             RedisError::Parse(msg) => {
                 assert!(msg.contains("exceeds maximum of 50"));
             }
-            _ => panic!("expected Parse error, got {:?}", err),
+            _ => panic!("expected Parse error, got {err:?}"),
         }
     }
 
@@ -742,7 +742,7 @@ mod tests {
             RedisError::Parse(msg) => {
                 assert!(msg.contains("exceeds maximum of 0"));
             }
-            _ => panic!("expected Parse error, got {:?}", err),
+            _ => panic!("expected Parse error, got {err:?}"),
         }
     }
 

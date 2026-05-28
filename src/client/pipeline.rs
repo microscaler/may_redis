@@ -14,7 +14,7 @@ use crate::core::{FromRedisValue, RedisError, RedisValue};
 use crate::protocol::builder::CommandBuilder;
 use may::coroutine::yield_now;
 use may::sync::spsc;
-use std::sync::{Arc, Mutex};
+// Arc and Mutex are used by the InMemoryClient test double, not here
 
 /// Trait for extracting typed results from multiple pipeline responses.
 ///
@@ -124,7 +124,7 @@ impl<'a> Pipeline<'a> {
         }
 
         // Drain receivers into a local vec so we can poll them
-        let mut receivers = std::mem::take(&mut self.receivers);
+        let receivers = std::mem::take(&mut self.receivers);
 
         // Yield to let the connection loop process all queued requests
         yield_now();

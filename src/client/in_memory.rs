@@ -364,8 +364,9 @@ mod tests {
         client.flushdb();
         assert_eq!(client.dbsize().unwrap(), 0);
         // Missing key returns Null, not error
-        assert!(client.get("key").is_ok());
-        assert!(client.get("key").unwrap().is_null());
+        let result = client.get("key");
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), "");
     }
 
     #[test]
@@ -410,8 +411,9 @@ mod tests {
         client.set_ex("key", "value", 0);
         std::thread::sleep(std::time::Duration::from_millis(10));
         // Expired keys return Null, matching real Redis behavior
-        assert!(client.get("key").is_ok());
-        assert!(client.get("key").unwrap().is_null());
+        let result = client.get("key");
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), "");
     }
 
     #[test]

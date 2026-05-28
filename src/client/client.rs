@@ -111,8 +111,7 @@ impl RedisClient {
             // Check for timeout.
             if timeout_rx.try_recv().is_ok() {
                 return Err(RedisError::Connection(format!(
-                    "command execution timed out after {:?}",
-                    timeout
+                    "command execution timed out after {timeout:?}"
                 )));
             }
             // Yield to let the connection loop make progress.
@@ -143,7 +142,7 @@ impl RedisClient {
         cmd: CommandBuilder,
         seconds: u32,
     ) -> Result<T, RedisError> {
-        self.execute_with_timeout(cmd, Duration::from_secs(seconds as u64))
+        self.execute_with_timeout(cmd, Duration::from_secs(u64::from(seconds)))
     }
 
     /// Execute a command and return the typed result (30-second default timeout).
