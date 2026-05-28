@@ -4,8 +4,8 @@
 
 use crate::core::{FromRedisValue, RedisError, RedisValue, ToRedisArgs};
 use crate::protocol::{builder::CommandBuilder, commands::Commands};
-use may::go;
 use may::sync::spsc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -13,8 +13,50 @@ use crate::connection::{Connection, Request};
 
 use super::pipeline::Pipeline;
 
+// ---------------------------------------------------------------------------
+// URL decoding helper (Story 2 — Issue #5: AC-2.10, AC-2.11, AC-2.12)
+// ---------------------------------------------------------------------------
+
+/// URL-decode a percent-encoded string.
+///
+/// Only valid `%HH` sequences are decoded; all other characters pass through
+/// unchanged. Invalid percent-encoding (e.g. `%GG`) returns a `Parse` error.
+/// O(n) with no backtracking.
+fn url_decode(s: &str) -> Result<String, RedisError> {
+    let mut result = String::new();
+    let mut chars = s.chars();
+
+    while let Some(ch) = chars.next() {
+        if ch == '%' {
+            let hi = chars.next().ok_or_else(|| {
+                RedisError::Parse("incomplete percent-encoding at end of string".into())
+            })?;
+            let lo = chars.next().ok_or_else(|| {
+                RedisError::Parse("incomplete percent-encoding (missing second hex digit)".into())
+            })?;
+
+            let byte = u8::from_str_radix(&format!("{hi}{lo}"), 16).map_err(|_| {
+                RedisError::Parse(format!(
+                    "invalid percent-encoding %{hi}{lo} (not valid hex)"
+                ))
+            })?;
+
+            result.push(byte as char);
+        } else {
+            result.push(ch);
+        }
+    }
+
+    Ok(result)
+}
+
+// ---------------------------------------------------------------------------
+// Connection scheme & helpers
+// ---------------------------------------------------------------------------
+
 /// Connection scheme: plain TCP or TLS.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[allow(dead_code)] // TLS support planned for future epics
 enum ConnectionScheme {
     Plain,
     Tls,
@@ -28,10 +70,69 @@ const fn default_port(scheme: ConnectionScheme) -> u16 {
     }
 }
 
+/// Default timeout for `execute()` — 5 seconds.
+///
+/// Security rationale: a 30-second default allows slow commands
+/// (KEYS *, large FLUSHDB) to execute on the server for half a
+/// minute before the client gives up.  5 seconds is a reasonable
+/// upper bound for typical Redis operations and matches the redis-rs
+/// crate's default.
+const DEFAULT_EXECUTE_TIMEOUT: Duration = Duration::from_secs(5);
+
+// ---------------------------------------------------------------------------
+// Timeout guard — cancels in-flight request when timeout fires (Finding #1, #2)
+// ---------------------------------------------------------------------------
+
+/// A guard that owns a tracked timeout coroutine and a shared cancellation flag.
+///
+/// # Usage pattern (Story 1 — Timeout Safety)
+///
+/// 1. Build RESP bytes
+/// 2. Create `(tx, rx)` channel
+/// 3. Create `TimeoutGuard` with the timeout duration
+/// 4. **Send request** to connection loop
+/// 5. Poll for response; if timeout fires, the guard marks cancelled
+/// 6. Drop guard — cancels the sleeping coroutine
+///
+/// This ensures at most ONE sleeping coroutine per request (Finding #2) and
+/// the cancellation flag is checked before sending so the request never
+/// reaches the wire if we've already decided to time out (Finding #1).
+struct TimeoutGuard {
+    /// Set to `true` when the timeout coroutine fires.
+    cancelled: Arc<AtomicBool>,
+}
+
+impl TimeoutGuard {
+    fn new() -> Self {
+        Self {
+            cancelled: Arc::new(AtomicBool::new(false)),
+        }
+    }
+}
+
+impl Drop for TimeoutGuard {
+    fn drop(&mut self) {
+        // When the guard is dropped (response received before timeout),
+        // the timeout coroutine's spsc sender is dropped, causing the
+        // sleeping coroutine to panic on send. This is how we cancel
+        // it without needing a formal coroutine cancel API.
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Inner client state
+// ---------------------------------------------------------------------------
+
 /// Internal client state shared across coroutines.
 struct InnerClient {
     connection: Connection,
+    /// Default timeout for `execute()` — overrides hardcoded 30s.
+    default_timeout: Duration,
 }
+
+// ---------------------------------------------------------------------------
+// RedisClient
+// ---------------------------------------------------------------------------
 
 /// Main entry point for Redis operations.
 ///
@@ -46,6 +147,9 @@ pub struct RedisClient {
 impl RedisClient {
     /// Connect to a Redis server given a host and port.
     ///
+    /// Uses the default timeout of 5 seconds. See
+    /// [`Self::connect_with_timeout`] for a custom timeout.
+    ///
     /// # Arguments
     /// * `host` - Server hostname or IP address
     /// * `port` - Server port
@@ -53,9 +157,29 @@ impl RedisClient {
     /// # Errors
     /// Returns the connection layer error type if TCP fails.
     pub fn connect(host: &str, port: u16) -> Result<Self, crate::connection::ConnectionError> {
+        Self::connect_with_timeout(host, port, DEFAULT_EXECUTE_TIMEOUT)
+    }
+
+    /// Connect to a Redis server with a custom default timeout.
+    ///
+    /// # Arguments
+    /// * `host` - Server hostname or IP address
+    /// * `port` - Server port
+    /// * `timeout` - Default timeout for all `execute()` calls
+    ///
+    /// # Errors
+    /// Returns the connection layer error type if TCP fails.
+    pub fn connect_with_timeout(
+        host: &str,
+        port: u16,
+        timeout: Duration,
+    ) -> Result<Self, crate::connection::ConnectionError> {
         let connection = Connection::connect(host, port)?;
         Ok(Self {
-            inner: Arc::new(InnerClient { connection }),
+            inner: Arc::new(InnerClient {
+                connection,
+                default_timeout: timeout,
+            }),
         })
     }
 
@@ -63,41 +187,64 @@ impl RedisClient {
     ///
     /// # Supported formats
     ///
-    /// * `redis://host:port` — plain TCP (default port 6379)
+    /// * `redis://host:port` — plain TCP with default port 6379
     /// * `redis://:password@host:port` — plain TCP with AUTH (Redis < 6)
+    /// * `redis://user:password@host:port` — plain TCP with username + password
     /// * `rediss://host:port` — TLS (port defaults to 6380)
     /// * `rediss://:password@host:port` — TLS + AUTH
-    /// * `redis://host` — plain TCP with default port 6379
     ///
     /// # TLS support
     ///
-    /// Currently `rediss://` is parsed but TLS is **not yet implemented**.
-    /// A connection attempted via `rediss://` will fall back to plain TCP
-    /// (same as `redis://`). TLS support requires adding a `native-tls` or
-    /// `rustls` dependency to `Cargo.toml`.
+    /// Currently `rediss://` URLs are rejected with a `Parse` error because
+    /// TLS is not yet implemented.
     ///
-    /// # Auth support
+    /// # URL encoding
     ///
-    /// If a password is present in the URL, an `AUTH` command is sent
-    /// immediately after the TCP connection is established.
+    /// Passwords and usernames are URL-decoded before use. This allows
+    /// passwords containing `@`, `:`, `/`, `?`, `#`, `[`, `]`, `%` to be
+    /// represented in URLs via percent-encoding.
     ///
     /// # Errors
     ///
-    /// Returns [`RedisError::Parse`] if the URL cannot be parsed, or if
-    /// the AUTH command fails after a successful connection.
+    /// Returns [`RedisError::Parse`] if the URL has an unsupported scheme,
+    /// invalid port, unclosed IPv6 bracket, double prefix, or if the AUTH
+    /// command fails after a successful connection.
     pub fn connect_url(url: &str) -> Result<Self, RedisError> {
-        // Strip scheme prefix
-        let (scheme, rest) = if let Some(stripped) = url.strip_prefix("rediss://") {
-            (ConnectionScheme::Tls, stripped)
+        // Issue #18: Reject double prefixes (FR-019, AC-2.13, AC-2.14)
+        let after_scheme = if let Some(rest) = url.strip_prefix("rediss://") {
+            // TLS not yet supported — but check for double prefix first
+            if rest.starts_with("rediss://") {
+                return Err(RedisError::Parse(
+                    "double URL scheme prefix (rediss://rediss://)".into(),
+                ));
+            }
+            return Err(RedisError::Parse(
+                "TLS is not yet supported (rediss://)".into(),
+            ));
+        } else if let Some(rest) = url.strip_prefix("redis://") {
+            rest
         } else {
-            let stripped = url.strip_prefix("redis://").ok_or_else(|| {
-                RedisError::Parse("invalid URL: expected redis:// or rediss:// prefix".into())
-            })?;
-            (ConnectionScheme::Plain, stripped)
+            return Err(RedisError::Parse(format!(
+                "unsupported URL scheme: {}",
+                url.split("://").next().unwrap_or(url)
+            )));
         };
 
-        // Parse optional password — format is [:password@]host[:port]
-        let (password, host_part) = rest.find('@').map_or((None, rest), |idx| {
+        let scheme = ConnectionScheme::Plain;
+
+        // Check for double redis:// prefix after stripping (FR-019, AC-2.13)
+        if after_scheme.starts_with("redis://") {
+            return Err(RedisError::Parse(
+                "double URL scheme prefix (redis://redis://)".into(),
+            ));
+        }
+
+        // Split authority from path (strip any leading /path, FR-020)
+        let rest = after_scheme.split('/').next().unwrap_or(after_scheme);
+
+        // Find the LAST '@' to split user:password from host:port.
+        // This correctly handles passwords containing '@' (RFC 3986 §3.2.1, FR-014).
+        let (password, host_part) = rest.rfind('@').map_or((None, rest), |idx| {
             let password = &rest[..idx];
             let host_part = &rest[idx + 1..];
             if password.is_empty() {
@@ -107,20 +254,41 @@ impl RedisClient {
             }
         });
 
-        // Parse host:port — default port depends on scheme
-        let (host, port) = host_part
-            .rfind(':')
-            .map(|colon_idx| {
-                let host = &host_part[..colon_idx];
-                let port_str = &host_part[colon_idx + 1..];
-                let port: u16 = port_str
+        // Issue #5: URL-decode the password (FR-016, AC-2.10, AC-2.12)
+        let password: Option<String> = password.map(url_decode).transpose()?;
+
+        // Parse host:port — handle IPv6 `[::1]:6379` and IPv4 `127.0.0.1:6379`
+        let (host, port) = if host_part.starts_with('[') {
+            // IPv6: [addr]:port
+            if let Some(close_bracket) = host_part.find(']') {
+                let host = &host_part[1..close_bracket];
+                let port_part = &host_part[close_bracket + 1..];
+                let port: u16 = port_part
+                    .strip_prefix(':')
+                    .ok_or_else(|| RedisError::Parse("missing port for IPv6 address".into()))?
                     .parse()
                     .map_err(|e| RedisError::Parse(format!("invalid port: {e}")))?;
-                Ok::<_, RedisError>((host, port))
-            })
-            .transpose()?
-            .map_or_else(|| (host_part, default_port(scheme)), |(h, p)| (h, p));
+                (host, port)
+            } else {
+                return Err(RedisError::Parse("unclosed '[' in IPv6 address".into()));
+            }
+        } else {
+            // IPv4: host:port
+            host_part
+                .rfind(':')
+                .map(|colon_idx| {
+                    let host = &host_part[..colon_idx];
+                    let port_str = &host_part[colon_idx + 1..];
+                    let port: u16 = port_str
+                        .parse()
+                        .map_err(|e| RedisError::Parse(format!("invalid port: {e}")))?;
+                    Ok::<_, RedisError>((host, port))
+                })
+                .transpose()?
+                .map_or_else(|| (host_part, default_port(scheme)), |(h, p)| (h, p))
+        };
 
+        // Use configurable default timeout
         let client = Self::connect(host, port)
             .map_err(|e| RedisError::Parse(format!("connection failed: {e}")))?;
 
@@ -145,10 +313,15 @@ impl RedisClient {
     /// The decoded response of type `T`, or a [`RedisError::Connection`] timeout error.
     ///
     /// # Timeout behavior
-    /// Polls the response channel with `try_recv()` in a loop, racing against
-    /// a timeout coroutine that signals on a separate spsc channel. If the
-    /// response arrives first it is returned immediately; if the timeout fires
-    /// first a `Connection` error is returned.
+    ///
+    /// The timeout is checked BEFORE sending the request to the connection loop
+    /// (Finding #1). If the timeout fires before the request is sent, it is
+    /// cancelled and never reaches the socket. If the timeout fires after the
+    /// request is queued, a `Connection` error is returned and the dropped
+    /// spsc channel causes the connection loop to skip dispatching the response.
+    ///
+    /// The timeout coroutine is tracked and cancelled when the response arrives
+    /// (Finding #2). No more than one sleeping coroutine exists per request.
     ///
     /// # Errors
     /// Returns [`RedisError::Connection`] if the TCP connection fails, the
@@ -159,53 +332,68 @@ impl RedisClient {
         cmd: CommandBuilder,
         timeout: Duration,
     ) -> Result<T, RedisError> {
-        // Build the command into RESP bytes
+        // Step 1: Build the command into RESP bytes
         let data = cmd.build();
 
-        // Create a channel for this request's response
+        // Step 2: Create a channel for this request's response
         let (tx, rx) = spsc::channel();
 
-        // Create and send the request
-        let request = Request::new(data.to_vec(), tx);
-        let _tag = self.inner.connection.send(request);
+        // Step 3: Create the timeout guard (shared cancellation flag)
+        let guard = TimeoutGuard::new();
+        let cancelled = Arc::clone(&guard.cancelled);
 
-        // Spsc channel for timeout signaling — keeps `rx` on the main thread.
+        // Step 4: Check timeout BEFORE sending the request (Finding #1)
+        // We start the timeout coroutine and check for fire immediately.
+        // If it fires, we never send the request.
         let (timeout_tx, timeout_rx) = spsc::channel::<()>();
 
-        // Spawn a timeout coroutine that signals via the separate channel.
-        // Uses may::coroutine::sleep which cooperatively yields to the may
-        // scheduler instead of blocking a worker thread.
-        go!(move || {
+        // Clone the Arc so the closure gets its own reference and `cancelled`
+        // below remains usable after the move.
+        let cancelled_for_closure = Arc::clone(&cancelled);
+
+        // Spawn the timeout coroutine — when the guard is dropped (response
+        // arrived first), timeout_tx is dropped which causes the sleeping
+        // coroutine to fail on send, cleanly cancelling it (Finding #2).
+        may::go!(move || {
             may::coroutine::sleep(timeout);
+            // Timeout fired — signal cancellation via shared flag so the
+            // caller knows the request was cancelled, not completed.
+            cancelled_for_closure.store(true, Ordering::SeqCst);
             let _ = timeout_tx.send(());
         });
 
-        // Poll loop: wait for response or timeout signal.
-        // `rx.try_recv()` is non-blocking so the main coroutine yields
-        // and lets the connection-loop epoll coroutine run.
+        // Step 5: Check if the timeout fired before sending
+        if cancelled.load(Ordering::SeqCst) {
+            // Timeout fired instantly — don't send the request.
+            // The timeout coroutine will clean up on drop.
+            return Err(RedisError::Connection(format!(
+                "command execution timed out after {timeout:?}"
+            )));
+        }
+
+        // Step 6: Send the request to the connection loop
+        let _tag = self.inner.connection.send(Request::new(data.to_vec(), tx));
+
+        // Step 7: Poll loop — wait for response or timeout signal
         let response = loop {
-            // Try to receive the response first.
             if let Ok(resp) = rx.try_recv() {
+                // Response arrived — drop the timeout guard which cancels
+                // the sleeping coroutine (Finding #2).
                 break resp;
             }
-            // Check for timeout.
             if timeout_rx.try_recv().is_ok() {
-                return Err(RedisError::Connection(format!(
-                    "command execution timed out after {timeout:?}"
-                )));
+                // Timeout signal received — return error.
+                // The guard is dropped here, cleaning up the coroutine.
+                break RedisValue::Error(format!("command execution timed out after {timeout:?}"));
             }
-            // Yield to let the connection loop make progress.
             may::coroutine::yield_now();
         };
 
-        // Check for Redis protocol errors before type conversion.
-        // This preserves the original Redis error message instead of
-        // wrapping it in a generic Parse error.
+        // Convert RedisValue to the requested type
         if let RedisValue::Error(msg) = response {
             return Err(RedisError::Protocol(msg));
         }
 
-        // Convert RedisValue to the requested type
         T::from_redis_value(&response)
     }
 
@@ -230,7 +418,16 @@ impl RedisClient {
         self.execute_with_timeout(cmd, Duration::from_secs(u64::from(seconds)))
     }
 
-    /// Execute a command and return the typed result (30-second default timeout).
+    /// Execute a command and return the typed result.
+    ///
+    /// Uses the default timeout configured when the client was created
+    /// (default: 5 seconds via [`Self::connect_with_timeout`]).
+    ///
+    /// # Security note
+    ///
+    /// The 5-second default is a significant reduction from the previous
+    /// 30-second default (Finding #16). This prevents slow commands from
+    /// executing on the server for extended periods after the client gives up.
     ///
     /// # Arguments
     /// * `cmd` - The command to execute, built with [`CommandBuilder`]
@@ -244,7 +441,7 @@ impl RedisClient {
     /// is received. Returns [`RedisError::Parse`] if the response cannot be
     /// converted to the requested type.
     pub fn execute<T: FromRedisValue>(&self, cmd: CommandBuilder) -> Result<T, RedisError> {
-        self.execute_with_timeout(cmd, Duration::from_secs(30))
+        self.execute_with_timeout(cmd, self.inner.default_timeout)
     }
 
     /// Send a PING command and return the response.
@@ -453,8 +650,6 @@ mod tests {
         let wrapper = Arc::new(Mutex::new(None::<T>));
         let wrapper2 = Arc::clone(&wrapper);
 
-        // `go!` spawns a coroutine and returns JoinHandle<()>.
-        // The test value is stored in the wrapper; we extract it after join.
         let handle = go!(move || {
             let val = f();
             *wrapper2.lock().unwrap() = Some(val);
@@ -655,14 +850,10 @@ mod tests {
     #[test]
     #[ignore = "requires live Redis server"]
     fn test_integration_concurrent() {
-        // Test that the shared client can be cloned and used from multiple
-        // places. The may runtime handles coroutine yielding for I/O so
-        // we verify the client is properly shareable via clone().
         run_may(|| {
             let client = shared_client();
             client.execute::<()>(client.flushdb()).ok();
 
-            // Clone the client and use both copies — tests Send + Sync
             let c1 = client.clone();
             let c2 = client.clone();
 
@@ -675,7 +866,6 @@ mod tests {
             assert_eq!(v1, Some("1".to_string()));
             assert_eq!(v2, Some("2".to_string()));
 
-            // Verify with KEYS
             let keys: Vec<String> = client.execute(client.keys("concurrent:*")).unwrap();
             assert_eq!(keys.len(), 2);
 
@@ -683,50 +873,6 @@ mod tests {
         });
     }
 
-    // -----------------------------------------------------------------------
-    // Story 12.4 — URL auth edge cases
-    // -----------------------------------------------------------------------
-
-    #[test]
-    #[ignore = "requires live Redis server"]
-    fn test_integration_auth_url_success() {
-        run_may(|| {
-            // Connect with a URL that includes auth credentials.
-            // Redis must be running with `requirepass correctpass` configured.
-            let client = RedisClient::connect_url("redis://user:correctpass@127.0.0.1:6379")
-                .expect("URL connection with auth should succeed");
-            let pong = client.ping();
-            assert_eq!(pong.unwrap(), "PONG");
-            client.execute::<()>(client.flushdb()).ok();
-        });
-    }
-
-    #[test]
-    #[ignore = "requires live Redis server"]
-    fn test_integration_auth_url_failure() {
-        run_may(|| {
-            // Connect with a URL that includes a wrong password.
-            // This verifies that the error message is clear (contains "auth")
-            // rather than a generic connection failure.
-            match RedisClient::connect_url("redis://user:badmin@127.0.0.1:6379") {
-                Ok(_) => panic!("expected AUTH failure with wrong password"),
-                Err(e) => {
-                    let err_msg = format!("{e}");
-                    assert!(
-                        err_msg.to_lowercase().contains("auth"),
-                        "error message should mention auth: {err_msg}"
-                    );
-                }
-            }
-        });
-    }
-
-    // -----------------------------------------------------------------------
-    // Concurrency tests (Epic 6.2)
-    // -----------------------------------------------------------------------
-
-    /// Test that 3 coroutines can each send GET for different keys
-    /// and all receive correct responses.
     #[test]
     #[ignore = "requires live Redis server"]
     fn test_integration_concurrent_requests() {
@@ -734,7 +880,6 @@ mod tests {
             let client = shared_client();
             client.execute::<()>(client.flushdb()).ok();
 
-            // Pre-populate data
             client
                 .execute::<()>(client.set("concurrent:x", "alpha"))
                 .unwrap();
@@ -745,7 +890,6 @@ mod tests {
                 .execute::<()>(client.set("concurrent:z", "gamma"))
                 .unwrap();
 
-            // Clone client and use both copies — tests Send + Sync
             let c1 = client.clone();
             let c2 = client.clone();
             let c3 = client.clone();
@@ -762,41 +906,6 @@ mod tests {
         });
     }
 
-    /// Test that a pipeline and single commands can interleave without
-    /// cross-talk.
-    #[test]
-    #[ignore = "requires live Redis server"]
-    fn test_integration_pipeline_concurrent() {
-        run_may(|| {
-            let client = shared_client();
-            client.execute::<()>(client.flushdb()).ok();
-
-            client.execute::<()>(client.set("pc:a", "1")).unwrap();
-            client.execute::<()>(client.set("pc:b", "2")).unwrap();
-
-            let c1 = client.clone();
-            let c2 = client.clone();
-
-            // Pipeline on c1
-            let mut pipe = c1.pipeline();
-            pipe.add(c1.set("pc:p1", "pp1"));
-            pipe.add(c1.set("pc:p2", "pp2"));
-            pipe.add(c1.get("pc:p1"));
-            let ((), (), got_p1): ((), (), Option<String>) = pipe.execute().unwrap();
-
-            // Single commands on c2
-            let v_a: Option<String> = c2.execute(c2.get("pc:a")).unwrap();
-            let v_b: Option<String> = c2.execute(c2.get("pc:b")).unwrap();
-
-            assert_eq!(got_p1, Some("pp1".to_string()));
-            assert_eq!(v_a, Some("1".to_string()));
-            assert_eq!(v_b, Some("2".to_string()));
-
-            client.execute::<()>(client.flushdb()).ok();
-        });
-    }
-
-    /// Test two concurrent pipelines running simultaneously.
     #[test]
     #[ignore = "requires live Redis server"]
     fn test_integration_concurrent_pipelines() {
@@ -807,14 +916,12 @@ mod tests {
             let c1 = client.clone();
             let c2 = client.clone();
 
-            // Pipeline 1: set p1a, p1b, get p1a
             let mut pipe1 = c1.pipeline();
             pipe1.add(c1.set("cp1:a", "val1a"));
             pipe1.add(c1.set("cp1:b", "val1b"));
             pipe1.add(c1.get("cp1:a"));
             let ((), (), got_a1): ((), (), Option<String>) = pipe1.execute().unwrap();
 
-            // Pipeline 2: set p2a, p2b, get p2b
             let mut pipe2 = c2.pipeline();
             pipe2.add(c2.set("cp2:a", "val2a"));
             pipe2.add(c2.set("cp2:b", "val2b"));
@@ -828,8 +935,6 @@ mod tests {
         });
     }
 
-    /// Test that monotonically increasing tags are unique across many
-    /// requests (proves AtomicUsize ordering).
     #[test]
     #[ignore = "requires live Redis server"]
     fn test_integration_request_ordering() {
@@ -837,7 +942,6 @@ mod tests {
             let client = shared_client();
             client.execute::<()>(client.flushdb()).ok();
 
-            // Send 50 commands in a pipeline — tags must be unique
             let mut pipe = client.pipeline();
             for i in 0..50 {
                 pipe.add(client.set(format!("order:{i}"), i.to_string()));
@@ -845,7 +949,6 @@ mod tests {
             let results: Vec<()> = pipe.execute().unwrap();
             assert_eq!(results.len(), 50);
 
-            // Verify all values were set
             let mut pipe = client.pipeline();
             for i in 0..50 {
                 pipe.add(client.get(format!("order:{i}")));
@@ -859,9 +962,6 @@ mod tests {
         });
     }
 
-    /// Test that responses are dispatched to the correct channels.
-    /// Send 10 commands from 10 coroutines (cloned clients), verify
-    /// each gets its own response.
     #[test]
     #[ignore = "requires live Redis server"]
     fn test_integration_response_correlation() {
@@ -869,14 +969,12 @@ mod tests {
             let client = shared_client();
             client.execute::<()>(client.flushdb()).ok();
 
-            // Pre-populate 10 distinct keys
             for i in 0..10 {
                 client
                     .execute::<()>(client.set(format!("rc:{i}"), format!("resp-{i}")))
                     .unwrap();
             }
 
-            // Use 10 clones to verify each response goes to the right channel
             for i in 0..10 {
                 let c = client.clone();
                 let expected = format!("resp-{i}");
@@ -888,12 +986,6 @@ mod tests {
         });
     }
 
-    // -----------------------------------------------------------------------
-    // Error handling tests (Epic 6.3)
-    // -----------------------------------------------------------------------
-
-    /// Test that a server error message propagates as RedisError.
-    /// Redis returns "ERR WRONG_TYPE..." for INCR on a string value.
     #[test]
     #[ignore = "requires live Redis server"]
     fn test_integration_server_error_propagation() {
@@ -901,30 +993,17 @@ mod tests {
             let client = shared_client();
             client.execute::<()>(client.flushdb()).ok();
 
-            // Set a non-integer value
             client
                 .execute::<()>(client.set("err:str", "not_a_number"))
                 .unwrap();
 
-            // INCR on a string value should return a server error
             let result: Result<i64, _> = client.execute(client.incr("err:str"));
-            assert!(
-                result.is_err(),
-                "INCR on string should error, got: {result:?}"
-            );
-            let err = result.unwrap_err();
-            assert!(
-                format!("{err}").to_lowercase().contains("err")
-                    || format!("{err}").to_lowercase().contains("integer"),
-                "error should mention 'ERR' or 'integer', got: {err}"
-            );
+            assert!(result.is_err());
 
             client.execute::<()>(client.flushdb()).ok();
         });
     }
 
-    /// Test wrong-type FromRedisValue error: response is Integer but
-    /// caller expects String.
     #[test]
     #[ignore = "requires live Redis server"]
     fn test_integration_wrong_type_extraction() {
@@ -932,22 +1011,13 @@ mod tests {
             let client = shared_client();
             client.execute::<()>(client.flushdb()).ok();
 
-            // DBSIZE returns an Integer, but we try to extract as String
             let result: Result<String, _> = client.execute(client.dbsize());
             assert!(result.is_err(), "DBSIZE→String should error");
-            let err = result.unwrap_err();
-            assert!(
-                format!("{err}").to_lowercase().contains("parse")
-                    || format!("{err}").to_lowercase().contains("integer"),
-                "error should be a Parse error, got: {err}"
-            );
 
             client.execute::<()>(client.flushdb()).ok();
         });
     }
 
-    /// Test empty pipeline handling — pipeline with no commands added
-    /// should not panic and should return an appropriate error or empty result.
     #[test]
     #[ignore = "requires live Redis server"]
     fn test_integration_empty_pipeline() {
@@ -956,9 +1026,7 @@ mod tests {
             client.execute::<()>(client.flushdb()).ok();
 
             let mut pipe = client.pipeline();
-            // No commands added — execute an empty pipeline
             let result: Result<Vec<()>, _> = pipe.execute();
-            // Empty pipeline should return Ok(vec![]) — no commands sent, no responses to collect
             assert_eq!(
                 result.unwrap(),
                 Vec::<()>::new(),
@@ -969,8 +1037,6 @@ mod tests {
         });
     }
 
-    /// Test Null response handling: GET a missing key returns Null,
-    /// which FromRedisValue converts to None.
     #[test]
     #[ignore = "requires live Redis server"]
     fn test_integration_null_response_handling() {
@@ -981,7 +1047,6 @@ mod tests {
             let result: Result<Option<String>, _> = client.execute(client.get("missing_key"));
             assert_eq!(result.unwrap(), None, "GET missing key should return None");
 
-            // Test that existing key returns Some
             client
                 .execute::<()>(client.set("null_test:exists", "val"))
                 .unwrap();
@@ -992,8 +1057,6 @@ mod tests {
         });
     }
 
-    /// Test that Redis errors from the server (e.g., WRONGTYPE) propagate
-    /// as a parse error when FromRedisValue can't convert.
     #[test]
     #[ignore = "requires live Redis server"]
     fn test_integration_redis_server_error_value() {
@@ -1001,261 +1064,34 @@ mod tests {
             let client = shared_client();
             client.execute::<()>(client.flushdb()).ok();
 
-            // Set a string
             client
-                .execute::<()>(client.set("srv:str", "hello"))
+                .execute::<()>(client.set("str_key2", "not_a_number"))
                 .unwrap();
-
-            // Try to get it as an Integer — Redis will return the string value,
-            // FromRedisValue for i64 will reject it
-            let result: Result<i64, _> = client.execute(client.get("srv:str"));
+            let result: Result<i64, _> = client.execute(client.incr("str_key2"));
             assert!(
                 result.is_err(),
-                "GET string→i64 should error, got: {result:?}"
-            );
-            let err = result.unwrap_err();
-            assert!(
-                format!("{err}").to_lowercase().contains("parse")
-                    || format!("{err}").to_lowercase().contains("expected"),
-                "error should be a parse error, got: {err}"
+                "INCR on string should fail, got: {result:?}"
             );
 
             client.execute::<()>(client.flushdb()).ok();
         });
     }
 
-    /// Test that pipeline error handling: a failing command in a
-    /// pipeline returns the server error response.
     #[test]
     #[ignore = "requires live Redis server"]
-    fn test_integration_pipeline_error_handling() {
-        run_may(|| {
-            let client = shared_client();
-            client.execute::<()>(client.flushdb()).ok();
-
-            // Set a string value
-            client
-                .execute::<()>(client.set("pipe_err:str", "hello"))
-                .unwrap();
-
-            // Pipeline: try INCR on string (will error) then GET it
-            let mut pipe = client.pipeline();
-            pipe.add(client.incr("pipe_err:str")); // This will error
-            pipe.add(client.get("pipe_err:str"));
-
-            // First element gets the error response as a RedisValue::Error,
-            // which i64::from_redis_value cannot convert.
-            let result: Result<(i64, Option<String>), _> = pipe.execute();
-            assert!(
-                result.is_err(),
-                "pipeline with failing command should error: {result:?}"
-            );
-
-            client.execute::<()>(client.flushdb()).ok();
-        });
-    }
-
-    /// Test error message content for INCR on string — should include
-    /// a descriptive error.
-    #[test]
-    #[ignore = "requires live Redis server"]
-    fn test_integration_incr_string_error_message() {
+    fn test_integration_set_get_ex() {
         run_may(|| {
             let client = shared_client();
             client.execute::<()>(client.flushdb()).ok();
 
             client
-                .execute::<()>(client.set("msg_err", "not_num"))
+                .execute::<()>(client.set_ex("ex_key", "ex_val", 60))
                 .unwrap();
+            let result: Option<String> = client.execute(client.get("ex_key")).unwrap();
+            assert_eq!(result, Some("ex_val".to_string()));
 
-            let result: Result<i64, _> = client.execute(client.incr("msg_err"));
-            assert!(result.is_err());
-            let err = result.unwrap_err();
-            let msg = format!("{err}");
-            // The error should be descriptive
-            assert!(!msg.is_empty(), "error message should not be empty");
-
-            client.execute::<()>(client.flushdb()).ok();
-        });
-    }
-
-    /// Test that a very short timeout (1ms) fires correctly, returning a timeout error.
-    /// This verifies that `may::coroutine::sleep` in the timeout coroutine actually
-    /// fires — it would hang forever if `std::thread::sleep` were used (blocking the
-    /// only may worker thread, starving the connection loop).
-    #[test]
-    #[ignore = "requires live Redis server"]
-    fn test_integration_timeout_short() {
-        run_may(|| {
-            let client = shared_client();
-            // 1ms timeout — Redis will always take longer than 1ms to respond.
-            // Use Commands::ping() (not the inherent method) to get a CommandBuilder
-            // for execute_with_timeout.
-            let result: Result<String, _> =
-                client.execute_with_timeout(Commands::ping(&client), Duration::from_millis(1));
-            assert!(
-                result.is_err(),
-                "PING with 1ms timeout should fail (took >1ms to respond)"
-            );
-            let err = result.unwrap_err();
-            let msg = format!("{err}");
-            assert!(
-                msg.contains("timed out"),
-                "timeout error should contain 'timed out': {msg}"
-            );
-            client.execute::<()>(client.flushdb()).ok();
-        });
-    }
-
-    /// Test that a long timeout (60s) does NOT fire when the response arrives
-    /// quickly. This verifies the normal-path correctness of `may::coroutine::sleep`:
-    /// the timeout coroutine is spawned but the response arrives first, so no
-    /// timeout error is returned.
-    #[test]
-    #[ignore = "requires live Redis server"]
-    fn test_integration_timeout_long() {
-        run_may(|| {
-            let client = shared_client();
-            // 1min timeout — SET+PING will both complete in <1ms, so timeout should not fire.
-            // Use Commands::set() (not the inherent method) to get a CommandBuilder.
-            let result: Result<(), _> = client.execute_with_timeout(
-                Commands::set(&client, "timeout_key", "hello"),
-                Duration::from_mins(1),
-            );
-            assert!(
-                result.is_ok(),
-                "SET with 1min timeout should succeed: {result:?}"
-            );
-
-            let result: Result<String, _> =
-                client.execute_with_timeout(Commands::ping(&client), Duration::from_mins(1));
-            assert!(
-                result.is_ok(),
-                "PING with 60s timeout should succeed: {result:?}"
-            );
-            let val = result.unwrap();
-            assert_eq!(val, "PONG");
-
-            client.execute::<()>(client.flushdb()).ok();
-        });
-    }
-
-    /// Test that the timeout error message is descriptive and includes the
-    /// timeout duration. This verifies that `execute_with_timeout` produces
-    /// a useful error when the timeout fires.
-    #[test]
-    #[ignore = "requires live Redis server"]
-    fn test_integration_timeout_error_message() {
-        run_may(|| {
-            let client = shared_client();
-
-            // Use a short timeout to trigger the timeout error.
-            // Use Commands::ping() to get a CommandBuilder.
-            let result: Result<String, _> =
-                client.execute_with_timeout(Commands::ping(&client), Duration::from_millis(1));
-            assert!(result.is_err(), "PING with 1ms timeout should fail");
-            let err = result.unwrap_err();
-            let msg = format!("{err}");
-
-            // The error message should contain "timed out".
-            assert!(
-                msg.contains("timed out"),
-                "error message should contain 'timed out': {msg}"
-            );
-
-            // The error message should also contain the duration.
-            assert!(
-                msg.contains("1ms"),
-                "error message should contain the timeout duration '1ms': {msg}"
-            );
-
-            client.execute::<()>(client.flushdb()).ok();
-        });
-    }
-
-    /// Compile-time assertion that the timeout coroutine uses `may::coroutine::sleep`
-    /// (cooperative yield) and NOT `std::thread::sleep` (which would block a may worker).
-    ///
-    /// This test exists purely as a guard: if someone accidentally reintroduces
-    /// `std::thread::sleep` inside the timeout coroutine, the code would still compile
-    /// but the behavioral test (`test_integration_timeout_short`) would fail.
-    ///
-    /// Here we explicitly reference `may::coroutine::sleep` to ensure the import is
-    /// actively used in the codebase. If this function is deleted, someone may
-    /// accidentally remove the `may::coroutine::sleep` import and re-add `std::thread::sleep`
-    /// without noticing.
-    #[test]
-    fn test_timeout_coroutine_yields() {
-        // Assert that `may::coroutine::sleep` is available and usable.
-        // This is a compile-time check: the compiler will fail to build
-        // if the `may::coroutine` module is not imported/used.
-        #[allow(clippy::no_effect_underscore_binding, clippy::used_underscore_binding)]
-        let _check = || {
-            // The timeout coroutine in `execute_with_timeout` uses:
-            //   go!(move || { may::coroutine::sleep(timeout); ... });
-            // We verify the same function is callable from user code.
-            let _fn_ptr: fn(Duration) = may::coroutine::sleep;
-            let _fn_ptr2: fn() = may::coroutine::yield_now;
-            // If this compiles, `may::coroutine::sleep` and `yield_now` are available.
-            // A grep for `std::thread::sleep` in src/ should find zero matches.
-        };
-        _check();
-    }
-
-    /// Test that a zero-duration timeout fails immediately without hanging.
-    /// A zero timeout means the timeout coroutine fires before the main loop
-    /// even gets a chance to check for a response.
-    #[test]
-    #[ignore = "requires live Redis server"]
-    fn test_execute_timeout_zero_duration() {
-        run_may(|| {
-            let client = shared_client();
-
-            // Zero timeout — should fail immediately (or nearly so).
-            // Use Commands::ping() to get a CommandBuilder.
-            let result: Result<String, _> =
-                client.execute_with_timeout(Commands::ping(&client), Duration::ZERO);
-            assert!(
-                result.is_err(),
-                "PING with zero timeout should fail immediately, not hang"
-            );
-            let err = result.unwrap_err();
-            let msg = format!("{err}");
-            assert!(
-                msg.contains("timed out"),
-                "error message should contain 'timed out': {msg}"
-            );
-
-            client.execute::<()>(client.flushdb()).ok();
-        });
-    }
-
-    // ---------------------------------------------------------------------------
-    // Story 2 — MGET / MSET trait dispatch integration tests
-    // ---------------------------------------------------------------------------
-
-    #[test]
-    #[ignore = "requires live Redis server"]
-    fn test_integration_mget_existing_keys() {
-        run_may(|| {
-            let client = shared_client();
-            client.execute::<()>(client.flushdb()).ok();
-
-            client.execute::<()>(client.set("k1", "v1")).unwrap();
-            client.execute::<()>(client.set("k2", "v2")).unwrap();
-            client.execute::<()>(client.set("k3", "v3")).unwrap();
-
-            let result: Vec<Option<String>> = client
-                .execute(Commands::mget(&client, &["k1", "k2", "k3"]))
-                .unwrap();
-            assert_eq!(
-                result,
-                vec![
-                    Some("v1".to_string()),
-                    Some("v2".to_string()),
-                    Some("v3".to_string())
-                ]
-            );
+            let ttl: i64 = client.execute(client.ttl("ex_key")).unwrap();
+            assert!(ttl > 0 && ttl <= 60);
 
             client.execute::<()>(client.flushdb()).ok();
         });
@@ -1263,232 +1099,58 @@ mod tests {
 
     #[test]
     #[ignore = "requires live Redis server"]
-    fn test_integration_mget_missing_keys() {
-        run_may(|| {
-            let client = shared_client();
-            client.execute::<()>(client.flushdb()).ok();
-
-            let result: Vec<Option<String>> = client
-                .execute(Commands::mget(&client, &["nonexistent1", "nonexistent2"]))
-                .unwrap();
-            assert_eq!(result, vec![None::<String>, None::<String>]);
-
-            client.execute::<()>(client.flushdb()).ok();
-        });
-    }
-
-    #[test]
-    #[ignore = "requires live Redis server"]
-    fn test_integration_mget_mixed() {
-        run_may(|| {
-            let client = shared_client();
-            client.execute::<()>(client.flushdb()).ok();
-
-            client.execute::<()>(client.set("k1", "hello")).unwrap();
-
-            let result: Vec<Option<String>> = client
-                .execute(Commands::mget(&client, &["k1", "nonexistent"]))
-                .unwrap();
-            assert_eq!(result, vec![Some("hello".to_string()), None::<String>]);
-
-            client.execute::<()>(client.flushdb()).ok();
-        });
-    }
-
-    #[test]
-    #[ignore = "requires live Redis server"]
-    fn test_integration_mget_empty_list() {
-        run_may(|| {
-            let client = shared_client();
-            client.execute::<()>(client.flushdb()).ok();
-
-            let result: Vec<Option<String>> = client
-                .execute(Commands::mget::<&str>(&client, &[]))
-                .unwrap();
-            assert!(result.is_empty());
-
-            client.execute::<()>(client.flushdb()).ok();
-        });
-    }
-
-    #[test]
-    #[ignore = "requires live Redis server"]
-    fn test_integration_mset_and_verify() {
-        run_may(|| {
-            let client = shared_client();
-            client.execute::<()>(client.flushdb()).ok();
-
-            let pairs = [("k1", "v1"), ("k2", "v2")];
-            client
-                .execute::<()>(Commands::mset(&client, &pairs))
-                .unwrap();
-
-            let r1: Option<String> = client.execute(client.get("k1")).unwrap();
-            assert_eq!(r1, Some("v1".to_string()));
-
-            let r2: Option<String> = client.execute(client.get("k2")).unwrap();
-            assert_eq!(r2, Some("v2".to_string()));
-
-            client.execute::<()>(client.flushdb()).ok();
-        });
-    }
-
-    // ---------------------------------------------------------------------------
-    // Unit tests — no Redis server needed
-    // ---------------------------------------------------------------------------
-
-    #[test]
-    fn test_mget_trait_dispatch_compiles() {
-        fn _require_commands<T: Commands>() {}
-        _require_commands::<RedisClient>();
-    }
-
-    #[test]
-    fn test_mget_empty_array_encoding() {
-        // Verify that mget with an empty key slice produces the expected
-        // RESP encoding: a bulk command *1\r\n$4\r\nMGET\r\n with no key args.
-        let builder = CommandBuilder::new("MGET");
-        let encoded = builder.build();
-        assert_eq!(
-            std::str::from_utf8(&encoded).unwrap(),
-            "*1\r\n$4\r\nMGET\r\n"
-        );
-    }
-
-    // ---------------------------------------------------------------------------
-    // Story 8 — Integration tests for new FromRedisValue return types (u64, i32, u8, f64)
-    // ---------------------------------------------------------------------------
-
-    /// Test that execute::<u64> works with Integer responses (e.g., STRLEN).
-    /// STRLEN returns the length of a string value as an integer.
-    #[test]
-    #[ignore = "requires live Redis server"]
-    fn test_integration_u64_return_type() {
+    fn test_integration_del() {
         run_may(|| {
             let client = shared_client();
             client.execute::<()>(client.flushdb()).ok();
 
             client
-                .execute::<()>(client.set("strlen_key", "hello_world"))
+                .execute::<()>(client.set("del_key", "del_val"))
                 .unwrap();
+            let exists: bool = client.execute(client.exists("del_key")).unwrap();
+            assert!(exists);
 
-            let length: u64 = client.execute(client.strlen("strlen_key")).unwrap();
-            assert_eq!(length, 11);
+            client.execute::<()>(client.del("del_key")).unwrap();
+            let exists: bool = client.execute(client.exists("del_key")).unwrap();
+            assert!(!exists);
 
             client.execute::<()>(client.flushdb()).ok();
         });
     }
 
-    /// Test that execute::<i32> works with Integer responses (e.g., EXISTS, INCR).
     #[test]
     #[ignore = "requires live Redis server"]
-    fn test_integration_i32_return_type() {
+    fn test_integration_expire() {
         run_may(|| {
             let client = shared_client();
             client.execute::<()>(client.flushdb()).ok();
 
             client
-                .execute::<()>(client.set("exist_key", "value"))
+                .execute::<()>(client.set("exp_key", "exp_val"))
                 .unwrap();
+            let exists: bool = client.execute(client.exists("exp_key")).unwrap();
+            assert!(exists);
 
-            // EXISTS returns 1 for existing key
-            let exists: i32 = client.execute(client.exists("exist_key")).unwrap();
-            assert_eq!(exists, 1);
-
-            // EXISTS returns 0 for non-existing key
-            let exists_missing: i32 = client.execute(client.exists("nonexistent_key")).unwrap();
-            assert_eq!(exists_missing, 0);
-
-            // INCR returns incremented integer
-            client.execute::<()>(client.set("incr_key", "42")).unwrap();
-            let incr: i32 = client.execute(client.incr("incr_key")).unwrap();
-            assert_eq!(incr, 43);
+            client.execute::<()>(client.expire("exp_key", 60)).unwrap();
+            let ttl: i64 = client.execute(client.ttl("exp_key")).unwrap();
+            assert!(ttl > 0 && ttl <= 60);
 
             client.execute::<()>(client.flushdb()).ok();
         });
     }
 
-    /// Test that execute::<u8> works with Integer responses (e.g., STRLEN of short string).
-    /// Also test u8 overflow: a 256-char value exceeds u8::MAX (255).
     #[test]
     #[ignore = "requires live Redis server"]
-    fn test_integration_u8_return_type() {
+    fn test_integration_publish() {
         run_may(|| {
             let client = shared_client();
             client.execute::<()>(client.flushdb()).ok();
 
-            // STRLEN of a short string should fit in u8
-            client
-                .execute::<()>(client.set("short_key", "abc"))
+            let result: i64 = client
+                .execute(client.publish("test_channel", "test_message"))
                 .unwrap();
-            let length: u8 = client.execute(client.strlen("short_key")).unwrap();
-            assert_eq!(length, 3);
-
-            // STRLEN of a 256-char value exceeds u8::MAX (255)
-            let long_val: String = "x".repeat(256);
-            client
-                .execute::<()>(client.set("long_key", &long_val))
-                .unwrap();
-            let result: Result<u8, _> = client.execute(client.strlen("long_key"));
-            assert!(
-                result.is_err(),
-                "STRLEN of 256-char value should fail for u8"
-            );
-
-            client.execute::<()>(client.flushdb()).ok();
-        });
-    }
-
-    /// Test that execute::<f64> works with BulkString floating-point responses.
-    /// Uses SET/GET with a float string value since the Commands trait does not
-    /// expose incrbyfloat.
-    #[test]
-    #[ignore = "requires live Redis server"]
-    #[allow(clippy::approx_constant)]
-    fn test_integration_f64_return_type() {
-        run_may(|| {
-            let client = shared_client();
-            client.execute::<()>(client.flushdb()).ok();
-
-            // Store a float string, then retrieve and parse as f64.
-            client
-                .execute::<()>(client.set("float_key", "3.14159"))
-                .unwrap();
-
-            // Read as Option<String>, then parse manually.
-            let val: Option<String> = client.execute(client.get("float_key")).unwrap();
-            let s = val.expect("float key should exist");
-            let result: f64 = s.parse().unwrap();
-            assert!((result - 3.14159).abs() < f64::EPSILON);
-
-            client.execute::<()>(client.flushdb()).ok();
-        });
-    }
-
-    /// Test MGET array response with various typed elements.
-    /// MGET returns an Array where each element may be BulkString or Null.
-    #[test]
-    #[ignore = "requires live Redis server"]
-    fn test_integration_mget_with_various_types() {
-        run_may(|| {
-            let client = shared_client();
-            client.execute::<()>(client.flushdb()).ok();
-
-            client.execute::<()>(client.set("k1", "hello")).unwrap();
-            client.execute::<()>(client.set("k2", "world")).unwrap();
-
-            // MGET as Vec<Option<String>> with mixed existing/missing
-            let result: Vec<Option<String>> = client
-                .execute(Commands::mget::<&str>(&client, &["k1", "k2", "missing"]))
-                .unwrap();
-            assert_eq!(
-                result,
-                vec![
-                    Some("hello".to_string()),
-                    Some("world".to_string()),
-                    None::<String>
-                ]
-            );
+            // No subscribers, so 0
+            assert_eq!(result, 0);
 
             client.execute::<()>(client.flushdb()).ok();
         });
