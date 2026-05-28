@@ -6,9 +6,9 @@
 //   2. Read it back using RESPReader
 //   3. Assert equality with the original
 
-use crate::core::RedisValue;
 use crate::codec::reader::RESPReader;
 use crate::codec::writer::RESPWriter;
+use crate::core::RedisValue;
 
 /// Helper: encode a value then decode it, asserting equality.
 fn roundtrip(value: &RedisValue) -> RedisValue {
@@ -96,9 +96,7 @@ mod error_value {
         let input = RedisValue::Error("ERR ".to_string() + &"x".repeat(500));
         let output = roundtrip(&input);
         let expected = format!("ERR {}", "x".repeat(500));
-        assert!(
-            matches!(output, RedisValue::Error(ref s) if *s == expected)
-        );
+        assert!(matches!(output, RedisValue::Error(ref s) if *s == expected));
     }
 }
 
@@ -167,9 +165,7 @@ mod bulk_string {
         let input = RedisValue::BulkString(vec![0x00, 0xFF, 0x80, 0x7F, 0x41, 0x00]);
         let expected = vec![0x00, 0xFF, 0x80, 0x7F, 0x41, 0x00];
         let output = roundtrip(&input);
-        assert!(
-            matches!(output, RedisValue::BulkString(ref b) if *b == expected)
-        );
+        assert!(matches!(output, RedisValue::BulkString(ref b) if *b == expected));
     }
 
     #[test]
@@ -195,9 +191,7 @@ mod bulk_string {
         let input = RedisValue::BulkString("こんにちは世界".as_bytes().to_vec());
         let output = roundtrip(&input);
         let expected: &[u8] = "こんにちは世界".as_bytes();
-        assert!(
-            matches!(output, RedisValue::BulkString(ref b) if *b == expected)
-        );
+        assert!(matches!(output, RedisValue::BulkString(ref b) if *b == expected));
     }
 
     #[test]
@@ -205,9 +199,7 @@ mod bulk_string {
         let input = RedisValue::BulkString(vec![b'h', b'i', 0x00, b'!', 0x00]);
         let expected = vec![b'h', b'i', 0x00, b'!', 0x00];
         let output = roundtrip(&input);
-        assert!(
-            matches!(output, RedisValue::BulkString(ref b) if *b == expected)
-        );
+        assert!(matches!(output, RedisValue::BulkString(ref b) if *b == expected));
     }
 }
 
@@ -268,9 +260,9 @@ mod array_value {
 
     #[test]
     fn test_roundtrip_nested_array() {
-        let input = RedisValue::Array(vec![RedisValue::Array(vec![
-            RedisValue::Array(vec![RedisValue::Integer(42)])
-        ])]);
+        let input = RedisValue::Array(vec![RedisValue::Array(vec![RedisValue::Array(vec![
+            RedisValue::Integer(42),
+        ])])]);
         let output = roundtrip(&input);
         if let RedisValue::Array(a) = output {
             assert_eq!(a.len(), 1);
@@ -464,7 +456,9 @@ mod boundary_cases {
         if let RedisValue::Array(a) = output {
             assert_eq!(a.len(), 500);
             for (i, v) in a.iter().enumerate() {
-                assert!(matches!(v, RedisValue::Integer(n) if *n == i64::try_from(i).expect("fits in i64")));
+                assert!(
+                    matches!(v, RedisValue::Integer(n) if *n == i64::try_from(i).expect("fits in i64"))
+                );
             }
         } else {
             panic!("expected Array");
@@ -511,8 +505,6 @@ mod boundary_cases {
         let input = RedisValue::BulkString(vec![b'a', b'b', b'c', 0x00]);
         let expected = vec![b'a', b'b', b'c', 0x00];
         let output = roundtrip(&input);
-        assert!(
-            matches!(output, RedisValue::BulkString(ref b) if *b == expected)
-        );
+        assert!(matches!(output, RedisValue::BulkString(ref b) if *b == expected));
     }
 }
