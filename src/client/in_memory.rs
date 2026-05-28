@@ -363,7 +363,9 @@ mod tests {
         client.set("key", "value");
         client.flushdb();
         assert_eq!(client.dbsize().unwrap(), 0);
-        assert!(client.get("key").is_err());
+        // Missing key returns Null, not error
+        assert!(client.get("key").is_ok());
+        assert!(client.get("key").unwrap().is_null());
     }
 
     #[test]
@@ -403,11 +405,13 @@ mod tests {
     // -----------------------------------------------------------------------
 
     #[test]
-    fn test_get_expired_key_returns_error() {
+    fn test_get_expired_key_returns_null() {
         let client = InMemoryClient::new();
         client.set_ex("key", "value", 0);
         std::thread::sleep(std::time::Duration::from_millis(10));
-        assert!(client.get("key").is_err());
+        // Expired keys return Null, matching real Redis behavior
+        assert!(client.get("key").is_ok());
+        assert!(client.get("key").unwrap().is_null());
     }
 
     #[test]
