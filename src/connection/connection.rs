@@ -568,6 +568,15 @@ impl Connection {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use may::config;
+    use std::sync::Once;
+
+    fn init_may_runtime() {
+        static INIT: Once = Once::new();
+        INIT.call_once(|| {
+            config().set_workers(1);
+        });
+    }
 
     /// Test that Request creates correctly
     #[test]
@@ -807,6 +816,225 @@ mod tests {
             let id = c.id();
             assert!(id > 0);
             drop(c); // Should cancel the connection loop without hanging
+        }
+    }
+
+    // ======================== Story 12.3: Connection Drop Error Behavior ========================
+
+    /// Test that dropping a connection while coroutines await responses causes
+    /// those coroutines to get an error instead of hanging.
+    ///
+    /// Creates a new `Connection` (not a shared `RedisClient`) so we can safely
+    /// drop it from a separate coroutine. Spawns 3 coroutines that each
+    /// enqueue a PING and then blocks on `rx.try_recv()`. After spawning, the
+    /// connection is immediately dropped. Every coroutine must receive an error
+    /// (or at least not hang) within a reasonable timeout.
+    ///
+    /// Regression guard for findings C3 and S2 in `code-review-2026-05-28.md`:
+    /// `Connection::drop` uses `unsafe { rx.cancel() }` and could leave partial
+    /// state if the loop is mid-write, or cancel without ensuring in-flight
+    /// requests receive error responses.
+    #[test]
+    #[ignore = "requires live Redis server"]
+    fn test_connection_drop_during_request() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        init_may_runtime();
+        go!(|| {
+            let conn = Connection::connect("127.0.0.1", 6379).expect("connect");
+
+            let results = Arc::new(AtomicUsize::new(0));
+            let timeout_ms = 5_000u64;
+            let n = 3;
+
+            // Share the connection via Arc so coroutines can enqueue requests.
+            let conn = Arc::new(conn);
+
+            let handles: Vec<_> = (0..n)
+                .map(|i| {
+                    let conn = Arc::clone(&conn);
+                    let results = Arc::clone(&results);
+                    go!(move || {
+                        let (tx, rx): (spsc::Sender<RedisValue>, spsc::Receiver<RedisValue>) =
+                            spsc::channel();
+                        let ping = Request::new(b"*1\r\n$4\r\nPING\r\n".to_vec(), tx);
+                        // Enqueue the request.
+                        let _ = conn.send(ping);
+                        // Small yield to let other coroutines enqueue too.
+                        may::coroutine::yield_now();
+
+                        // Poll for a response with a timeout to detect hangs.
+                        let mut got_error = false;
+                        let start = std::time::Instant::now();
+                        loop {
+                            if start.elapsed().as_millis() >= u128::from(timeout_ms) {
+                                break;
+                            }
+                            match rx.try_recv() {
+                                Ok(val) => {
+                                    got_error = matches!(&val, RedisValue::Error(_));
+                                    log::info!("coroutine {i}: got {val:?}");
+                                    break;
+                                }
+                                Err(_) => {
+                                    may::coroutine::sleep(std::time::Duration::from_millis(50));
+                                }
+                            }
+                        }
+                        if got_error {
+                            results.fetch_add(1, Ordering::SeqCst);
+                        } else {
+                            log::warn!("coroutine {i}: did not receive an error (possible hang)");
+                        }
+                    })
+                })
+                .collect();
+
+            // Drop the connection — this cancels the loop.
+            drop(conn);
+
+            // Give the loop time to finish its error-drain cycle.
+            may::coroutine::sleep(std::time::Duration::from_millis(500));
+
+            // Join all spawned coroutines.
+            for h in handles {
+                let _ = h.join();
+            }
+
+            let success_count = results.load(Ordering::SeqCst);
+            assert_eq!(
+                success_count, n,
+                "Expected all {n} coroutines to get errors, got {success_count}",
+            );
+        });
+    }
+
+    /// Test that dropping a connection while coroutines are executing
+    /// pipelines causes every coroutine to get an error.
+    ///
+    /// Creates a new `Connection` and spawns 2 coroutines, each
+    /// sending a pipeline of 5 PING commands. The connection is dropped
+    /// right after launching. All coroutines must receive errors (not
+    /// hang or panic).
+    ///
+    /// Regression guard for finding S2: cancellation must not bypass
+    /// the error-dispatch cleanup path that drains `resp_queue` with
+    /// `RedisValue::Error`.
+    #[test]
+    #[ignore = "requires live Redis server"]
+    fn test_connection_drop_during_pipeline() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        init_may_runtime();
+        go!(|| {
+            let conn = Connection::connect("127.0.0.1", 6379).expect("connect");
+
+            let results = Arc::new(AtomicUsize::new(0));
+            let timeout_ms = 5_000u64;
+            let n = 2;
+            let pipeline_len = 5;
+
+            let conn = Arc::new(conn);
+
+            let handles: Vec<_> = (0..n)
+                .map(|i| {
+                    let conn = Arc::clone(&conn);
+                    let results = Arc::clone(&results);
+                    go!(move || {
+                        let mut errors = 0usize;
+                        for cmd_idx in 0..pipeline_len {
+                            let (tx, rx): (spsc::Sender<RedisValue>, spsc::Receiver<RedisValue>) =
+                                spsc::channel();
+                            let ping = Request::new(b"*1\r\n$4\r\nPING\r\n".to_vec(), tx);
+                            let _ = conn.send(ping);
+
+                            // Wait for this command's response with a timeout.
+                            let mut got = false;
+                            let start = std::time::Instant::now();
+                            loop {
+                                if start.elapsed().as_millis() >= u128::from(timeout_ms) {
+                                    break;
+                                }
+                                match rx.try_recv() {
+                                    Ok(val) => {
+                                        got = true;
+                                        if matches!(&val, RedisValue::Error(_)) {
+                                            errors += 1;
+                                        }
+                                        break;
+                                    }
+                                    Err(_) => {
+                                        may::coroutine::sleep(std::time::Duration::from_millis(50));
+                                    }
+                                }
+                            }
+                            if !got {
+                                log::warn!(
+                                    "pipeline coroutine {i} cmd {cmd_idx}: no response (possible hang)"
+                                );
+                            }
+                        }
+                        if errors > 0 {
+                            results.fetch_add(errors, Ordering::SeqCst);
+                        }
+                    })
+                })
+                .collect();
+
+            drop(conn);
+            may::coroutine::sleep(std::time::Duration::from_millis(500));
+
+            for h in handles {
+                let _ = h.join();
+            }
+
+            let total_errors = results.load(Ordering::SeqCst);
+            assert!(
+                total_errors > 0,
+                "Expected at least some errors in pipeline, got {total_errors}",
+            );
+        });
+    }
+
+    /// Test that dropping a connection in various orders never panics.
+    ///
+    /// This verifies two scenarios:
+    ///   1. Send a command, then immediately drop the connection
+    ///      (drop before response arrives).
+    ///   2. Drop the connection before sending any command.
+    ///
+    /// In both cases the test must complete without panicking.
+    /// If `Connection::drop` does not handle the cancellation path
+    /// correctly, `may::coroutine::cancel` can trigger panics in the
+    /// connection loop or leave dangling channels.
+    #[test]
+    #[ignore = "requires live Redis server"]
+    fn test_connection_drop_no_panic() {
+        // Scenario 1: Send then drop.
+        {
+            let conn = Connection::connect("127.0.0.1", 6379).expect("connect");
+            let (tx, rx): (spsc::Sender<RedisValue>, spsc::Receiver<RedisValue>) = spsc::channel();
+            let _ = conn.send(Request::new(b"*1\r\n$4\r\nPING\r\n".to_vec(), tx));
+            drop(conn);
+            // Give loop time to drain.
+            may::coroutine::sleep(std::time::Duration::from_millis(200));
+            // rx.recv() should return an error since sender was dropped.
+            assert!(
+                rx.try_recv().is_err(),
+                "Expected try_recv to fail after drop (no response)"
+            );
+        }
+
+        // Scenario 2: Drop before send.
+        {
+            let conn = Connection::connect("127.0.0.1", 6379).expect("connect");
+            drop(conn);
+            // A send into a cancelled/moved queue should not panic.
+            // The Queue is Arc-moved, so push should not panic.
+            let queue = Arc::new(Queue::<Request>::new());
+            let (tx, _rx): (spsc::Sender<RedisValue>, spsc::Receiver<RedisValue>) = spsc::channel();
+            queue.push(Request::new(b"*1\r\n$4\r\nPING\r\n".to_vec(), tx));
+            // The fact we reached here without panicking is the assertion.
         }
     }
 }

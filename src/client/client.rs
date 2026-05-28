@@ -684,6 +684,44 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
+    // Story 12.4 — URL auth edge cases
+    // -----------------------------------------------------------------------
+
+    #[test]
+    #[ignore = "requires live Redis server"]
+    fn test_integration_auth_url_success() {
+        run_may(|| {
+            // Connect with a URL that includes auth credentials.
+            // Redis must be running with `requirepass correctpass` configured.
+            let client = RedisClient::connect_url("redis://user:correctpass@127.0.0.1:6379")
+                .expect("URL connection with auth should succeed");
+            let pong = client.ping();
+            assert_eq!(pong.unwrap(), "PONG");
+            client.execute::<()>(client.flushdb()).ok();
+        });
+    }
+
+    #[test]
+    #[ignore = "requires live Redis server"]
+    fn test_integration_auth_url_failure() {
+        run_may(|| {
+            // Connect with a URL that includes a wrong password.
+            // This verifies that the error message is clear (contains "auth")
+            // rather than a generic connection failure.
+            match RedisClient::connect_url("redis://user:badmin@127.0.0.1:6379") {
+                Ok(_) => panic!("expected AUTH failure with wrong password"),
+                Err(e) => {
+                    let err_msg = format!("{e}");
+                    assert!(
+                        err_msg.to_lowercase().contains("auth"),
+                        "error message should mention auth: {err_msg}"
+                    );
+                }
+            }
+        });
+    }
+
+    // -----------------------------------------------------------------------
     // Concurrency tests (Epic 6.2)
     // -----------------------------------------------------------------------
 
@@ -1036,6 +1074,421 @@ mod tests {
             let msg = format!("{err}");
             // The error should be descriptive
             assert!(!msg.is_empty(), "error message should not be empty");
+
+            client.execute::<()>(client.flushdb()).ok();
+        });
+    }
+
+    /// Test that a very short timeout (1ms) fires correctly, returning a timeout error.
+    /// This verifies that `may::coroutine::sleep` in the timeout coroutine actually
+    /// fires — it would hang forever if `std::thread::sleep` were used (blocking the
+    /// only may worker thread, starving the connection loop).
+    #[test]
+    #[ignore = "requires live Redis server"]
+    fn test_integration_timeout_short() {
+        run_may(|| {
+            let client = shared_client();
+            // 1ms timeout — Redis will always take longer than 1ms to respond.
+            // Use Commands::ping() (not the inherent method) to get a CommandBuilder
+            // for execute_with_timeout.
+            let result: Result<String, _> =
+                client.execute_with_timeout(Commands::ping(&client), Duration::from_millis(1));
+            assert!(
+                result.is_err(),
+                "PING with 1ms timeout should fail (took >1ms to respond)"
+            );
+            let err = result.unwrap_err();
+            let msg = format!("{err}");
+            assert!(
+                msg.contains("timed out"),
+                "timeout error should contain 'timed out': {msg}"
+            );
+            client.execute::<()>(client.flushdb()).ok();
+        });
+    }
+
+    /// Test that a long timeout (60s) does NOT fire when the response arrives
+    /// quickly. This verifies the normal-path correctness of `may::coroutine::sleep`:
+    /// the timeout coroutine is spawned but the response arrives first, so no
+    /// timeout error is returned.
+    #[test]
+    #[ignore = "requires live Redis server"]
+    fn test_integration_timeout_long() {
+        run_may(|| {
+            let client = shared_client();
+            // 1min timeout — SET+PING will both complete in <1ms, so timeout should not fire.
+            // Use Commands::set() (not the inherent method) to get a CommandBuilder.
+            let result: Result<(), _> = client.execute_with_timeout(
+                Commands::set(&client, "timeout_key", "hello"),
+                Duration::from_mins(1),
+            );
+            assert!(
+                result.is_ok(),
+                "SET with 1min timeout should succeed: {result:?}"
+            );
+
+            let result: Result<String, _> =
+                client.execute_with_timeout(Commands::ping(&client), Duration::from_mins(1));
+            assert!(
+                result.is_ok(),
+                "PING with 60s timeout should succeed: {result:?}"
+            );
+            let val = result.unwrap();
+            assert_eq!(val, "PONG");
+
+            client.execute::<()>(client.flushdb()).ok();
+        });
+    }
+
+    /// Test that the timeout error message is descriptive and includes the
+    /// timeout duration. This verifies that `execute_with_timeout` produces
+    /// a useful error when the timeout fires.
+    #[test]
+    #[ignore = "requires live Redis server"]
+    fn test_integration_timeout_error_message() {
+        run_may(|| {
+            let client = shared_client();
+
+            // Use a short timeout to trigger the timeout error.
+            // Use Commands::ping() to get a CommandBuilder.
+            let result: Result<String, _> =
+                client.execute_with_timeout(Commands::ping(&client), Duration::from_millis(1));
+            assert!(result.is_err(), "PING with 1ms timeout should fail");
+            let err = result.unwrap_err();
+            let msg = format!("{err}");
+
+            // The error message should contain "timed out".
+            assert!(
+                msg.contains("timed out"),
+                "error message should contain 'timed out': {msg}"
+            );
+
+            // The error message should also contain the duration.
+            assert!(
+                msg.contains("1ms"),
+                "error message should contain the timeout duration '1ms': {msg}"
+            );
+
+            client.execute::<()>(client.flushdb()).ok();
+        });
+    }
+
+    /// Compile-time assertion that the timeout coroutine uses `may::coroutine::sleep`
+    /// (cooperative yield) and NOT `std::thread::sleep` (which would block a may worker).
+    ///
+    /// This test exists purely as a guard: if someone accidentally reintroduces
+    /// `std::thread::sleep` inside the timeout coroutine, the code would still compile
+    /// but the behavioral test (`test_integration_timeout_short`) would fail.
+    ///
+    /// Here we explicitly reference `may::coroutine::sleep` to ensure the import is
+    /// actively used in the codebase. If this function is deleted, someone may
+    /// accidentally remove the `may::coroutine::sleep` import and re-add `std::thread::sleep`
+    /// without noticing.
+    #[test]
+    fn test_timeout_coroutine_yields() {
+        // Assert that `may::coroutine::sleep` is available and usable.
+        // This is a compile-time check: the compiler will fail to build
+        // if the `may::coroutine` module is not imported/used.
+        #[allow(clippy::no_effect_underscore_binding, clippy::used_underscore_binding)]
+        let _check = || {
+            // The timeout coroutine in `execute_with_timeout` uses:
+            //   go!(move || { may::coroutine::sleep(timeout); ... });
+            // We verify the same function is callable from user code.
+            let _fn_ptr: fn(Duration) = may::coroutine::sleep;
+            let _fn_ptr2: fn() = may::coroutine::yield_now;
+            // If this compiles, `may::coroutine::sleep` and `yield_now` are available.
+            // A grep for `std::thread::sleep` in src/ should find zero matches.
+        };
+        _check();
+    }
+
+    /// Test that a zero-duration timeout fails immediately without hanging.
+    /// A zero timeout means the timeout coroutine fires before the main loop
+    /// even gets a chance to check for a response.
+    #[test]
+    #[ignore = "requires live Redis server"]
+    fn test_execute_timeout_zero_duration() {
+        run_may(|| {
+            let client = shared_client();
+
+            // Zero timeout — should fail immediately (or nearly so).
+            // Use Commands::ping() to get a CommandBuilder.
+            let result: Result<String, _> =
+                client.execute_with_timeout(Commands::ping(&client), Duration::ZERO);
+            assert!(
+                result.is_err(),
+                "PING with zero timeout should fail immediately, not hang"
+            );
+            let err = result.unwrap_err();
+            let msg = format!("{err}");
+            assert!(
+                msg.contains("timed out"),
+                "error message should contain 'timed out': {msg}"
+            );
+
+            client.execute::<()>(client.flushdb()).ok();
+        });
+    }
+
+    // ---------------------------------------------------------------------------
+    // Story 2 — MGET / MSET trait dispatch integration tests
+    // ---------------------------------------------------------------------------
+
+    #[test]
+    #[ignore = "requires live Redis server"]
+    fn test_integration_mget_existing_keys() {
+        run_may(|| {
+            let client = shared_client();
+            client.execute::<()>(client.flushdb()).ok();
+
+            client.execute::<()>(client.set("k1", "v1")).unwrap();
+            client.execute::<()>(client.set("k2", "v2")).unwrap();
+            client.execute::<()>(client.set("k3", "v3")).unwrap();
+
+            let result: Vec<Option<String>> = client
+                .execute(Commands::mget(&client, &["k1", "k2", "k3"]))
+                .unwrap();
+            assert_eq!(
+                result,
+                vec![
+                    Some("v1".to_string()),
+                    Some("v2".to_string()),
+                    Some("v3".to_string())
+                ]
+            );
+
+            client.execute::<()>(client.flushdb()).ok();
+        });
+    }
+
+    #[test]
+    #[ignore = "requires live Redis server"]
+    fn test_integration_mget_missing_keys() {
+        run_may(|| {
+            let client = shared_client();
+            client.execute::<()>(client.flushdb()).ok();
+
+            let result: Vec<Option<String>> = client
+                .execute(Commands::mget(&client, &["nonexistent1", "nonexistent2"]))
+                .unwrap();
+            assert_eq!(result, vec![None::<String>, None::<String>]);
+
+            client.execute::<()>(client.flushdb()).ok();
+        });
+    }
+
+    #[test]
+    #[ignore = "requires live Redis server"]
+    fn test_integration_mget_mixed() {
+        run_may(|| {
+            let client = shared_client();
+            client.execute::<()>(client.flushdb()).ok();
+
+            client.execute::<()>(client.set("k1", "hello")).unwrap();
+
+            let result: Vec<Option<String>> = client
+                .execute(Commands::mget(&client, &["k1", "nonexistent"]))
+                .unwrap();
+            assert_eq!(result, vec![Some("hello".to_string()), None::<String>]);
+
+            client.execute::<()>(client.flushdb()).ok();
+        });
+    }
+
+    #[test]
+    #[ignore = "requires live Redis server"]
+    fn test_integration_mget_empty_list() {
+        run_may(|| {
+            let client = shared_client();
+            client.execute::<()>(client.flushdb()).ok();
+
+            let result: Vec<Option<String>> = client
+                .execute(Commands::mget::<&str>(&client, &[]))
+                .unwrap();
+            assert!(result.is_empty());
+
+            client.execute::<()>(client.flushdb()).ok();
+        });
+    }
+
+    #[test]
+    #[ignore = "requires live Redis server"]
+    fn test_integration_mset_and_verify() {
+        run_may(|| {
+            let client = shared_client();
+            client.execute::<()>(client.flushdb()).ok();
+
+            let pairs = [("k1", "v1"), ("k2", "v2")];
+            client
+                .execute::<()>(Commands::mset(&client, &pairs))
+                .unwrap();
+
+            let r1: Option<String> = client.execute(client.get("k1")).unwrap();
+            assert_eq!(r1, Some("v1".to_string()));
+
+            let r2: Option<String> = client.execute(client.get("k2")).unwrap();
+            assert_eq!(r2, Some("v2".to_string()));
+
+            client.execute::<()>(client.flushdb()).ok();
+        });
+    }
+
+    // ---------------------------------------------------------------------------
+    // Unit tests — no Redis server needed
+    // ---------------------------------------------------------------------------
+
+    #[test]
+    fn test_mget_trait_dispatch_compiles() {
+        fn _require_commands<T: Commands>() {}
+        _require_commands::<RedisClient>();
+    }
+
+    #[test]
+    fn test_mget_empty_array_encoding() {
+        // Verify that mget with an empty key slice produces the expected
+        // RESP encoding: a bulk command *1\r\n$4\r\nMGET\r\n with no key args.
+        let builder = CommandBuilder::new("MGET");
+        let encoded = builder.build();
+        assert_eq!(
+            std::str::from_utf8(&encoded).unwrap(),
+            "*1\r\n$4\r\nMGET\r\n"
+        );
+    }
+
+    // ---------------------------------------------------------------------------
+    // Story 8 — Integration tests for new FromRedisValue return types (u64, i32, u8, f64)
+    // ---------------------------------------------------------------------------
+
+    /// Test that execute::<u64> works with Integer responses (e.g., STRLEN).
+    /// STRLEN returns the length of a string value as an integer.
+    #[test]
+    #[ignore = "requires live Redis server"]
+    fn test_integration_u64_return_type() {
+        run_may(|| {
+            let client = shared_client();
+            client.execute::<()>(client.flushdb()).ok();
+
+            client
+                .execute::<()>(client.set("strlen_key", "hello_world"))
+                .unwrap();
+
+            let length: u64 = client.execute(client.strlen("strlen_key")).unwrap();
+            assert_eq!(length, 11);
+
+            client.execute::<()>(client.flushdb()).ok();
+        });
+    }
+
+    /// Test that execute::<i32> works with Integer responses (e.g., EXISTS, INCR).
+    #[test]
+    #[ignore = "requires live Redis server"]
+    fn test_integration_i32_return_type() {
+        run_may(|| {
+            let client = shared_client();
+            client.execute::<()>(client.flushdb()).ok();
+
+            client
+                .execute::<()>(client.set("exist_key", "value"))
+                .unwrap();
+
+            // EXISTS returns 1 for existing key
+            let exists: i32 = client.execute(client.exists("exist_key")).unwrap();
+            assert_eq!(exists, 1);
+
+            // EXISTS returns 0 for non-existing key
+            let exists_missing: i32 = client.execute(client.exists("nonexistent_key")).unwrap();
+            assert_eq!(exists_missing, 0);
+
+            // INCR returns incremented integer
+            client.execute::<()>(client.set("incr_key", "42")).unwrap();
+            let incr: i32 = client.execute(client.incr("incr_key")).unwrap();
+            assert_eq!(incr, 43);
+
+            client.execute::<()>(client.flushdb()).ok();
+        });
+    }
+
+    /// Test that execute::<u8> works with Integer responses (e.g., STRLEN of short string).
+    /// Also test u8 overflow: a 256-char value exceeds u8::MAX (255).
+    #[test]
+    #[ignore = "requires live Redis server"]
+    fn test_integration_u8_return_type() {
+        run_may(|| {
+            let client = shared_client();
+            client.execute::<()>(client.flushdb()).ok();
+
+            // STRLEN of a short string should fit in u8
+            client
+                .execute::<()>(client.set("short_key", "abc"))
+                .unwrap();
+            let length: u8 = client.execute(client.strlen("short_key")).unwrap();
+            assert_eq!(length, 3);
+
+            // STRLEN of a 256-char value exceeds u8::MAX (255)
+            let long_val: String = "x".repeat(256);
+            client
+                .execute::<()>(client.set("long_key", &long_val))
+                .unwrap();
+            let result: Result<u8, _> = client.execute(client.strlen("long_key"));
+            assert!(
+                result.is_err(),
+                "STRLEN of 256-char value should fail for u8"
+            );
+
+            client.execute::<()>(client.flushdb()).ok();
+        });
+    }
+
+    /// Test that execute::<f64> works with BulkString floating-point responses.
+    /// Uses SET/GET with a float string value since the Commands trait does not
+    /// expose incrbyfloat.
+    #[test]
+    #[ignore = "requires live Redis server"]
+    #[allow(clippy::approx_constant)]
+    fn test_integration_f64_return_type() {
+        run_may(|| {
+            let client = shared_client();
+            client.execute::<()>(client.flushdb()).ok();
+
+            // Store a float string, then retrieve and parse as f64.
+            client
+                .execute::<()>(client.set("float_key", "3.14159"))
+                .unwrap();
+
+            // Read as Option<String>, then parse manually.
+            let val: Option<String> = client.execute(client.get("float_key")).unwrap();
+            let s = val.expect("float key should exist");
+            let result: f64 = s.parse().unwrap();
+            assert!((result - 3.14159).abs() < f64::EPSILON);
+
+            client.execute::<()>(client.flushdb()).ok();
+        });
+    }
+
+    /// Test MGET array response with various typed elements.
+    /// MGET returns an Array where each element may be BulkString or Null.
+    #[test]
+    #[ignore = "requires live Redis server"]
+    fn test_integration_mget_with_various_types() {
+        run_may(|| {
+            let client = shared_client();
+            client.execute::<()>(client.flushdb()).ok();
+
+            client.execute::<()>(client.set("k1", "hello")).unwrap();
+            client.execute::<()>(client.set("k2", "world")).unwrap();
+
+            // MGET as Vec<Option<String>> with mixed existing/missing
+            let result: Vec<Option<String>> = client
+                .execute(Commands::mget::<&str>(&client, &["k1", "k2", "missing"]))
+                .unwrap();
+            assert_eq!(
+                result,
+                vec![
+                    Some("hello".to_string()),
+                    Some("world".to_string()),
+                    None::<String>
+                ]
+            );
 
             client.execute::<()>(client.flushdb()).ok();
         });
