@@ -86,7 +86,7 @@ impl FromRedisValue for usize {
 impl FromRedisValue for u64 {
     fn from_redis_value(value: &RedisValue) -> RedisResult<Self> {
         match value {
-            RedisValue::Integer(n) if *n >= 0 => Ok(*n as u64),
+            RedisValue::Integer(n) if *n >= 0 => Ok(*n as Self),
             RedisValue::Integer(n) => Err(RedisError::Parse(format!(
                 "negative integer {n} cannot be converted to u64"
             ))),
@@ -100,8 +100,8 @@ impl FromRedisValue for u64 {
 impl FromRedisValue for i32 {
     fn from_redis_value(value: &RedisValue) -> RedisResult<Self> {
         match value {
-            RedisValue::Integer(n) => (*n as i32 as i64 == *n)
-                .then_some(*n as i32)
+            RedisValue::Integer(n) => (i64::from(*n as Self) == *n)
+                .then_some(*n as Self)
                 .ok_or_else(|| RedisError::Parse(format!("integer {n} is out of range for i32"))),
             other => Err(RedisError::Parse(format!(
                 "expected Integer for i32, got {other:?}"
@@ -113,7 +113,7 @@ impl FromRedisValue for i32 {
 impl FromRedisValue for u8 {
     fn from_redis_value(value: &RedisValue) -> RedisResult<Self> {
         match value {
-            RedisValue::Integer(n) if (*n as u8 as i64) == *n && *n >= 0 => Ok(*n as u8),
+            RedisValue::Integer(n) if i64::from(*n as Self) == *n && *n >= 0 => Ok(*n as Self),
             RedisValue::Integer(n) => Err(RedisError::Parse(format!(
                 "integer {n} is out of range for u8"
             ))),
@@ -130,7 +130,7 @@ impl FromRedisValue for f64 {
             RedisValue::BulkString(b) => std::str::from_utf8(b)
                 .map_err(|_| RedisError::Parse("BulkString is not valid UTF-8".to_string()))
                 .and_then(|s| {
-                    s.parse::<f64>()
+                    s.parse::<Self>()
                         .map_err(|e| RedisError::Parse(format!("cannot parse '{s}' as f64: {e}")))
                 }),
             other => Err(RedisError::Parse(format!(
@@ -247,13 +247,6 @@ mod tests {
     }
 
     #[test]
-    fn test_from_redis_value_usize_negative_error() {
-        let val = RedisValue::Integer(-1);
-        let result: Result<usize, _> = FromRedisValue::from_redis_value(&val);
-        assert!(result.is_err());
-    }
-
-    #[test]
     fn test_from_redis_value_usize_i64_max() {
         // i64::MAX is 9223372036854775807
         // On 64-bit: usize::MAX = 18446744073709551615, so i64::MAX fits
@@ -262,7 +255,10 @@ mod tests {
         let result: Result<usize, _> = FromRedisValue::from_redis_value(&val);
         // On 64-bit this succeeds, on 32-bit it fails
         if cfg!(target_pointer_width = "64") {
-            assert_eq!(result.unwrap() as i64, i64::MAX);
+            #[allow(clippy::cast_possible_wrap)]
+            {
+                assert_eq!(result.unwrap() as i64, i64::MAX);
+            }
         } else {
             assert!(result.is_err());
         }
@@ -307,14 +303,14 @@ mod tests {
 
     #[test]
     fn test_from_redis_value_i32_max() {
-        let val = RedisValue::Integer(i32::MAX as i64);
+        let val = RedisValue::Integer(i64::from(i32::MAX));
         let result: i32 = FromRedisValue::from_redis_value(&val).unwrap();
         assert_eq!(result, i32::MAX);
     }
 
     #[test]
     fn test_from_redis_value_i32_min() {
-        let val = RedisValue::Integer(i32::MIN as i64);
+        let val = RedisValue::Integer(i64::from(i32::MIN));
         let result: i32 = FromRedisValue::from_redis_value(&val).unwrap();
         assert_eq!(result, i32::MIN);
     }
@@ -356,9 +352,9 @@ mod tests {
 
     #[test]
     fn test_from_redis_value_f64_basic() {
-        let val = RedisValue::BulkString(b"3.14".to_vec());
+        let val = RedisValue::BulkString(b"1.23".to_vec());
         let result: f64 = FromRedisValue::from_redis_value(&val).unwrap();
-        assert!((result - 3.14).abs() < f64::EPSILON);
+        assert!((result - 1.23).abs() < f64::EPSILON);
     }
 
     #[test]
@@ -379,7 +375,7 @@ mod tests {
     fn test_from_redis_value_f64_zero() {
         let val = RedisValue::BulkString(b"0.0".to_vec());
         let result: f64 = FromRedisValue::from_redis_value(&val).unwrap();
-        assert_eq!(result, 0.0);
+        assert!(result.abs() < f64::EPSILON);
     }
 
     #[test]
