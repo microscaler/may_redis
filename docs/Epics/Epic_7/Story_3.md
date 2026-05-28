@@ -4,73 +4,76 @@
 
 **Epic:** 7 — Redis Command Expansion
 
-**Dependencies:** Epic 7.0 (epic setup), Story 7.2 (Hash — runs in parallel)
+**Dependencies:** Epic 7.0 (epic setup)
 
 **Status:** PENDING
 
-**Source docs:** `docs/01-protocol-analysis.md` (RESP encoding for set commands), `docs/08-command-audit.md` (set coverage)
+**Source docs:** `docs/01-protocol-analysis.md` (RESP encoding for set commands)
 
-## Functional Requirements
+## Struct
 
-### FR-1: SMEMBERS key
-- Method: `smembers(&self, key: K) -> CommandBuilder`
-- RESP: `SMEMBERS key`
-- Unit test: `test_command_smembers_encoding`
+This story adds the following methods to `Commands`:
 
-### FR-2: SPOP key [count]
-- Method: `spop(&self, key: K) -> CommandBuilder` (pop single)
-- Method: `spop_count(&self, key: K, count: i64) -> CommandBuilder` (pop n)
-- RESP: `SPOP key` / `SPOP key count`
-- Unit tests: `test_command_spop_encoding`, `test_command_spop_count_encoding`
+```rust
+pub trait Commands: Sized {
+    // ... existing 22 methods ...
 
-### FR-3: SRANDMEMBER key [count]
-- Method: `srandmember(&self, key: K) -> CommandBuilder` (single)
-- Method: `srandmember_count(&self, key: K, count: i64) -> CommandBuilder` (n)
-- RESP: `SRANDMEMBER key` / `SRANDMEMBER key count`
-- Unit tests: `test_command_srandmember_encoding`, `test_command_srandmember_count_encoding`
+    // NEW: Set Commands
+    fn smembers<K: ToRedisArgs>(&self, key: K) -> CommandBuilder;
+    fn spop<K: ToRedisArgs>(&self, key: K) -> CommandBuilder;
+    fn spop_count<K: ToRedisArgs>(&self, key: K, count: i64) -> CommandBuilder;
+    fn srandmember<K: ToRedisArgs>(&self, key: K) -> CommandBuilder;
+    fn srandmember_count<K: ToRedisArgs>(&self, key: K, count: i64) -> CommandBuilder;
+    fn scard<K: ToRedisArgs>(&self, key: K) -> CommandBuilder;
+    fn sinter(keys: &[impl ToRedisArgs]) -> CommandBuilder;
+    fn sunion(keys: &[impl ToRedisArgs]) -> CommandBuilder;
+    fn smove<K: ToRedisArgs, M: ToRedisArgs>(&self, source: K, destination: K, member: M) -> CommandBuilder;
+    fn sscan<K: ToRedisArgs>(&self, key: K, cursor: i64) -> CommandBuilder;
+    fn sscan_match<K: ToRedisArgs>(&self, key: K, cursor: i64, pattern: &str) -> CommandBuilder;
+}
+```
 
-### FR-4: SCARD key
-- Method: `scard(&self, key: K) -> CommandBuilder`
-- RESP: `SCARD key`
-- Unit test: `test_command_scard_encoding`
+## Implementation Pattern
 
-### FR-5: SINTER key [key ...]
-- Method: `sinter(&self, keys: &[impl ToRedisArgs]) -> CommandBuilder`
-- RESP: `SINTER key1 key2 ...`
-- Unit test: `test_command_sinter_encoding`
+Same as SADD/SISMEMBER. For variadic variants (SINTER, SUNION), use `args()`:
 
-### FR-6: SUNION key [key ...]
-- Method: `sunion(&self, keys: &[impl ToRedisArgs]) -> CommandBuilder`
-- RESP: `SUNION key1 key2 ...`
-- Unit test: `test_command_sunion_encoding`
+```rust
+fn sinter(keys: &[impl ToRedisArgs]) -> CommandBuilder {
+    let mut builder = CommandBuilder::new("SINTER");
+    for key in keys {
+        builder = builder.arg(key);
+    }
+    builder
+}
+```
 
-### FR-7: SMOVE source destination member
-- Method: `smove(&self, source: K, destination: K, member: M) -> CommandBuilder`
-- RESP: `SMOVE source destination member`
-- Unit test: `test_command_smove_encoding`
+## Tasks
 
-### FR-8: SSCAN key cursor [MATCH pattern] [COUNT count]
-- Method: `sscan(&self, key: K, cursor: i64) -> CommandBuilder` (simple form)
-- Method: `sscan_match(&self, key: K, cursor: i64, pattern: &str) -> CommandBuilder` (with match)
-- RESP: `SSCAN key cursor [MATCH pattern] [COUNT count]`
-- Unit tests: `test_command_sscan_encoding`, `test_command_sscan_match_encoding`
-
-## Non-Functional Requirements
-
-- Same `#[must_use]`, `CommandBuilder::new()` pattern as existing set commands
-- No new dependencies
-- Every method has exactly one `test_command_*_encoding` unit test
-- Commands with variadic keys (SINTER, SUNION) use `CommandBuilder::args()`
-
-## Code Anchors
-
-- `src/protocol/commands.rs` — Add methods to `Commands` trait (after `srem` method)
-- `src/protocol/commands.rs::tests` — Add test functions at end of `mod tests`
+- [ ] Define `smembers(key)` → `cmd("SMEMBERS").arg(key)`
+- [ ] Define `spop(key)` → `cmd("SPOP").arg(key)`
+- [ ] Define `spop_count(key, count)` → `cmd("SPOP").arg(key).arg(count)`
+- [ ] Define `srandmember(key)` → `cmd("SRANDMEMBER").arg(key)`
+- [ ] Define `srandmember_count(key, count)` → `cmd("SRANDMEMBER").arg(key).arg(count)`
+- [ ] Define `scard(key)` → `cmd("SCARD").arg(key)`
+- [ ] Define `sinter(keys)` → `cmd("SINTER").args(keys)`
+- [ ] Define `sunion(keys)` → `cmd("SUNION").args(keys)`
+- [ ] Define `smove(source, dest, member)` → `cmd("SMOVE").arg(source).arg(dest).arg(member)`
+- [ ] Define `sscan(key, cursor)` → `cmd("SSCAN").arg(key).arg(cursor)`
+- [ ] Define `sscan_match(key, cursor, pattern)` → `cmd("SSCAN").arg(key).arg(cursor).arg("MATCH").arg(pattern)`
+- [ ] Add unit test for each method in `mod tests`
 
 ## Verification
 
-- [ ] `cargo check --lib` passes
-- [ ] `cargo test --lib test_command_` passes with zero failures
-- [ ] `cargo clippy --lib --tests --all-features -- -D warnings` passes
-- [ ] All 8 new methods have unit tests
-- [ ] Wire encoding for each command matches RESP2 spec
+- `cargo check --lib` passes
+- `cargo test --lib test_command_smembers_encoding` — `cmd("SMEMBERS").arg("s").build()` → correct bytes
+- `cargo test --lib test_command_spop_encoding` — `cmd("SPOP").arg("s").build()` → correct bytes
+- `cargo test --lib test_command_spop_count_encoding` — `cmd("SPOP").arg("s").arg(3).build()` → correct bytes
+- `cargo test --lib test_command_srandmember_encoding` — `cmd("SRANDMEMBER").arg("s").build()` → correct bytes
+- `cargo test --lib test_command_srandmember_count_encoding` — `cmd("SRANDMEMBER").arg("s").arg(2).build()` → correct bytes
+- `cargo test --lib test_command_scard_encoding` — `cmd("SCARD").arg("s").build()` → correct bytes
+- `cargo test --lib test_command_sinter_encoding` — `cmd("SINTER").args(&["s1","s2"]).build()` → correct bytes
+- `cargo test --lib test_command_sunion_encoding` — `cmd("SUNION").args(&["s1","s2"]).build()` → correct bytes
+- `cargo test --lib test_command_smove_encoding` — `cmd("SMOVE").arg("src").arg("dst").arg("m").build()` → correct bytes
+- `cargo test --lib test_command_sscan_encoding` — `cmd("SSCAN").arg("s").arg(0).build()` → correct bytes
+- `cargo test --lib test_command_sscan_match_encoding` — `cmd("SSCAN").arg("s").arg(0).arg("MATCH").arg("*").build()` → correct bytes
+- `cargo clippy --lib --tests --all-features -- -D warnings` — zero warnings

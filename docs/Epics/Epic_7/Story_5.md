@@ -88,11 +88,6 @@
 - Commands with variadic args (ZRANGE WITHSCORES, ZRANGEBYSCORE LIMIT) append optional flags as additional `.arg()` calls
 - f64 scores are converted to string via `.to_string()` — no new float-specific ToRedisArgs impl needed
 
-## Code Anchors
-
-- `src/protocol/commands.rs` — Add methods to `Commands` trait (after `append` method)
-- `src/protocol/commands.rs::tests` — Add test functions at end of `mod tests`
-
 ## Verification
 
 - [ ] `cargo check --lib` passes

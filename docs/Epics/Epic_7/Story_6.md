@@ -74,11 +74,6 @@
 - Every method has exactly one `test_command_*_encoding` unit test
 - Pub/sub and transaction commands are wire-format only — they do not need InMemoryClient support since they change connection state
 
-## Code Anchors
-
-- `src/protocol/commands.rs` — Add methods to `Commands` trait (after `append` method)
-- `src/protocol/commands.rs::tests` — Add test functions at end of `mod tests`
-
 ## Verification
 
 - [ ] `cargo check --lib` passes

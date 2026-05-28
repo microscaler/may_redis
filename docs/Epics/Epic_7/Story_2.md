@@ -4,72 +4,72 @@
 
 **Epic:** 7 — Redis Command Expansion
 
-**Dependencies:** Epic 7.0 (epic setup), Story 7.1 (String Extension — runs in parallel)
+**Dependencies:** Epic 7.0 (epic setup)
 
 **Status:** PENDING
 
-**Source docs:** `docs/01-protocol-analysis.md` (RESP encoding for hash commands), `docs/08-command-audit.md` (hash coverage)
+**Source docs:** `docs/01-protocol-analysis.md` (RESP encoding for hash commands)
 
-## Functional Requirements
+## Struct
 
-### FR-1: HDEL key field [field ...]
-- Method: `hdel(&self, key: K, field: F) -> CommandBuilder` (single field)
-- Method: `hdel_fields(&self, key: K, fields: &[impl ToRedisArgs]) -> CommandBuilder` (variadic)
-- RESP: `HDEL key field1 [field2 ...]`
-- Unit test: `test_command_hdel_encoding`
+This story adds the following methods to `Commands`:
 
-### FR-2: HKEYS key
-- Method: `hkeys(&self, key: K) -> CommandBuilder`
-- RESP: `HKEYS key`
-- Unit test: `test_command_hkeys_encoding`
+```rust
+pub trait Commands: Sized {
+    // ... existing 22 methods ...
 
-### FR-3: HGETALL key
-- Method: `hgetall(&self, key: K) -> CommandBuilder`
-- RESP: `HGETALL key`
-- Unit test: `test_command_hgetall_encoding`
+    // NEW: Hash Commands
+    fn hdel<K: ToRedisArgs, F: ToRedisArgs>(&self, key: K, field: F) -> CommandBuilder;
+    fn hdel_fields<K: ToRedisArgs>(&self, key: K, fields: &[impl ToRedisArgs]) -> CommandBuilder;
+    fn hkeys<K: ToRedisArgs>(&self, key: K) -> CommandBuilder;
+    fn hgetall<K: ToRedisArgs>(&self, key: K) -> CommandBuilder;
+    fn hmset<K: ToRedisArgs>(&self, key: K, pairs: &[(impl ToRedisArgs, impl ToRedisArgs)]) -> CommandBuilder;
+    fn hincrby<K: ToRedisArgs, F: ToRedisArgs>(&self, key: K, field: F, increment: i64) -> CommandBuilder;
+    fn hlen<K: ToRedisArgs>(&self, key: K) -> CommandBuilder;
+    fn hexists<K: ToRedisArgs, F: ToRedisArgs>(&self, key: K, field: F) -> CommandBuilder;
+    fn hscan<K: ToRedisArgs>(&self, key: K, cursor: i64) -> CommandBuilder;
+    fn hscan_match<K: ToRedisArgs>(&self, key: K, cursor: i64, pattern: &str) -> CommandBuilder;
+}
+```
 
-### FR-4: HMSET key field value [field value ...]
-- Method: `hmset(&self, key: K, pairs: &[(impl ToRedisArgs, impl ToRedisArgs)]) -> CommandBuilder`
-- RESP: `HMSET key field1 value1 [field2 value2 ...]`
-- Unit test: `test_command_hmset_encoding`
+## Implementation Pattern
 
-### FR-5: HINCRBY key field increment
-- Method: `hincrby(&self, key: K, field: F, increment: i64) -> CommandBuilder`
-- RESP: `HINCRBY key field increment`
-- Unit test: `test_command_hincrby_encoding`
+Same pattern as HSET/HGET. For variadic variants (HDEL fields, HMSET), use `args()`:
 
-### FR-6: HLEN key
-- Method: `hlen(&self, key: K) -> CommandBuilder`
-- RESP: `HLEN key`
-- Unit test: `test_command_hlen_encoding`
+```rust
+fn hdel_fields<K: ToRedisArgs>(&self, key: K, fields: &[impl ToRedisArgs]) -> CommandBuilder {
+    let mut builder = CommandBuilder::new("HDEL").arg(key);
+    for f in fields {
+        builder = builder.arg(f);
+    }
+    builder
+}
+```
 
-### FR-7: HEXISTS key field
-- Method: `hexists(&self, key: K, field: F) -> CommandBuilder`
-- RESP: `HEXISTS key field`
-- Unit test: `test_command_hexists_encoding`
+## Tasks
 
-### FR-8: HSCAN key cursor [MATCH pattern] [COUNT count]
-- Method: `hscan(&self, key: K, cursor: i64) -> CommandBuilder` (simple form)
-- Method: `hscan_match(&self, key: K, cursor: i64, pattern: &str) -> CommandBuilder` (with match)
-- RESP: `HSCAN key cursor [MATCH pattern] [COUNT count]`
-- Unit tests: `test_command_hscan_encoding`, `test_command_hscan_match_encoding`
-
-## Non-Functional Requirements
-
-- Same `#[must_use]`, `CommandBuilder::new()` pattern as existing hash commands
-- No new dependencies
-- Every method has exactly one `test_command_*_encoding` unit test
-- HSCAN variadic args use `CommandBuilder::args()` for optional MATCH/COUNT parameters
-
-## Code Anchors
-
-- `src/protocol/commands.rs` — Add methods to `Commands` trait (after `append` method)
-- `src/protocol/commands.rs::tests` — Add test functions at end of `mod tests`
+- [ ] Define `hdel(key, field)` → `cmd("HDEL").arg(key).arg(field)`
+- [ ] Define `hdel_fields(key, fields)` → `cmd("HDEL").arg(key).args(fields)`
+- [ ] Define `hkeys(key)` → `cmd("HKEYS").arg(key)`
+- [ ] Define `hgetall(key)` → `cmd("HGETALL").arg(key)`
+- [ ] Define `hmset(key, pairs)` → `cmd("HMSET").arg(key).args(pairs)`
+- [ ] Define `hincrby(key, field, increment)` → `cmd("HINCRBY").arg(key).arg(field).arg(increment)`
+- [ ] Define `hlen(key)` → `cmd("HLEN").arg(key)`
+- [ ] Define `hexists(key, field)` → `cmd("HEXISTS").arg(key).arg(field)`
+- [ ] Define `hscan(key, cursor)` → `cmd("HSCAN").arg(key).arg(cursor)`
+- [ ] Define `hscan_match(key, cursor, pattern)` → `cmd("HSCAN").arg(key).arg(cursor).arg("MATCH").arg(pattern)`
+- [ ] Add unit test for each method in `mod tests`
 
 ## Verification
 
-- [ ] `cargo check --lib` passes
-- [ ] `cargo test --lib test_command_` passes with zero failures
-- [ ] `cargo clippy --lib --tests --all-features -- -D warnings` passes
-- [ ] All 8 new methods have unit tests
-- [ ] Wire encoding for each command matches RESP2 spec
+- `cargo check --lib` passes
+- `cargo test --lib test_command_hdel_encoding` — `cmd("HDEL").arg("h").arg("f").build()` → correct bytes
+- `cargo test --lib test_command_hkeys_encoding` — `cmd("HKEYS").arg("h").build()` → correct bytes
+- `cargo test --lib test_command_hgetall_encoding` — `cmd("HGETALL").arg("h").build()` → correct bytes
+- `cargo test --lib test_command_hmset_encoding` — `cmd("HMSET").args(&["h","f","v"])` → correct bytes
+- `cargo test --lib test_command_hincrby_encoding` — `cmd("HINCRBY").arg("h").arg("f").arg(1).build()` → correct bytes
+- `cargo test --lib test_command_hlen_encoding` — `cmd("HLEN").arg("h").build()` → correct bytes
+- `cargo test --lib test_command_hexists_encoding` — `cmd("HEXISTS").arg("h").arg("f").build()` → correct bytes
+- `cargo test --lib test_command_hscan_encoding` — `cmd("HSCAN").arg("h").arg(0).build()` → correct bytes
+- `cargo test --lib test_command_hscan_match_encoding` — `cmd("HSCAN").arg("h").arg(0).arg("MATCH").arg("*").build()` → correct bytes
+- `cargo clippy --lib --tests --all-features -- -D warnings` — zero warnings

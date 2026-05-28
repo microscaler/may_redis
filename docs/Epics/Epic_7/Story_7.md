@@ -115,11 +115,6 @@
 - Commands with variadic keys (TOUCH, SORT with multiple GET patterns) use `CommandBuilder::args()`
 - Commands with optional flags (SHUTDOWN, SORT, SCAN, INFO) have simple and extended variants
 
-## Code Anchors
-
-- `src/protocol/commands.rs` — Add methods to `Commands` trait (after `append` method)
-- `src/protocol/commands.rs::tests` — Add test functions at end of `mod tests`
-
 ## Verification
 
 - [ ] `cargo check --lib` passes

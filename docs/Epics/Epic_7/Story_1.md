@@ -1,6 +1,6 @@
 # Story 7.1 — String Extension Commands
 
-**Objective:** Add string extension commands that complement the existing SET/GET/DEL base. These include DEPR, MGET, MSET, SETNX, bulk ops, bit operations, and range ops.
+**Objective:** Add string extension commands that complement the existing SET/GET/DEL base. These cover decrement variants, bulk operations, set-if-not-exists, bit operations, and range operations.
 
 **Epic:** 7 — Redis Command Expansion
 
@@ -10,93 +10,91 @@
 
 **Source docs:** `docs/01-protocol-analysis.md` (RESP encoding for string commands)
 
-## Functional Requirements
-
-### FR-1: DECR key
-- Method: `decr(&self, key: K) -> CommandBuilder`
-- RESP: `DECR key`
-- Unit test: `test_command_decr_encoding`
-- Wire format: `*2\r\n$4\r\nDECR\r\n$N\r\n<key>\r\n`
-
-### FR-2: DECRBY key decrement
-- Method: `decrby(&self, key: K, decrement: i64) -> CommandBuilder`
-- RESP: `DECRBY key decrement`
-- Unit test: `test_command_decrby_encoding`
-- Wire format: `*3\r\n$6\r\nDECRBY\r\n$N\r\n<key>\r\n$M\r\n<decrement>\r\n`
-
-### FR-3: SETNX key value
-- Method: `setnx(&self, key: K, value: V) -> CommandBuilder`
-- RESP: `SETNX key value`
-- Unit test: `test_command_setnx_encoding`
-- Wire format: `*3\r\n$5\r\nSETNX\r\n$N\r\n<key>\r\n$M\r\n<value>\r\n`
-
-### FR-4: MGET key...
-- Method: `mget(&self, keys: &[impl ToRedisArgs]) -> CommandBuilder`
-- RESP: `MGET key1 key2 ...`
-- Unit test: `test_command_mget_encoding`
-- Wire format: `*<n+1>\r\n$4\r\nMGET\r\n$N\r\n<key1>\r\n$N\r\n<key2>\r\n...`
-- Uses `args()` helper on CommandBuilder for variadic keys
-
-### FR-5: MSET key value key value...
-- Method: `mset(&self, pairs: &[(impl ToRedisArgs, impl ToRedisArgs)]) -> CommandBuilder`
-- RESP: `MSET key1 value1 key2 value2 ...`
-- Unit test: `test_command_mset_encoding`
-- Wire format: `*<n*2+1>\r\n$4\r\nMSET\r\n$N\r\n<key1>\r\n$M\r\n<value1>\r\n...`
-
-### FR-6: MSETNX key value key value...
-- Method: `msetnx(&self, pairs: &[(impl ToRedisArgs, impl ToRedisArgs)]) -> CommandBuilder`
-- RESP: `MSETNX key1 value1 key2 value2 ...`
-- Unit test: `test_command_msetnx_encoding`
-- Wire format: Same as MSET but with MSETNX command name
-
-### FR-7: STRLEN key
-- Method: `strlen(&self, key: K) -> CommandBuilder`
-- RESP: `STRLEN key`
-- Unit test: `test_command_strlen_encoding`
-
-### FR-8: GETRANGE key start end
-- Method: `getrange(&self, key: K, start: i64, end: i64) -> CommandBuilder`
-- RESP: `GETRANGE key start end`
-- Unit test: `test_command_getrange_encoding`
-
-### FR-9: SETRANGE key offset value
-- Method: `setrange(&self, key: K, offset: i64, value: V) -> CommandBuilder`
-- RESP: `SETRANGE key offset value`
-- Unit test: `test_command_setrange_encoding`
-
-### FR-10: SETBIT key offset value
-- Method: `setbit(&self, key: K, offset: i64, value: i64) -> CommandBuilder`
-- RESP: `SETBIT key offset value`
-- Unit test: `test_command_setbit_encoding`
-
-### FR-11: GETBIT key offset
-- Method: `getbit(&self, key: K, offset: i64) -> CommandBuilder`
-- RESP: `GETBIT key offset`
-- Unit test: `test_command_getbit_encoding`
-
-### FR-12: BITCOUNT key [start end]
-- Method: `bitcount(&self, key: K) -> CommandBuilder` (simple form)
-- Method: `bitcount_range(&self, key: K, start: i64, end: i64) -> CommandBuilder` (with range)
-- RESP: `BITCOUNT key` / `BITCOUNT key start end`
-- Unit tests: `test_command_bitcount_encoding`, `test_command_bitcount_range_encoding`
-
-## Non-Functional Requirements
-
-- All methods follow existing pattern: `#[must_use]`, `CommandBuilder::new()`, `.arg()`
-- No new dependencies in Cargo.toml
-- Every method has exactly one `test_command_*_encoding` unit test in `mod tests`
-- Methods that take variadic args use `CommandBuilder::args()` for the variadic portion
-- All new tests compile and run with `#[test]` (no runtime needed)
-
 ## Code Anchors
 
-- `src/protocol/commands.rs` — Add methods to `Commands` trait (~lines 160-340)
-- `src/protocol/commands.rs::tests` — Add test functions at end of `mod tests`
+- `src/protocol/commands.rs` — Add methods to `Commands` trait (after line 164, after `append`)
+- `src/protocol/commands.rs::tests` — Add test functions at end of `mod tests` block
+
+## Struct
+
+The `Commands` trait currently has 22 methods. This story adds the following:
+
+```rust
+pub trait Commands: Sized {
+    // ... existing 22 methods ...
+
+    // NEW: String Extension Commands
+    fn decr<K: ToRedisArgs>(&self, key: K) -> CommandBuilder;
+    fn decrby<K: ToRedisArgs>(&self, key: K, decrement: i64) -> CommandBuilder;
+    fn setnx<K: ToRedisArgs, V: ToRedisArgs>(&self, key: K, value: V) -> CommandBuilder;
+    fn mget(keys: &[impl ToRedisArgs]) -> CommandBuilder;
+    fn mset(pairs: &[(impl ToRedisArgs, impl ToRedisArgs)]) -> CommandBuilder;
+    fn msetnx(pairs: &[(impl ToRedisArgs, impl ToRedisArgs)]) -> CommandBuilder;
+    fn strlen<K: ToRedisArgs>(&self, key: K) -> CommandBuilder;
+    fn getrange<K: ToRedisArgs>(&self, key: K, start: i64, end: i64) -> CommandBuilder;
+    fn setrange<K: ToRedisArgs, V: ToRedisArgs>(&self, key: K, offset: i64, value: V) -> CommandBuilder;
+    fn setbit<K: ToRedisArgs>(&self, key: K, offset: i64, value: i64) -> CommandBuilder;
+    fn getbit<K: ToRedisArgs>(&self, key: K, offset: i64) -> CommandBuilder;
+    fn bitcount<K: ToRedisArgs>(&self, key: K) -> CommandBuilder;
+    fn bitcount_range<K: ToRedisArgs>(&self, key: K, start: i64, end: i64) -> CommandBuilder;
+}
+```
+
+## Implementation Pattern
+
+Each method follows the established pattern:
+
+```rust
+/// DESCRIPTION
+#[must_use = "call .build() to encode the command"]
+fn command_name<K: ToRedisArgs>(&self, key: K) -> CommandBuilder {
+    CommandBuilder::new("COMMAND_NAME").arg(key)
+}
+```
+
+For variadic args (MGET, MSET, MSETNX), use `CommandBuilder::args()`:
+
+```rust
+fn mget(keys: &[impl ToRedisArgs]) -> CommandBuilder {
+    let mut builder = CommandBuilder::new("MGET");
+    for key in keys {
+        builder = builder.arg(key);
+    }
+    builder
+}
+```
+
+## Tasks
+
+- [ ] Define `decr(key)` → `cmd("DECR").arg(key)`
+- [ ] Define `decrby(key, decrement)` → `cmd("DECRBY").arg(key).arg(decrement)`
+- [ ] Define `setnx(key, value)` → `cmd("SETNX").arg(key).arg(value)`
+- [ ] Define `mget(keys)` → `cmd("MGET").args(keys)` — variadic key list
+- [ ] Define `mset(pairs)` → `cmd("MSET").args(pairs)` — variadic key-value list
+- [ ] Define `msetnx(pairs)` → `cmd("MSETNX").args(pairs)` — variadic key-value list
+- [ ] Define `strlen(key)` → `cmd("STRLEN").arg(key)`
+- [ ] Define `getrange(key, start, end)` → `cmd("GETRANGE").arg(key).arg(start).arg(end)`
+- [ ] Define `setrange(key, offset, value)` → `cmd("SETRANGE").arg(key).arg(offset).arg(value)`
+- [ ] Define `setbit(key, offset, value)` → `cmd("SETBIT").arg(key).arg(offset).arg(value)`
+- [ ] Define `getbit(key, offset)` → `cmd("GETBIT").arg(key).arg(offset)`
+- [ ] Define `bitcount(key)` → `cmd("BITCOUNT").arg(key)`
+- [ ] Define `bitcount_range(key, start, end)` → `cmd("BITCOUNT").arg(key).arg(start).arg(end)`
+- [ ] Add unit test for each method in `mod tests`
 
 ## Verification
 
-- [ ] `cargo check --lib` passes
-- [ ] `cargo test --lib test_command_` passes with zero failures
-- [ ] `cargo clippy --lib --tests --all-features -- -D warnings` passes
-- [ ] All 12 new methods have unit tests
-- [ ] Wire encoding for each command matches RESP2 spec
+- `cargo check --lib` passes
+- `cargo test --lib test_command_decr_encoding` — `cmd("DECR").arg("k").build()` → `*2\r\n$4\r\nDECR\r\n$1\r\nk\r\n`
+- `cargo test --lib test_command_decrby_encoding` — `cmd("DECRBY").arg("k").arg(5).build()` → correct bytes
+- `cargo test --lib test_command_setnx_encoding` — `cmd("SETNX").arg("k").arg("v").build()` → correct bytes
+- `cargo test --lib test_command_mget_encoding` — `mget(&["k1","k2"])` → `*3\r\n$4\r\nMGET\r\n$2\r\nk1\r\n$2\r\nk2\r\n`
+- `cargo test --lib test_command_mset_encoding` — `mset(&[("k1","v1")])` → correct bytes
+- `cargo test --lib test_command_msetnx_encoding` — `msetnx(&[("k1","v1")])` → correct bytes
+- `cargo test --lib test_command_strlen_encoding` — correct bytes
+- `cargo test --lib test_command_getrange_encoding` — correct bytes
+- `cargo test --lib test_command_setrange_encoding` — correct bytes
+- `cargo test --lib test_command_setbit_encoding` — correct bytes
+- `cargo test --lib test_command_getbit_encoding` — correct bytes
+- `cargo test --lib test_command_bitcount_encoding` — correct bytes
+- `cargo test --lib test_command_bitcount_range_encoding` — correct bytes
+- `cargo clippy --lib --tests --all-features -- -D warnings` — zero warnings

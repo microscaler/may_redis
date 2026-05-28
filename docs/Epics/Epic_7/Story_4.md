@@ -1,93 +1,82 @@
 # Story 7.4 — List Commands
 
-**Objective:** Add list manipulation commands. Lists are used for queues, pipelines, and ordered data structures. Commands cover push/pop operations, range queries, element access, and blocking operations.
+**Objective:** Add list manipulation commands. Lists cover push/pop at both ends, range queries, element access, modification, and blocking operations.
 
 **Epic:** 7 — Redis Command Expansion
 
-**Dependencies:** Epic 7.0 (epic setup), Story 7.3 (Set — runs in parallel)
+**Dependencies:** Epic 7.0 (epic setup)
 
 **Status:** PENDING
 
-**Source docs:** `docs/01-protocol-analysis.md` (RESP encoding for list commands), `docs/08-command-audit.md` (list coverage)
+**Source docs:** `docs/01-protocol-analysis.md` (RESP encoding for list commands)
 
-## Functional Requirements
+## Struct
 
-### FR-1: LPUSH key value [value ...]
-- Method: `lpush(&self, key: K, values: &[impl ToRedisArgs]) -> CommandBuilder`
-- RESP: `LPUSH key value1 [value2 ...]`
-- Unit test: `test_command_lpush_encoding`
+This story adds the following methods to `Commands`:
 
-### FR-2: RPUSH key value [value ...]
-- Method: `rpush(&self, key: K, values: &[impl ToRedisArgs]) -> CommandBuilder`
-- RESP: `RPUSH key value1 [value2 ...]`
-- Unit test: `test_command_rpush_encoding`
+```rust
+pub trait Commands: Sized {
+    // ... existing 22 methods ...
 
-### FR-3: LPOP key
-- Method: `lpop(&self, key: K) -> CommandBuilder`
-- RESP: `LPOP key`
-- Unit test: `test_command_lpop_encoding`
+    // NEW: List Commands
+    fn lpush<K: ToRedisArgs>(&self, key: K, values: &[impl ToRedisArgs]) -> CommandBuilder;
+    fn rpush<K: ToRedisArgs>(&self, key: K, values: &[impl ToRedisArgs]) -> CommandBuilder;
+    fn lpop<K: ToRedisArgs>(&self, key: K) -> CommandBuilder;
+    fn rpop<K: ToRedisArgs>(&self, key: K) -> CommandBuilder;
+    fn llen<K: ToRedisArgs>(&self, key: K) -> CommandBuilder;
+    fn lrange<K: ToRedisArgs>(&self, key: K, start: i64, stop: i64) -> CommandBuilder;
+    fn lindex<K: ToRedisArgs>(&self, key: K, index: i64) -> CommandBuilder;
+    fn lset<K: ToRedisArgs, V: ToRedisArgs>(&self, key: K, index: i64, value: V) -> CommandBuilder;
+    fn lrem<K: ToRedisArgs, V: ToRedisArgs>(&self, key: K, count: i64, value: V) -> CommandBuilder;
+    fn ltrim<K: ToRedisArgs>(&self, key: K, start: i64, stop: i64) -> CommandBuilder;
+    fn blpop<K: ToRedisArgs>(&self, keys: &[impl ToRedisArgs], timeout: i64) -> CommandBuilder;
+    fn brpop<K: ToRedisArgs>(&self, keys: &[impl ToRedisArgs], timeout: i64) -> CommandBuilder;
+}
+```
 
-### FR-4: RPOP key
-- Method: `rpop(&self, key: K) -> CommandBuilder`
-- RESP: `RPOP key`
-- Unit test: `test_command_rpop_encoding`
+## Implementation Pattern
 
-### FR-5: LLEN key
-- Method: `llen(&self, key: K) -> CommandBuilder`
-- RESP: `LLEN key`
-- Unit test: `test_command_llen_encoding`
+For variadic variants (LPUSH, RPUSH, BLPOP, BRPOP), use `args()`:
 
-### FR-6: LRANGE key start stop
-- Method: `lrange(&self, key: K, start: i64, stop: i64) -> CommandBuilder`
-- RESP: `LRANGE key start stop`
-- Unit test: `test_command_lrange_encoding`
+```rust
+fn lpush<K: ToRedisArgs>(&self, key: K, values: &[impl ToRedisArgs]) -> CommandBuilder {
+    let mut builder = CommandBuilder::new("LPUSH").arg(key);
+    for v in values {
+        builder = builder.arg(v);
+    }
+    builder
+}
+```
 
-### FR-7: LINDEX key index
-- Method: `lindex(&self, key: K, index: i64) -> CommandBuilder`
-- RESP: `LINDEX key index`
-- Unit test: `test_command_lindex_encoding`
+## Tasks
 
-### FR-8: LSET key index value
-- Method: `lset(&self, key: K, index: i64, value: V) -> CommandBuilder`
-- RESP: `LSET key index value`
-- Unit test: `test_command_lset_encoding`
-
-### FR-9: LREM key count value
-- Method: `lrem(&self, key: K, count: i64, value: V) -> CommandBuilder`
-- RESP: `LREM key count value`
-- Unit test: `test_command_lrem_encoding`
-
-### FR-10: LTRIM key start stop
-- Method: `ltrim(&self, key: K, start: i64, stop: i64) -> CommandBuilder`
-- RESP: `LTRIM key start stop`
-- Unit test: `test_command_ltrim_encoding`
-
-### FR-11: BLPOP key [key ...] timeout
-- Method: `blpop(&self, keys: &[impl ToRedisArgs], timeout: i64) -> CommandBuilder`
-- RESP: `BLPOP key1 [key2 ...] timeout`
-- Unit test: `test_command_blpop_encoding`
-
-### FR-12: BRPOP key [key ...] timeout
-- Method: `brpop(&self, keys: &[impl ToRedisArgs], timeout: i64) -> CommandBuilder`
-- RESP: `BRPOP key1 [key2 ...] timeout`
-- Unit test: `test_command_brpop_encoding`
-
-## Non-Functional Requirements
-
-- Same `#[must_use]`, `CommandBuilder::new()` pattern as existing commands
-- No new dependencies
-- Every method has exactly one `test_command_*_encoding` unit test
-- Commands with variadic keys (LPUSH, RPUSH, BLPOP, BRPOP) use `CommandBuilder::args()`
-
-## Code Anchors
-
-- `src/protocol/commands.rs` — Add methods to `Commands` trait (after `append` method)
-- `src/protocol/commands.rs::tests` — Add test functions at end of `mod tests`
+- [ ] Define `lpush(key, values)` → `cmd("LPUSH").arg(key).args(values)`
+- [ ] Define `rpush(key, values)` → `cmd("RPUSH").arg(key).args(values)`
+- [ ] Define `lpop(key)` → `cmd("LPOP").arg(key)`
+- [ ] Define `rpop(key)` → `cmd("RPOP").arg(key)`
+- [ ] Define `llen(key)` → `cmd("LLEN").arg(key)`
+- [ ] Define `lrange(key, start, stop)` → `cmd("LRANGE").arg(key).arg(start).arg(stop)`
+- [ ] Define `lindex(key, index)` → `cmd("LINDEX").arg(key).arg(index)`
+- [ ] Define `lset(key, index, value)` → `cmd("LSET").arg(key).arg(index).arg(value)`
+- [ ] Define `lrem(key, count, value)` → `cmd("LREM").arg(key).arg(count).arg(value)`
+- [ ] Define `ltrim(key, start, stop)` → `cmd("LTRIM").arg(key).arg(start).arg(stop)`
+- [ ] Define `blpop(keys, timeout)` → `cmd("BLPOP").args(keys).arg(timeout)`
+- [ ] Define `brpop(keys, timeout)` → `cmd("BRPOP").args(keys).arg(timeout)`
+- [ ] Add unit test for each method in `mod tests`
 
 ## Verification
 
-- [ ] `cargo check --lib` passes
-- [ ] `cargo test --lib test_command_` passes with zero failures
-- [ ] `cargo clippy --lib --tests --all-features -- -D warnings` passes
-- [ ] All 12 new methods have unit tests
-- [ ] Wire encoding for each command matches RESP2 spec
+- `cargo check --lib` passes
+- `cargo test --lib test_command_lpush_encoding` — `cmd("LPUSH").arg("l").args(&["v1","v2"]).build()` → correct bytes
+- `cargo test --lib test_command_rpush_encoding` — `cmd("RPUSH").arg("l").args(&["v1"]).build()` → correct bytes
+- `cargo test --lib test_command_lpop_encoding` — `cmd("LPOP").arg("l").build()` → correct bytes
+- `cargo test --lib test_command_rpop_encoding` — `cmd("RPOP").arg("l").build()` → correct bytes
+- `cargo test --lib test_command_llen_encoding` — `cmd("LLEN").arg("l").build()` → correct bytes
+- `cargo test --lib test_command_lrange_encoding` — `cmd("LRANGE").arg("l").arg(0).arg(-1).build()` → correct bytes
+- `cargo test --lib test_command_lindex_encoding` — `cmd("LINDEX").arg("l").arg(0).build()` → correct bytes
+- `cargo test --lib test_command_lset_encoding` — `cmd("LSET").arg("l").arg(0).arg("v").build()` → correct bytes
+- `cargo test --lib test_command_lrem_encoding` — `cmd("LREM").arg("l").arg(0).arg("v").build()` → correct bytes
+- `cargo test --lib test_command_ltrim_encoding` — `cmd("LTRIM").arg("l").arg(0).arg(10).build()` → correct bytes
+- `cargo test --lib test_command_blpop_encoding` — `cmd("BLPOP").args(&["l"]).arg(0).build()` → correct bytes
+- `cargo test --lib test_command_brpop_encoding` — `cmd("BRPOP").args(&["l"]).arg(0).build()` → correct bytes
+- `cargo clippy --lib --tests --all-features -- -D warnings` — zero warnings
