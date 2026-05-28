@@ -586,7 +586,7 @@ mod tests {
         // Build an array of 1000 strings
         let mut items = Vec::new();
         for i in 0..1000 {
-            items.push(format!("$4\r\n{:04}\r\n", i));
+            items.push(format!("$4\r\n{i:04}\r\n"));
         }
         let payload = format!("*{}\r\n{}", 1000, items.join(""));
         let buf = BytesMut::from(payload.as_bytes());
