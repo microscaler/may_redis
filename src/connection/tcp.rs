@@ -22,6 +22,8 @@ pub enum ConnectionError {
     SetNodelay(String),
     /// Connection timed out.
     Timeout(String),
+    /// SSRF protection: resolved address is in a deny-listed range.
+    SsrfViolation(String),
 }
 
 impl std::fmt::Display for ConnectionError {
@@ -31,6 +33,7 @@ impl std::fmt::Display for ConnectionError {
             Self::Connect(msg) => write!(f, "connect error: {msg}"),
             Self::SetNodelay(msg) => write!(f, "set nodelay error: {msg}"),
             Self::Timeout(msg) => write!(f, "connection timeout: {msg}"),
+            Self::SsrfViolation(msg) => write!(f, "SSRF violation: {msg}"),
         }
     }
 }
@@ -42,6 +45,111 @@ impl ConnectionError {
     #[must_use]
     pub const fn is_timeout(&self) -> bool {
         matches!(self, Self::Timeout(_))
+    }
+}
+
+/// SSRF configuration for controlling which IP ranges are blocked.
+///
+/// Default: all private, link-local, and reserved ranges are blocked.
+/// Loopback is blocked by default when SSRF protection is enabled via
+/// [`TcpConnector::connect_with_ssrf_check`].
+///
+/// AC-3.9: SSRF protection is opt-in — the default `connect()` does NOT
+/// apply SSRF checks for backward compatibility.
+#[derive(Debug, Clone, Copy)]
+pub struct SsrfConfig {
+    /// Block RFC 1918 private addresses (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16).
+    pub deny_private: bool,
+    /// Block link-local addresses (169.254.0.0/16).
+    pub deny_link_local: bool,
+    /// Block loopback addresses (127.0.0.0/8, ::1).
+    /// Disabled by default for backward compatibility (AC-3.9).
+    pub deny_loopback: bool,
+}
+
+impl Default for SsrfConfig {
+    fn default() -> Self {
+        Self {
+            deny_private: true,
+            deny_link_local: true,
+            deny_loopback: false,
+        }
+    }
+}
+
+impl SsrfConfig {
+    /// Check if an address is blocked by this config.
+    fn is_blocked(&self, addr: &SocketAddr) -> bool {
+        match addr {
+            SocketAddr::V4(v4) => self.is_blocked_v4(*v4.ip()),
+            SocketAddr::V6(v6) => self.is_blocked_v6(v6.ip()),
+        }
+    }
+
+    fn is_blocked_v4(&self, addr: std::net::Ipv4Addr) -> bool {
+        if !self.deny_private && !self.deny_link_local && !self.deny_loopback {
+            return false;
+        }
+        let octets = addr.octets();
+        let first = u32::from(octets[0]);
+        let second = u32::from(octets[1]);
+
+        // Private (RFC 1918)
+        if self.deny_private {
+            if first == 10 {
+                return true;
+            }
+            if first == 172 && (16..=31).contains(&second) {
+                return true;
+            }
+            if first == 192 && second == 168 {
+                return true;
+            }
+        }
+        // Link-local (cloud metadata)
+        if self.deny_link_local {
+            if first == 169 && second == 254 {
+                return true;
+            }
+        }
+        // Loopback
+        if self.deny_loopback {
+            if first == 127 {
+                return true;
+            }
+        }
+        // Always block: 0.0.0.0/8, 100.64.0.0/10, multicast, reserved
+        if first == 0 {
+            return true;
+        }
+        if first == 100 && (64..=127).contains(&second) {
+            return true;
+        }
+        if first >= 224 && first <= 239 {
+            return true;
+        }
+        if first >= 240 {
+            return true;
+        }
+        false
+    }
+
+    fn is_blocked_v6(&self, addr: &std::net::Ipv6Addr) -> bool {
+        if !self.deny_loopback && !self.deny_link_local && !self.deny_private {
+            // Always block multicast and unspecified regardless of config
+            return addr.is_multicast() || addr.is_unspecified();
+        }
+        if self.deny_loopback && addr.is_loopback() {
+            return true;
+        }
+        if self.deny_link_local && addr.is_unicast_link_local() {
+            return true;
+        }
+        if self.deny_private && addr.is_unique_local() {
+            return true;
+        }
+        // Always block
+        addr.is_multicast() || addr.is_unspecified()
     }
 }
 
@@ -66,6 +174,50 @@ impl TcpConnector {
     /// connect.
     pub fn connect(host: &str, port: u16) -> Result<TcpStream, ConnectionError> {
         Self::connect_with_timeout(host, port, Duration::from_secs(5))
+    }
+
+    /// Establish a TCP connection with SSRF protection enabled.
+    ///
+    /// After DNS resolution, every resolved IP is checked against the
+    /// deny-list. If ANY resolved address matches, connection is refused.
+    ///
+    /// # Arguments
+    /// * `host` - Server hostname or IP address
+    /// * `port` - Server port
+    /// * `timeout` - Maximum duration to wait for the connection
+    /// * `ssrf_config` - Configuration for which IP ranges to block
+    ///
+    /// # Errors
+    /// Returns [`ConnectionError::SsrfViolation`] if any resolved address
+    /// is in a deny-listed range, otherwise same as `connect_with_timeout`.
+    pub fn connect_with_ssrf_check(
+        host: &str,
+        port: u16,
+        timeout: Duration,
+        ssrf_config: SsrfConfig,
+    ) -> Result<TcpStream, ConnectionError> {
+        let addrs = resolve(host, port).map_err(ConnectionError::Resolve)?;
+
+        // SSRF check (AC-3.8): reject internal/reserved addresses after DNS
+        for addr in &addrs {
+            if ssrf_config.is_blocked(addr) {
+                return Err(ConnectionError::SsrfViolation(format!(
+                    "SSRF: resolved address {addr} is in a deny-listed range"
+                )));
+            }
+        }
+
+        let mut last_error = None;
+        for addr in &addrs {
+            match connect_addr_with_timeout(addr, timeout) {
+                Ok(stream) => return Ok(stream),
+                Err(e) if e.is_timeout() => return Err(e),
+                Err(e) => last_error = Some(e),
+            }
+        }
+
+        Err(last_error
+            .unwrap_or_else(|| ConnectionError::Connect("resolved 0 addresses".to_string())))
     }
 
     /// Establish a TCP connection with a configurable timeout.

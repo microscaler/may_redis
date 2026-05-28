@@ -49,5 +49,5 @@
 pub mod connection;
 pub mod tcp;
 
-pub use connection::{Connection, Request};
-pub use tcp::{ConnectionError, TcpConnector};
+pub use connection::{Connection, ConnectionLimitError, Request};
+pub use tcp::{ConnectionError, SsrfConfig, TcpConnector};
