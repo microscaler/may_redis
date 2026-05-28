@@ -14,6 +14,7 @@ use crate::core::{FromRedisValue, RedisError, RedisValue};
 use crate::protocol::builder::CommandBuilder;
 use may::coroutine::yield_now;
 use may::sync::spsc;
+use std::sync::{Arc, Mutex};
 
 /// Trait for extracting typed results from multiple pipeline responses.
 ///
@@ -104,6 +105,49 @@ impl<'a> Pipeline<'a> {
         }
 
         Ok(responses)
+    }
+
+    /// Execute all queued commands and collect responses as individual results.
+    ///
+    /// Unlike `execute_raw()`, this returns `Vec<Result<RedisValue, RedisError>>`
+    /// so that individual command failures don't block the entire pipeline.
+    pub fn execute_raw_results(&mut self) -> Vec<Result<RedisValue, RedisError>> {
+        let n = self.commands.len();
+
+        // Push all commands to the connection's request queue at once
+        for (data, tx) in std::mem::take(&mut self.commands)
+            .into_iter()
+            .zip(std::mem::take(&mut self.senders))
+        {
+            let request = Request::new(data, tx);
+            let _ = self.connection.send(request);
+        }
+
+        // Drain receivers into a local vec so we can poll them
+        let mut receivers = std::mem::take(&mut self.receivers);
+
+        // Yield to let the connection loop process all queued requests
+        yield_now();
+
+        // Poll each receiver with try_recv, yielding between rounds.
+        // This avoids blocking on any single command.
+        let mut results = vec![None; n];
+        let mut done = 0;
+        while done < n {
+            for i in 0..n {
+                if results[i].is_none() {
+                    if let Ok(val) = receivers[i].try_recv() {
+                        results[i] = Some(Ok(val));
+                        done += 1;
+                    }
+                }
+            }
+            if done < n {
+                yield_now();
+            }
+        }
+
+        results.into_iter().flatten().collect()
     }
 
     /// Execute all queued commands and decode typed results via `FromPipelineResponse`.

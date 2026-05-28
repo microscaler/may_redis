@@ -19,6 +19,10 @@ const DEFAULT_MAX_DEPTH: usize = 256;
 /// Uses an internal cursor (`pos`) to track progress through the buffer.
 /// Enforces length and depth caps to prevent OOM and stack overflow from
 /// malicious or malformed responses.
+///
+/// Strict CRLF enforcement: after every parsed value the reader expects
+/// `\r\n`. Missing or malformed CRLF (e.g. bare `\n` or `\r` without its
+/// companion) returns a parse error.
 pub struct RESPReader {
     buf: BytesMut,
     pos: usize,
@@ -98,6 +102,8 @@ impl RESPReader {
         Ok(byte)
     }
 
+    /// Silently skip optional leading CRLF (for inter-value CRLF between
+    /// previously-read values). This is the pre-existing behaviour.
     fn skip_crlf(&mut self) {
         if self.pos + 2 <= self.buf.len()
             && self.buf[self.pos] == b'\r'
@@ -107,16 +113,40 @@ impl RESPReader {
         }
     }
 
-    fn read_line(&mut self) -> Result<&[u8], RedisError> {
+    /// Enforce mandatory CRLF after a value. Returns an error if the buffer
+    /// still has data but `\r\n` is not present at the current position.
+    /// If the buffer is exhausted, returns `Ok(())` (nothing more to read).
+    fn expect_crlf(&mut self) -> Result<(), RedisError> {
+        if self.pos >= self.buf.len() {
+            return Ok(());
+        }
+        if self.pos + 2 <= self.buf.len()
+            && self.buf[self.pos] == b'\r'
+            && self.buf[self.pos + 1] == b'\n'
+        {
+            self.pos += 2;
+            Ok(())
+        } else {
+            Err(RedisError::Parse("expected CRLF after value".into()))
+        }
+    }
+
+    /// Read a line up to `\r` (does NOT consume `\r\n`).
+    ///
+    /// Returns the line content as an owned `Vec<u8>`. If the buffer ends
+    /// without finding `\r` or encounters a bare `\n` (not preceded by `\r`),
+    /// returns a parse error.
+    fn read_line(&mut self) -> Result<Vec<u8>, RedisError> {
         let start = self.pos;
         while self.pos < self.buf.len() {
-            if self.buf[self.pos] == b'\r'
-                && self.pos + 1 < self.buf.len()
-                && self.buf[self.pos + 1] == b'\n'
-            {
-                let line = &self.buf[start..self.pos];
-                self.pos += 2;
+            if self.buf[self.pos] == b'\r' {
+                // Found `\r` — return data before it without consuming `\r\n` yet.
+                // The caller must invoke `expect_crlf()` to validate and consume `\r\n`.
+                let line = self.buf[start..self.pos].to_vec();
                 return Ok(line);
+            }
+            if self.buf[self.pos] == b'\n' {
+                return Err(RedisError::Parse("expected CRLF after value".into()));
             }
             self.pos += 1;
         }
@@ -125,47 +155,48 @@ impl RESPReader {
         ))
     }
 
-    fn read_bytes(&mut self, n: usize) -> Result<&[u8], RedisError> {
+    /// Read exactly `n` bytes of content (does NOT consume trailing `\r\n`).
+    ///
+    /// Returns the content as an owned `Vec<u8>`. The caller must invoke
+    /// `expect_crlf()` after reading content to validate the trailing `\r\n`.
+    fn read_bytes(&mut self, n: usize) -> Result<Vec<u8>, RedisError> {
         if self.pos + n > self.buf.len() {
             return Err(RedisError::Parse(format!(
                 "expected {n} bytes but only {} available",
                 self.buf.len() - self.pos
             )));
         }
-        let data = &self.buf[self.pos..self.pos + n];
+        let data = self.buf[self.pos..self.pos + n].to_vec();
         self.pos += n;
-        if self.pos + 2 <= self.buf.len()
-            && self.buf[self.pos] == b'\r'
-            && self.buf[self.pos + 1] == b'\n'
-        {
-            self.pos += 2;
-        }
         Ok(data)
     }
 
     fn read_simple(&mut self) -> Result<RedisValue, RedisError> {
         let line = self.read_line()?;
+        self.expect_crlf()?;
         Ok(RedisValue::SimpleString(
-            String::from_utf8_lossy(line).into_owned(),
+            String::from_utf8_lossy(&line).into_owned(),
         ))
     }
 
     fn read_error(&mut self) -> Result<RedisValue, RedisError> {
         let line = self.read_line()?;
+        self.expect_crlf()?;
         Ok(RedisValue::Error(
-            String::from_utf8_lossy(line).into_owned(),
+            String::from_utf8_lossy(&line).into_owned(),
         ))
     }
 
     fn read_integer(&mut self) -> Result<RedisValue, RedisError> {
         let line = self.read_line()?;
-        let n = std::str::from_utf8(line)
+        self.expect_crlf()?;
+        let n = std::str::from_utf8(&line)
             .map_err(|_| RedisError::Parse("integer line is not valid UTF-8".into()))?
             .parse::<i64>()
             .map_err(|_| {
                 RedisError::Parse(format!(
                     "invalid integer: {}",
-                    String::from_utf8_lossy(line)
+                    String::from_utf8_lossy(&line)
                 ))
             })?;
         Ok(RedisValue::Integer(n))
@@ -173,20 +204,25 @@ impl RESPReader {
 
     fn read_bulk(&mut self) -> Result<RedisValue, RedisError> {
         let line = self.read_line()?;
-        let len = std::str::from_utf8(line)
+        self.expect_crlf()?;
+        let len = std::str::from_utf8(&line)
             .map_err(|_| RedisError::Parse("bulk string length is not valid UTF-8".into()))?
             .parse::<isize>()
             .map_err(|_| {
                 RedisError::Parse(format!(
                     "invalid bulk string length: {}",
-                    String::from_utf8_lossy(line)
+                    String::from_utf8_lossy(&line)
                 ))
             })?;
 
         match len.cmp(&0) {
-            std::cmp::Ordering::Less => Ok(RedisValue::Null),
+            std::cmp::Ordering::Less => {
+                // $-1 (null bulk string) — CRLF already consumed by expect_crlf above
+                Ok(RedisValue::Null)
+            }
             std::cmp::Ordering::Equal => {
                 let _ = self.read_bytes(0)?;
+                self.expect_crlf()?;
                 Ok(RedisValue::BulkString(Vec::new()))
             }
             std::cmp::Ordering::Greater => {
@@ -198,7 +234,8 @@ impl RESPReader {
                     )));
                 }
                 let data = self.read_bytes(len)?;
-                Ok(RedisValue::BulkString(data.to_vec()))
+                self.expect_crlf()?;
+                Ok(RedisValue::BulkString(data))
             }
         }
     }
@@ -214,13 +251,14 @@ impl RESPReader {
         self.depth += 1;
 
         let line = self.read_line()?;
-        let len = std::str::from_utf8(line)
+        self.expect_crlf()?;
+        let len = std::str::from_utf8(&line)
             .map_err(|_| RedisError::Parse("array length is not valid UTF-8".into()))?
             .parse::<usize>()
             .map_err(|_| {
                 RedisError::Parse(format!(
                     "invalid array length: {}",
-                    String::from_utf8_lossy(line)
+                    String::from_utf8_lossy(&line)
                 ))
             })?;
 
@@ -327,7 +365,7 @@ mod tests {
 
     #[test]
     fn test_read_nested_array() {
-        let buf = BytesMut::from(b"*1\r\n*2\r\n$3\r\na\r\n$3\r\nb\r\n".as_ref());
+        let buf = BytesMut::from(b"*1\r\n*2\r\n$1\r\na\r\n$1\r\nb\r\n".as_ref());
         let mut r = RESPReader::new(buf);
         let val = r.read_value().unwrap();
         if let RedisValue::Array(inner) = val {
@@ -372,6 +410,98 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
+    // S15 — Strict CRLF enforcement after every value
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_crlf_missing_after_simple() {
+        // CR without LF after value — bare \r not followed by \n
+        let buf = BytesMut::from(b"+OK\rPONG\r\n".as_ref());
+        let mut r = RESPReader::new(buf);
+        let err = r.read_value().unwrap_err();
+        match &err {
+            RedisError::Parse(msg) => assert!(msg.contains("expected CRLF")),
+            _ => panic!("expected Parse error, got {:?}", err),
+        }
+    }
+
+    #[test]
+    fn test_crlf_missing_after_int() {
+        // CR without LF after integer value
+        let buf = BytesMut::from(b":42\rPONG\r\n".as_ref());
+        let mut r = RESPReader::new(buf);
+        let err = r.read_value().unwrap_err();
+        match &err {
+            RedisError::Parse(msg) => assert!(msg.contains("expected CRLF")),
+            _ => panic!("expected Parse error, got {:?}", err),
+        }
+    }
+
+    #[test]
+    fn test_crlf_missing_after_bulk() {
+        // CR without LF after bulk string content
+        let buf = BytesMut::from(b"$5\r\nhello\rPONG\r\n".as_ref());
+        let mut r = RESPReader::new(buf);
+        let err = r.read_value().unwrap_err();
+        match &err {
+            RedisError::Parse(msg) => assert!(msg.contains("expected CRLF")),
+            _ => panic!("expected Parse error, got {:?}", err),
+        }
+    }
+
+    #[test]
+    fn test_crlf_missing_after_bulk_no_crlf_at_all() {
+        // No CRLF whatsoever after bulk string content
+        let buf = BytesMut::from(b"$5\r\nhelloPONG\r\n".as_ref());
+        let mut r = RESPReader::new(buf);
+        let err = r.read_value().unwrap_err();
+        match &err {
+            RedisError::Parse(msg) => assert!(msg.contains("expected CRLF")),
+            _ => panic!("expected Parse error, got {:?}", err),
+        }
+    }
+
+    #[test]
+    fn test_crlf_double_lf() {
+        // LF before CR — invalid line terminator
+        let buf = BytesMut::from(b"+OK\n\r\n".as_ref());
+        let mut r = RESPReader::new(buf);
+        let err = r.read_value().unwrap_err();
+        match &err {
+            RedisError::Parse(msg) => assert!(msg.contains("expected CRLF")),
+            _ => panic!("expected Parse error, got {:?}", err),
+        }
+    }
+
+    #[test]
+    fn test_crlf_null_bulk() {
+        // $-1 null bulk string must still have CRLF terminator
+        let buf = BytesMut::from(b"$-1\r\n".as_ref());
+        let mut r = RESPReader::new(buf);
+        let val = r.read_value().unwrap();
+        assert!(matches!(val, RedisValue::Null));
+    }
+
+    #[test]
+    fn test_crlf_null_bulk_missing_crlf() {
+        // $-1 without CRLF is invalid
+        let buf = BytesMut::from(b"$-1\rX\r\n".as_ref());
+        let mut r = RESPReader::new(buf);
+        let err = r.read_value().unwrap_err();
+        match &err {
+            RedisError::Parse(msg) => assert!(msg.contains("expected CRLF")),
+            _ => panic!("expected Parse error, got {:?}", err),
+        }
+    }
+
+    #[test]
+    fn test_crlf_empty_buffer() {
+        let buf = BytesMut::new();
+        let mut r = RESPReader::new(buf);
+        assert!(r.read_value().is_err());
+    }
+
+    // -----------------------------------------------------------------------
     // S16 — Bulk string and array length caps
     // -----------------------------------------------------------------------
 
@@ -383,7 +513,10 @@ mod tests {
         let buf = BytesMut::from(payload.as_bytes());
         let mut r = RESPReader::new(buf);
         let val = r.read_value().unwrap();
-        assert!(matches!(val, RedisValue::BulkString(ref b) if b.len() == 1000));
+        assert!(matches!(
+            val,
+            RedisValue::BulkString(ref b) if b.len() == 1000
+        ));
     }
 
     #[test]
@@ -429,7 +562,10 @@ mod tests {
         let buf = BytesMut::from(b"$0\r\n\r\n".as_ref());
         let mut r = RESPReader::new(buf).with_max_bulk_len(0);
         let val = r.read_value().unwrap();
-        assert!(matches!(val, RedisValue::BulkString(ref b) if b.is_empty()));
+        assert!(matches!(
+            val,
+            RedisValue::BulkString(ref b) if b.is_empty()
+        ));
     }
 
     #[test]
@@ -439,7 +575,10 @@ mod tests {
         let buf = BytesMut::from(payload.as_bytes());
         let mut r = RESPReader::new(buf).with_max_bulk_len(100);
         let val = r.read_value().unwrap();
-        assert!(matches!(val, RedisValue::BulkString(ref b) if b.len() == 100));
+        assert!(matches!(
+            val,
+            RedisValue::BulkString(ref b) if b.len() == 100
+        ));
     }
 
     #[test]
@@ -612,6 +751,9 @@ mod tests {
         let buf = BytesMut::from(b"$5\r\nhello\r\n".as_ref());
         let mut r = RESPReader::new(buf).with_max_depth(0);
         let val = r.read_value().unwrap();
-        assert!(matches!(val, RedisValue::BulkString(ref b) if b == b"hello"));
+        assert!(matches!(
+            val,
+            RedisValue::BulkString(ref b) if b == b"hello"
+        ));
     }
 }

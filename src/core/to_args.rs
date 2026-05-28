@@ -147,6 +147,25 @@ impl ToRedisArgs for bool {
     }
 }
 
+// ---------------------------------------------------------------------------
+// S14 — Unit type: no-op implementation so `arg(())` compiles safely
+// ---------------------------------------------------------------------------
+
+/// `ToRedisArgs` for the unit type `()`.
+///
+/// Writing a unit type to the argument buffer is a no-op — it produces zero
+/// bytes. This makes `cmd("FLUSHDB").arg(())` compile cleanly and produce the
+/// same wire format as `cmd("FLUSHDB")`.
+impl ToRedisArgs for () {
+    fn write_redis_args(&self, _buf: &mut Vec<Vec<u8>>) {
+        // No-op: unit type has no wire representation
+    }
+
+    fn is_simple_arg(&self) -> bool {
+        false
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -276,5 +295,32 @@ mod tests {
         assert_eq!(buf[0], b"first");
         assert_eq!(buf[1], b"second");
         assert_eq!(buf[2], b"third");
+    }
+
+    // ---------------------------------------------------------------------------
+    // S14 — Unit type tests
+    // ---------------------------------------------------------------------------
+
+    #[test]
+    fn test_unit_arg_is_not_simple() {
+        let () = ();
+        assert!(!().is_simple_arg());
+    }
+
+    #[test]
+    fn test_unit_arg_writes_no_bytes() {
+        let mut buf = Vec::new();
+        ().write_redis_args(&mut buf);
+        assert!(buf.is_empty());
+    }
+
+    #[test]
+    fn test_unit_arg_multiple_is_noop() {
+        let mut buf = Vec::new();
+        let () = ();
+        ().write_redis_args(&mut buf);
+        ().write_redis_args(&mut buf);
+        ().write_redis_args(&mut buf);
+        assert!(buf.is_empty());
     }
 }
