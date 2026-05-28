@@ -68,9 +68,10 @@ impl<'a> Pipeline<'a> {
 
     /// Add a command to the pipeline.
     ///
-    /// The command is encoded into RESP bytes and queued for batch
-    /// execution. Responses will arrive in the same order as commands
-    /// were added.
+    /// # Panics
+    ///
+    /// Panics if the command is blocked by the default [`CommandPolicy`].
+    /// This is by design: blocked commands should be caught at build time.
     pub fn add(&mut self, cmd: CommandBuilder) {
         // Encode the command into RESP bytes
         // AC-3.11: build() returns None if the command is blocked by the CommandPolicy.

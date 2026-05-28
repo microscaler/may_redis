@@ -331,6 +331,7 @@ impl RedisClient {
     ///
     /// Panics if the command is blocked by the default [`CommandPolicy`].
     /// Blocked commands should be caught at build time, not at execution time.
+    #[allow(clippy::unwrap_used)]
     pub fn execute_with_timeout<T: FromRedisValue>(
         &self,
         cmd: CommandBuilder,
