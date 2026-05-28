@@ -128,3 +128,107 @@ fn roundtrip_multi_values_in_array() {
     let actual = roundtrip(&expected);
     assert_eq!(actual, expected);
 }
+
+// ---------------------------------------------------------------------------
+// Story 9.4 — Edge case roundtrip coverage
+// ---------------------------------------------------------------------------
+
+#[test]
+fn roundtrip_simple_space() {
+    let expected = RedisValue::SimpleString("OK with spaces".into());
+    let actual = roundtrip(&expected);
+    assert_eq!(actual, expected);
+}
+
+#[test]
+fn roundtrip_error_prefix() {
+    let expected = RedisValue::Error("ERR wrong type".into());
+    let actual = roundtrip(&expected);
+    assert_eq!(actual, expected);
+}
+
+#[test]
+fn roundtrip_error_auth() {
+    let expected = RedisValue::Error("-NOAUTH Authentication required.".into());
+    let actual = roundtrip(&expected);
+    assert_eq!(actual, expected);
+}
+
+#[test]
+fn roundtrip_integer_zero() {
+    let expected = RedisValue::Integer(0);
+    let actual = roundtrip(&expected);
+    assert_eq!(actual, expected);
+}
+
+#[test]
+fn roundtrip_integer_max() {
+    let expected = RedisValue::Integer(i64::MAX);
+    let actual = roundtrip(&expected);
+    assert_eq!(actual, expected);
+}
+
+#[test]
+fn roundtrip_integer_min() {
+    let expected = RedisValue::Integer(i64::MIN);
+    let actual = roundtrip(&expected);
+    assert_eq!(actual, expected);
+}
+
+#[test]
+fn roundtrip_bulk_empty() {
+    let expected = RedisValue::BulkString(vec![]);
+    let actual = roundtrip(&expected);
+    assert_eq!(actual, expected);
+}
+
+#[test]
+fn roundtrip_binary_non_utf8() {
+    let expected = RedisValue::BulkString(vec![0x00, 0xFF, 0x80, 0x7F]);
+    let actual = roundtrip(&expected);
+    assert_eq!(actual, expected);
+}
+
+#[test]
+fn roundtrip_array_single() {
+    let expected = RedisValue::Array(vec![RedisValue::Integer(1)]);
+    let actual = roundtrip(&expected);
+    assert_eq!(actual, expected);
+}
+
+#[test]
+fn roundtrip_mixed_array() {
+    let expected = RedisValue::Array(vec![
+        RedisValue::Integer(1),
+        RedisValue::BulkString(b"hi".to_vec()),
+        RedisValue::Null,
+    ]);
+    let actual = roundtrip(&expected);
+    assert_eq!(actual, expected);
+}
+
+#[test]
+fn roundtrip_nested_error_in_array() {
+    let expected = RedisValue::Array(vec![RedisValue::Error("ERR x".into())]);
+    let actual = roundtrip(&expected);
+    assert_eq!(actual, expected);
+}
+
+#[test]
+fn roundtrip_deep_nesting() {
+    let leaf = RedisValue::Integer(42);
+    let l1 = RedisValue::Array(vec![leaf]);
+    let l2 = RedisValue::Array(vec![l1]);
+    let l3 = RedisValue::Array(vec![l2]);
+    let l4 = RedisValue::Array(vec![l3]);
+    let expected = RedisValue::Array(vec![l4]);
+    let actual = roundtrip(&expected);
+    assert_eq!(actual, expected);
+}
+
+#[test]
+fn roundtrip_many_elements() {
+    let expected = RedisValue::Array(vec![RedisValue::Integer(1); 1000]);
+    let actual = roundtrip(&expected);
+    assert_eq!(actual, expected);
+}

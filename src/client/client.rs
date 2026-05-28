@@ -269,6 +269,7 @@ impl Commands for RedisClient {
 /// (executes the command), while `Commands::ping()` returns `CommandBuilder` (builds it).
 /// Auto-deref resolves `&RedisClient::ping()` to the *inherent* method, which is the
 /// expected behavior — callers wanting the raw builder use `Commands::ping()`.
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #[cfg(test)]
 #[allow(clippy::used_underscore_items)]
 mod tests {

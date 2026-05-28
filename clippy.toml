@@ -1,0 +1,6 @@
+# JSF-AV lint thresholds for may-redis
+# Mirrors the BRRTRouter-SAFE profile: bounded complexity, no panic dispatch.
+
+cognitive-complexity-threshold = 20
+too-many-arguments-threshold = 8
+stack-size-threshold = 512000

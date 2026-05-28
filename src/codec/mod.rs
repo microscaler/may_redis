@@ -35,4 +35,5 @@ pub mod reader;
 pub mod writer;
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 pub mod roundtrip;

@@ -232,6 +232,7 @@ pub fn assert_encoding_order(builders: &[&crate::protocol::builder::CommandBuild
     }
 }
 
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -178,6 +178,7 @@ fn connect_addr_with_timeout(
     Ok(stream)
 }
 
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #[cfg(test)]
 mod tests {
     use super::*;

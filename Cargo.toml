@@ -35,3 +35,7 @@ too_many_lines = "allow"
 missing_errors_doc = "allow"
 missing_panics_doc = "allow"
 missing_safety_doc = "allow"
+# JSF-AV Rule 208: No panics in dispatch
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"

@@ -7,6 +7,7 @@
 // Prerequisites:
 // - Redis running on localhost:6379
 // - Flush DB before/after each test with FLUSHDB
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use may::go;
 use may_redis::{Commands, RedisClient};

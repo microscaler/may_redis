@@ -143,4 +143,16 @@
 ## [2026-05-28] fix(client) — InMemoryStore returns Ok("") for missing keys
 - InMemoryStore::get now returns Ok(String::new()) for missing/expired keys
 - Matches real Redis NULL response behavior for GET on missing key
-- Fixed test_inmemory_flushdb and test_get_expired_key_returns_null assertions
+|- Fixed test_inmemory_flushdb and test_get_expired_key_returns_null assertions
+
+## [2026-05-28] feat(epic-9) — JSF-AV compliance hardening (all 6 stories)
+- Story 9.1: Replaced `.next().unwrap()` with index-based access in all 4 `FromPipelineResponse` impls — no-panic dispatch
+- Story 9.2: Added pre-allocated `buf: Vec<Vec<u8>>` field to `CommandBuilder` — replaced per-call `Vec::new()` with `.clear()` reuse
+- Story 9.3: Verified — all `Vec::new()` in `to_args.rs` are in `#[cfg(test)]` modules only (zero production allocations)
+- Story 9.4: Added 13 roundtrip edge case tests (binary non-UTF-8, integer MIN/MAX, deep nesting, 1000-element arrays) — 26 total roundtrip tests
+- Story 9.5: Created `clippy.toml` (cognitive-complexity-threshold=20), added unwrap_used/expect_used/panic deny to Cargo.toml, annotated all test modules with `#[allow(...)]`
+- Story 9.6: Created `docs/JSF_COMPLIANCE.md` and `llmwiki/concepts/jsf-compliance.md`
+- Total tests: 284 → 297
+- Clippy: zero warnings across lib + tests + all features
+- Files created: clippy.toml, docs/JSF_COMPLIANCE.md, llmwiki/concepts/jsf-compliance.md
+- Files modified: src/client/pipeline.rs, src/protocol/builder.rs, src/codec/roundtrip.rs, Cargo.toml, src/lib.rs test modules (14 files)

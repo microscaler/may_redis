@@ -11,6 +11,7 @@ use bytes::BytesMut;
 #[derive(Clone)]
 pub struct CommandBuilder {
     args: Vec<RedisValue>,
+    buf: Vec<Vec<u8>>,
 }
 
 impl CommandBuilder {
@@ -21,6 +22,7 @@ impl CommandBuilder {
     pub fn new(cmd: &str) -> Self {
         Self {
             args: vec![RedisValue::BulkString(cmd.as_bytes().to_vec())],
+            buf: Vec::new(),
         }
     }
 
@@ -29,30 +31,26 @@ impl CommandBuilder {
     /// The value is converted to a `RedisValue` via [`ToRedisArgs`].
     #[allow(clippy::needless_pass_by_value)]
     #[must_use = "returns a new CommandBuilder"]
-    pub fn arg<V: ToRedisArgs>(self, val: V) -> Self {
-        let mut builder = self;
-        let mut buf = Vec::new();
-        val.write_redis_args(&mut buf);
-        for item in buf {
-            builder.args.push(RedisValue::BulkString(item));
+    pub fn arg<V: ToRedisArgs>(mut self, val: V) -> Self {
+        self.buf.clear();
+        val.write_redis_args(&mut self.buf);
+        for item in self.buf.drain(..) {
+            self.args.push(RedisValue::BulkString(item));
         }
-        builder
+        self
     }
 
     /// Append multiple arguments at once.
     #[must_use = "returns a new CommandBuilder"]
-    pub fn args<V: ToRedisArgs>(&self, vals: &[V]) -> Self {
-        let mut builder = Self {
-            args: self.args.clone(),
-        };
-        let mut buf = Vec::new();
+    pub fn args<V: ToRedisArgs>(mut self, vals: &[V]) -> Self {
+        self.buf.clear();
         for item in vals {
-            item.write_redis_args(&mut buf);
+            item.write_redis_args(&mut self.buf);
         }
-        for item in buf {
-            builder.args.push(RedisValue::BulkString(item));
+        for item in self.buf.drain(..) {
+            self.args.push(RedisValue::BulkString(item));
         }
-        builder
+        self
     }
 
     /// Encode the command into RESP2 wire format.
@@ -93,6 +91,7 @@ pub fn cmd(cmd: &str) -> CommandBuilder {
     CommandBuilder::new(cmd)
 }
 
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #[cfg(test)]
 mod tests {
     use super::*;

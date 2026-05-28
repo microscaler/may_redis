@@ -169,7 +169,8 @@ impl<T1: FromRedisValue> FromPipelineResponse for (T1,) {
                 responses.len()
             )));
         }
-        let t1 = T1::from_redis_value(&responses.into_iter().next().unwrap())?;
+        let r0 = responses[0].clone();
+        let t1 = T1::from_redis_value(&r0)?;
         Ok((t1,))
     }
 }
@@ -182,9 +183,10 @@ impl<T1: FromRedisValue, T2: FromRedisValue> FromPipelineResponse for (T1, T2) {
                 responses.len()
             )));
         }
-        let mut iter = responses.into_iter();
-        let t1 = T1::from_redis_value(&iter.next().unwrap())?;
-        let t2 = T2::from_redis_value(&iter.next().unwrap())?;
+        let r0 = responses[0].clone();
+        let r1 = responses[1].clone();
+        let t1 = T1::from_redis_value(&r0)?;
+        let t2 = T2::from_redis_value(&r1)?;
         Ok((t1, t2))
     }
 }
@@ -199,10 +201,12 @@ impl<T1: FromRedisValue, T2: FromRedisValue, T3: FromRedisValue> FromPipelineRes
                 responses.len()
             )));
         }
-        let mut iter = responses.into_iter();
-        let t1 = T1::from_redis_value(&iter.next().unwrap())?;
-        let t2 = T2::from_redis_value(&iter.next().unwrap())?;
-        let t3 = T3::from_redis_value(&iter.next().unwrap())?;
+        let r0 = responses[0].clone();
+        let r1 = responses[1].clone();
+        let r2 = responses[2].clone();
+        let t1 = T1::from_redis_value(&r0)?;
+        let t2 = T2::from_redis_value(&r1)?;
+        let t3 = T3::from_redis_value(&r2)?;
         Ok((t1, t2, t3))
     }
 }
@@ -217,11 +221,14 @@ impl<T1: FromRedisValue, T2: FromRedisValue, T3: FromRedisValue, T4: FromRedisVa
                 responses.len()
             )));
         }
-        let mut iter = responses.into_iter();
-        let t1 = T1::from_redis_value(&iter.next().unwrap())?;
-        let t2 = T2::from_redis_value(&iter.next().unwrap())?;
-        let t3 = T3::from_redis_value(&iter.next().unwrap())?;
-        let t4 = T4::from_redis_value(&iter.next().unwrap())?;
+        let r0 = responses[0].clone();
+        let r1 = responses[1].clone();
+        let r2 = responses[2].clone();
+        let r3 = responses[3].clone();
+        let t1 = T1::from_redis_value(&r0)?;
+        let t2 = T2::from_redis_value(&r1)?;
+        let t3 = T3::from_redis_value(&r2)?;
+        let t4 = T4::from_redis_value(&r3)?;
         Ok((t1, t2, t3, t4))
     }
 }
@@ -236,6 +243,7 @@ impl<T: FromRedisValue> FromPipelineResponse for Vec<T> {
     }
 }
 
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #[cfg(test)]
 mod tests {
     use super::*;

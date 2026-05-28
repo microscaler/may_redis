@@ -5,6 +5,7 @@
 // TTL support and glob-based KEYS matching.
 //
 // This module is only compiled when the `test` feature is enabled.
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use crate::core::RedisError;
 use std::collections::HashMap;
@@ -267,6 +268,7 @@ impl Clone for InMemoryClient {
     }
 }
 
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #[cfg(test)]
 mod tests {
     use super::*;
