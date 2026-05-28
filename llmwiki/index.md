@@ -1,32 +1,18 @@
-# may-redis LLM Wiki Index
+# Wiki Index
 
-## Core
+> Content catalog. Every wiki page listed under its type with a one-line summary.
+> Last updated: 2026-06-01 | Total pages: 5
 
-- [Schema](./SCHEMA.md)
-- [Log](./log.md)
-- [Docs Catalog](./docs-catalog.md)
+## Entities
+- [[may-redis]] — Coroutine-native Redis client built on may runtime, single crate
+- [[sesame-idam]] — Microscaler IDAM platform, 9 microservices using Redis for auth
 
-## Implementation Epics
+## Concepts
+- [[redis-command-coverage]] — 3-layer audit: Redis canonical vs may-redis vs sesame-idam (24% coverage, 100% sesame-idam fit)
+- [[may-coroutines]] — Stackful coroutine runtime for Redis client I/O, no async/await
+- [[resp-protocol]] — RESP2 wire format encoding/decoding, single crate module structure
+- [[redis-command-expansion]] — Epic 7: systematic expansion of 22 to ~80 Redis commands across 7 stories
 
-Epics run in strict order: 0 → 1 → 2 → 3 → 4 → 5 → 6. Each epic's stories must all pass `cargo test` before the next epic begins. See [`docs/Epics/00-epic-overview.md`](./docs/Epics/00-epic-overview.md) for the full plan.
+## Comparisons
 
-- [Epic 0: Scaffolding](./docs/Epics/epic-0-scaffolding.md) — workspace layout, Cargo.toml, lint config, docs structure
-- [Epic 1: Base Crate](./docs/Epics/epic-1-base.md) — RedisValue, RedisError, FromRedisValue, ToRedisArgs
-- [Epic 2: Codec Crate](./docs/Epics/epic-2-codec.md) — RESPWriter, RESPReader, encode/decode roundtrip
-- [Epic 3: Protocol Crate](./docs/Epics/epic-3-protocol.md) — CommandBuilder, Commands trait, Request/Response tag dispatch
-- [Epic 4: Connection Crate](./docs/Epics/epic-4-connection.md) — TcpConnector, epoll loop, request queue, response dispatch
-- [Epic 5: Client Crate](./docs/Epics/epic-5-client.md) — RedisClient, Pipeline, InMemoryClient
-- [Epic 6: Integration & Migration](./docs/Epics/epic-6-integration.md) — concurrency tests, error handling, redis→may-redis migration
-
-## Reference Topics
-
-- [RESP Protocol Reference](./topics/resp-protocol.md) — RESP wire format, type markers, encoding/decoding algorithms
-- [May Coroutine Pattern](./topics/may-coroutine-pattern.md) — may runtime primitives used in may-redis, connection loop architecture
-- [Connection Loop Pitfalls](./topics/connection-loop-pitfalls.md) — concrete bugs observed in `src/connection/connection.rs` and the regression tests that guard them
-- [Sesame-IDAM Integration](./topics/sesame-idam-integration.md) — Sesame-IDAM Redis usage inventory, command set analysis, migration plan
-- [Module Structure](./topics/module-structure.md) — planned modular workspace split, crate dependencies, feature flags
-
-## Reference
-
-- [Codebase Entry Points](./reference/codebase-entry-points.md) — file-level entry points per module
-- [Command Mapping](./reference/command-mapping.md) — redis crate → may-redis command translation
+## Queries
