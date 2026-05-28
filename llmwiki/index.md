@@ -1,7 +1,7 @@
 # Wiki Index
 
 > Content catalog. Every wiki page listed under its type with a one-line summary.
-> Last updated: 2026-05-28 | Total pages: 11
+> Last updated: 2026-05-28 | Total pages: 12
 
 ## Entities
 - [[may-redis]] — Coroutine-native Redis client built on may runtime, single crate
@@ -26,5 +26,6 @@
 - [[may-coroutine-pattern]] — May coroutine patterns: go!, yield_now, spsc channels, WaitIo/WaitIoWaker, mpsc Queue, monotonically increasing tags
 - [[module-structure]] — Target modular workspace architecture: base → codec → protocol → connection → client → may-redis umbrella re-exports
 - [[sesame-idam-integration]] — Sesame-IDAM Redis usage: 11 canonical commands, 5 modules, command frequency analysis
+- [[code-review-2026-05-28]] — Full codebase expert review: APPROVE with conditions (2 must-fix: worker thread blocking, missing safety comments)
 
 ## Queries

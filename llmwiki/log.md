@@ -3,6 +3,14 @@
 > Chronological record of all wiki actions. Append-only.
 > Format: `## [YYYY-MM-DD] action | subject`
 
+## [2026-05-28] audit | Full codebase code review
+- Created `docs/code-review-2026-05-28.md` — expert review of main branch
+- Created `llmwiki/topics/code-review-2026-05-28.md` — wiki summary page
+- Result: APPROVE with conditions (2 must-fix: CL1 worker thread blocking, S1 missing safety comments)
+- 10 findings total: 2 must-fix, 4 should-fix, 4 nice-to-have
+- Build: clean, 313 tests pass, clippy clean (lib+tests+all-features)
+- Architecture rated ★★★★☆ to ★★★★★ across all 5 modules
+
 ## [2026-06-01] create | Wiki initialized
 - Domain: Project infrastructure, architecture, and engineering decisions
 - Structure created with SCHEMA.md, index.md, log.md
