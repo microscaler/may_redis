@@ -33,12 +33,12 @@ impl InMemoryStore {
             .retain(|_, (_, expiry)| expiry.is_none_or(|e| e > now));
     }
 
-    /// Get a value, returning error if missing or expired.
+    /// Get a value, returning Ok("") if missing or expired.
     pub fn get(&mut self, key: &str) -> Result<String, RedisError> {
         self.cleanup();
         match self.data.get(key) {
             Some((value, _)) => Ok(value.clone()),
-            None => Err(RedisError::Other(format!("no such key: {key}"))),
+            None => Ok(String::new()),
         }
     }
 
@@ -363,10 +363,9 @@ mod tests {
         client.set("key", "value");
         client.flushdb();
         assert_eq!(client.dbsize().unwrap(), 0);
-        // Missing key returns Null, not error
-        let result = client.get("key");
-        assert!(result.is_ok());
-        assert_eq!(result.unwrap(), "");
+        // Missing key returns Ok("") (Null in RESP), not error
+        assert!(client.get("key").is_ok());
+        assert_eq!(client.get("key").unwrap(), "");
     }
 
     #[test]
@@ -410,10 +409,9 @@ mod tests {
         let client = InMemoryClient::new();
         client.set_ex("key", "value", 0);
         std::thread::sleep(std::time::Duration::from_millis(10));
-        // Expired keys return Null, matching real Redis behavior
-        let result = client.get("key");
-        assert!(result.is_ok());
-        assert_eq!(result.unwrap(), "");
+        // Expired keys return Ok("") (Null in RESP), matching real Redis
+        assert!(client.get("key").is_ok());
+        assert_eq!(client.get("key").unwrap(), "");
     }
 
     #[test]
