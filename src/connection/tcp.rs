@@ -107,7 +107,7 @@ impl TcpConnector {
     /// Establish a TCP connection with timeout in seconds.
     ///
     /// Convenience method that converts seconds to a Duration and calls
-    /// [`connect_with_timeout`].
+    /// `connect_with_timeout`.
     ///
     /// # Arguments
     /// * `host` - Server hostname or IP address

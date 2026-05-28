@@ -36,7 +36,7 @@ impl RedisClient {
     /// * `port` - Server port
     ///
     /// # Errors
-    /// Returns [`ConnectionError`](connection::ConnectionError) if TCP connection fails.
+    /// Returns the connection layer error type if TCP fails.
     pub fn connect(host: &str, port: u16) -> Result<Self, crate::connection::ConnectionError> {
         let connection = Connection::connect(host, port)?;
         Ok(Self {
@@ -50,7 +50,7 @@ impl RedisClient {
     /// * `url` - Connection URL (e.g., `redis://localhost:6379`)
     ///
     /// # Errors
-    /// Returns [`RedisError`] if URL parsing fails, or [`ConnectionError`] if TCP connection fails.
+    /// Returns [`RedisError`] if URL parsing fails, or the connection layer error type if TCP fails.
     pub fn connect_url(url: &str) -> Result<Self, RedisError> {
         let url = url.strip_prefix("redis://").unwrap_or(url);
         let (host, port) = url.rsplit_once(':').ok_or_else(|| {
