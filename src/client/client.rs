@@ -100,8 +100,10 @@ impl RedisClient {
         let (timeout_tx, timeout_rx) = spsc::channel::<()>();
 
         // Spawn a timeout coroutine that signals via the separate channel.
+        // Uses may::coroutine::sleep which cooperatively yields to the may
+        // scheduler instead of blocking a worker thread.
         go!(move || {
-            std::thread::sleep(timeout);
+            may::coroutine::sleep(timeout);
             let _ = timeout_tx.send(());
         });
 
