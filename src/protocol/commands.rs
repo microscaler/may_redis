@@ -709,6 +709,92 @@ pub trait Commands: Sized {
             .arg(offset)
             .arg(count)
     }
+
+    /// SUBSCRIBE channel [channel ...] — Subscribe to channels
+    #[must_use = "call .build() to encode the command"]
+    fn subscribe<K: ToRedisArgs>(&self, channels: &[K]) -> CommandBuilder {
+        let mut builder = CommandBuilder::new("SUBSCRIBE");
+        for ch in channels {
+            builder = builder.arg(ch);
+        }
+        builder
+    }
+
+    /// UNSUBSCRIBE — Unsubscribe from all channels
+    #[must_use = "call .build() to encode the command"]
+    fn unsubscribe(&self) -> CommandBuilder {
+        CommandBuilder::new("UNSUBSCRIBE")
+    }
+
+    /// UNSUBSCRIBE channel [channel ...] — Unsubscribe from specific channels
+    #[must_use = "call .build() to encode the command"]
+    fn unsubscribe_channels<K: ToRedisArgs>(&self, channels: &[K]) -> CommandBuilder {
+        let mut builder = CommandBuilder::new("UNSUBSCRIBE");
+        for ch in channels {
+            builder = builder.arg(ch);
+        }
+        builder
+    }
+
+    /// PSUBSCRIBE pattern [pattern ...] — Subscribe by pattern
+    #[must_use = "call .build() to encode the command"]
+    fn psubscribe<K: ToRedisArgs>(&self, patterns: &[K]) -> CommandBuilder {
+        let mut builder = CommandBuilder::new("PSUBSCRIBE");
+        for p in patterns {
+            builder = builder.arg(p);
+        }
+        builder
+    }
+
+    /// PUNSUBSCRIBE — Unsubscribe from all patterns
+    #[must_use = "call .build() to encode the command"]
+    fn punsubscribe(&self) -> CommandBuilder {
+        CommandBuilder::new("PUNSUBSCRIBE")
+    }
+
+    /// PUNSUBSCRIBE pattern [pattern ...] — Unsubscribe from specific patterns
+    #[must_use = "call .build() to encode the command"]
+    fn punsubscribe_patterns<K: ToRedisArgs>(&self, patterns: &[K]) -> CommandBuilder {
+        let mut builder = CommandBuilder::new("PUNSUBSCRIBE");
+        for p in patterns {
+            builder = builder.arg(p);
+        }
+        builder
+    }
+
+    /// MULTI — Start a transaction
+    #[must_use = "call .build() to encode the command"]
+    fn multi(&self) -> CommandBuilder {
+        CommandBuilder::new("MULTI")
+    }
+
+    /// EXEC — Execute the transaction
+    #[must_use = "call .build() to encode the command"]
+    fn exec(&self) -> CommandBuilder {
+        CommandBuilder::new("EXEC")
+    }
+
+    /// DISCARD — Abort the transaction
+    #[must_use = "call .build() to encode the command"]
+    fn discard(&self) -> CommandBuilder {
+        CommandBuilder::new("DISCARD")
+    }
+
+    /// WATCH key [key ...] — Monitor keys for transactional changes
+    #[must_use = "call .build() to encode the command"]
+    fn watch<K: ToRedisArgs>(&self, keys: &[K]) -> CommandBuilder {
+        let mut builder = CommandBuilder::new("WATCH");
+        for key in keys {
+            builder = builder.arg(key);
+        }
+        builder
+    }
+
+    /// UNWATCH — Clear all watched keys
+    #[must_use = "call .build() to encode the command"]
+    fn unwatch(&self) -> CommandBuilder {
+        CommandBuilder::new("UNWATCH")
+    }
 }
 
 // Blanket impl so () implements Commands
@@ -1430,5 +1516,86 @@ mod tests {
             buf.as_ref(),
             b"*7\r\n$13\r\nZRANGEBYSCORE\r\n$6\r\nmyzset\r\n$3\r\n1.0\r\n$4\r\n10.0\r\n$5\r\nLIMIT\r\n$1\r\n0\r\n$1\r\n5\r\n"
         );
+    }
+
+    #[test]
+    fn test_command_subscribe_encoding() {
+        let buf = ().subscribe(&["ch1", "ch2"]).build();
+        assert_eq!(
+            buf.as_ref(),
+            b"*3\r\n$9\r\nSUBSCRIBE\r\n$3\r\nch1\r\n$3\r\nch2\r\n"
+        );
+    }
+
+    #[test]
+    fn test_command_unsubscribe_encoding() {
+        let buf = ().unsubscribe().build();
+        assert_eq!(buf.as_ref(), b"*1\r\n$11\r\nUNSUBSCRIBE\r\n");
+    }
+
+    #[test]
+    fn test_command_unsubscribe_channels_encoding() {
+        let buf = ().unsubscribe_channels(&["ch1", "ch2"]).build();
+        assert_eq!(
+            buf.as_ref(),
+            b"*3\r\n$11\r\nUNSUBSCRIBE\r\n$3\r\nch1\r\n$3\r\nch2\r\n"
+        );
+    }
+
+    #[test]
+    fn test_command_psubscribe_encoding() {
+        let buf = ().psubscribe(&["pattern*", "test?*"]).build();
+        assert_eq!(
+            buf.as_ref(),
+            b"*3\r\n$10\r\nPSUBSCRIBE\r\n$8\r\npattern*\r\n$6\r\ntest?*\r\n"
+        );
+    }
+
+    #[test]
+    fn test_command_punsubscribe_encoding() {
+        let buf = ().punsubscribe().build();
+        assert_eq!(buf.as_ref(), b"*1\r\n$12\r\nPUNSUBSCRIBE\r\n");
+    }
+
+    #[test]
+    fn test_command_punsubscribe_patterns_encoding() {
+        let buf = ().punsubscribe_patterns(&["pattern*", "test?*"]).build();
+        assert_eq!(
+            buf.as_ref(),
+            b"*3\r\n$12\r\nPUNSUBSCRIBE\r\n$8\r\npattern*\r\n$6\r\ntest?*\r\n"
+        );
+    }
+
+    #[test]
+    fn test_command_multi_encoding() {
+        let buf = ().multi().build();
+        assert_eq!(buf.as_ref(), b"*1\r\n$5\r\nMULTI\r\n");
+    }
+
+    #[test]
+    fn test_command_exec_encoding() {
+        let buf = ().exec().build();
+        assert_eq!(buf.as_ref(), b"*1\r\n$4\r\nEXEC\r\n");
+    }
+
+    #[test]
+    fn test_command_discard_encoding() {
+        let buf = ().discard().build();
+        assert_eq!(buf.as_ref(), b"*1\r\n$7\r\nDISCARD\r\n");
+    }
+
+    #[test]
+    fn test_command_watch_encoding() {
+        let buf = ().watch(&["key1", "key2"]).build();
+        assert_eq!(
+            buf.as_ref(),
+            b"*3\r\n$5\r\nWATCH\r\n$4\r\nkey1\r\n$4\r\nkey2\r\n"
+        );
+    }
+
+    #[test]
+    fn test_command_unwatch_encoding() {
+        let buf = ().unwatch().build();
+        assert_eq!(buf.as_ref(), b"*1\r\n$7\r\nUNWATCH\r\n");
     }
 }
