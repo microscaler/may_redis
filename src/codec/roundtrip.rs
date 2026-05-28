@@ -6,8 +6,6 @@
 //   2. Read it back using RESPReader
 //   3. Assert equality with the original
 
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
-
 use crate::core::RedisValue;
 use crate::codec::reader::RESPReader;
 use crate::codec::writer::RESPWriter;
@@ -45,12 +43,14 @@ mod simple_string {
     fn test_roundtrip_simple_long() {
         let input = RedisValue::SimpleString("A".repeat(1000));
         let output = roundtrip(&input);
-        assert!(matches!(output, RedisValue::SimpleString(ref s) if s.len() == 1000 && *s == "A".repeat(1000)));
+        assert!(
+            matches!(output, RedisValue::SimpleString(ref s) if s.len() == 1000 && *s == "A".repeat(1000))
+        );
     }
 
     #[test]
     fn test_roundtrip_simple_empty() {
-        let input = RedisValue::SimpleString("".into());
+        let input = RedisValue::SimpleString(String::new());
         let output = roundtrip(&input);
         assert!(matches!(output, RedisValue::SimpleString(ref s) if s.is_empty()));
     }
@@ -86,7 +86,7 @@ mod error_value {
 
     #[test]
     fn test_roundtrip_error_empty() {
-        let input = RedisValue::Error("".into());
+        let input = RedisValue::Error(String::new());
         let output = roundtrip(&input);
         assert!(matches!(output, RedisValue::Error(ref s) if s.is_empty()));
     }
@@ -308,7 +308,6 @@ mod array_value {
 
     #[test]
     fn test_roundtrip_deep_nesting() {
-        // 5 levels of nesting
         fn nested_array(depth: usize) -> RedisValue {
             if depth == 0 {
                 RedisValue::Integer(42)
@@ -316,17 +315,19 @@ mod array_value {
                 RedisValue::Array(vec![nested_array(depth - 1)])
             }
         }
-        let input = nested_array(5);
-        let output = roundtrip(&input);
-        // Verify the depth-0 leaf is still an Integer(42)
-        fn count_depth(val: &RedisValue) -> usize {
+        fn count_depth_helper(val: &RedisValue) -> usize {
             match val {
-                RedisValue::Array(a) => 1 + (a.first().map_or(0, |v| count_depth(v))),
+                RedisValue::Array(a) => 1 + a.first().map_or(0, count_depth_helper),
                 RedisValue::Integer(42) => 0,
                 _ => usize::MAX, // mismatch
             }
         }
-        assert_eq!(count_depth(&output), 5); // 5 Array wrappers around Integer(42)
+        // 5 levels of nesting
+        let input = nested_array(5);
+        let output = roundtrip(&input);
+
+        // Verify the depth-0 leaf is still an Integer(42)
+        assert_eq!(count_depth_helper(&output), 5); // 5 Array wrappers around Integer(42)
     }
 
     #[test]
@@ -458,12 +459,12 @@ mod boundary_cases {
 
     #[test]
     fn test_roundtrip_large_array_of_integers() {
-        let input = RedisValue::Array((0..500).map(|n| RedisValue::Integer(n)).collect());
+        let input: RedisValue = RedisValue::Array((0..500).map(RedisValue::Integer).collect());
         let output = roundtrip(&input);
         if let RedisValue::Array(a) = output {
             assert_eq!(a.len(), 500);
             for (i, v) in a.iter().enumerate() {
-                assert!(matches!(v, RedisValue::Integer(n) if *n == i as i64));
+                assert!(matches!(v, RedisValue::Integer(n) if *n == i64::try_from(i).expect("fits in i64")));
             }
         } else {
             panic!("expected Array");
