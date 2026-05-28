@@ -116,8 +116,12 @@ impl InMemoryStore {
     }
 
     /// Get matching keys with glob support (`*` and `?*`).
+    ///
+    /// Expired keys are lazily removed before enumeration so they don't
+    /// appear in results — matching real Redis behaviour.
     #[must_use]
-    pub fn keys(&self, pattern: &str) -> Vec<String> {
+    pub fn keys(&mut self, pattern: &str) -> Vec<String> {
+        self.cleanup();
         let mut result = Vec::new();
         for key in self.data.keys() {
             if glob_match(pattern, key) {
