@@ -94,44 +94,20 @@ for the full testing-architecture rules.
 
 ---
 
-## Project conventions (the short version)
-
-The full rule set lives in [`AGENTS.md`](./AGENTS.md). The non-negotiables
-are:
-
-- **Only the `may` runtime.** No `tokio`, no `async-std`, no `smol`. No
-  `async fn`, no `.await`, no `#[tokio::test]`. The connection layer
-  uses `may::go!`, `may::net::TcpStream`, `may::sync::spsc`,
-  `may::queue::mpsc::Queue`, and `WaitIo` / `WaitIoWaker`.
-- **RESP2 only for v1.** RESP3 type markers are explicitly out of
-  scope.
-- **Reference implementation:** `../may_postgres/src/connection.rs`.
-  Any change to `src/connection/connection.rs::spawn_connection_loop`
-  must be justified against that loop. The connection loop has shipped
-  two production-impacting bugs that caused integration tests to hang —
-  both are dissected in
-  [`llmwiki/topics/connection-loop-pitfalls.md`](./llmwiki/topics/connection-loop-pitfalls.md)
-  with regression tests. Read it before touching the loop.
-- **Conventional Commits.** `feat(scope): …`, `fix(scope): …`,
-  `docs(scope): …`, `chore(scope): …`, `refactor(scope): …`.
-- **Never push without explicit human authorization.** Never use
-  `--no-verify`. Never commit secrets.
-
----
-
 ## Where to read next
+
+For a full catalog of all docs, tests, architecture, and epics, see
+[`docs/INDEX.md`](./docs/INDEX.md).
 
 | Audience | Start here |
 |----------|------------|
 | Reading the codebase | [`docs/architecture.md`](./docs/architecture.md) |
-| Working on the crate as an agent | [`AGENTS.md`](./AGENTS.md) |
-| Implementing a specific feature | [`docs/Epics/`](./docs/Epics/) — Epic 0 → Epic 6, each with `Story_0.md` (overview) + `Story_1..N.md` (granular stories) |
-| Touching the connection loop | [`llmwiki/topics/connection-loop-pitfalls.md`](./llmwiki/topics/connection-loop-pitfalls.md) |
-| Understanding the RESP wire format | [`docs/01-protocol-analysis.md`](./docs/01-protocol-analysis.md) |
-| Understanding may-postgres patterns we mirror | [`docs/02-may_postgres_comparison.md`](./docs/02-may_postgres_comparison.md) |
-| Cataloguing Redis usage in downstream code | [`docs/03-sesame-idam-redis-usage.md`](./docs/03-sesame-idam-redis-usage.md) |
+| Contributing | [`CONTRIBUTING.md`](./CONTRIBUTING.md) |
+| Agent rule set (build/lint/test, modular targets, etc.) | [`AGENTS.md`](./AGENTS.md) |
+| Implementing a specific feature | [`docs/Epics/`](./docs/Epics/) — each epic has `Story_0.md` (overview) + `Story_1..N.md` (tasks) |
+| Understanding SSRF protection | [`llmwiki/concepts/ssrf-protection.md`](./llmwiki/concepts/ssrf-protection.md) |
+| Understanding command policy | [`llmwiki/concepts/command-policy.md`](./llmwiki/concepts/command-policy.md) |
 | Test strategy in depth | [`docs/10-test-strategy.md`](./docs/10-test-strategy.md) |
-| Why a single crate, not a workspace | [`docs/adr-001-single-crate-structure.md`](./docs/adr-001-single-crate-structure.md) |
 
 ---
 
