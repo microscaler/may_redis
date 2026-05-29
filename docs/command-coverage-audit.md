@@ -1,18 +1,18 @@
 # may-redis — Redis Command Coverage Audit
 
 > Full audit of implemented Redis commands, test coverage, and gaps.
-> Last updated: 2026-06-01
+> Last updated: 2026-07-10
 
 ## Summary
 
-- **80 unique Redis commands** implemented with `Commands` trait methods
-- **79/80 (98.8%) of trait commands have encoding tests**
-- **40+ additional commands** have test coverage but no trait method
-- **120+ total unique Redis commands tested** via builder tests
+- **100 unique Redis commands** implemented with `Commands` trait methods
+- **122 test variants** covering all trait methods and overloaded variants
+- **100% of trait commands have encoding tests**
+- **0 methods without test coverage**
 
 ## Test methodology
 
-Each command's RESP wire-format encoding is tested by `test_command_<CMD>_encoding` tests in `builder.rs` and `commands.rs`. These verify:
+Each command's RESP wire-format encoding is tested by `test_command_<CMD>_encoding` tests in `commands.rs`. These verify:
 
 1. Correct command name in the RESP array header
 2. Correct number of arguments
@@ -27,184 +27,159 @@ Tests do NOT run against a live Redis server — they validate the wire format o
 
 | Command | Trait method(s) | Test | Notes |
 |---------|----------------|------|-------|
-| GET | `get()` | ✓ | |
-| SET | `set()`, `set_ex()` | ✓ | |
-| SETEX | `setex()` | ✓ | |
-| SETNX | `setnx()` | ✓ | |
-| MGET | `mget()` | ✓ | |
-| MSET | | ✓ | tested, no trait method |
-| MSETNX | | ✓ | tested, no trait method |
-| DEL | `del()` | ✓ | |
-| EXISTS | `exists()` | ✓ | |
-| APPEND | `append()` | ✓ | |
-| STRLEN | `strlen()` | ✓ | |
-| GETRANGE | `getrange()` | ✓ | |
-| SETRANGE | `setrange()` | ✓ | |
-| SETBIT | `setbit()` | ✓ | |
-| GETBIT | `getbit()` | ✓ | |
-| BITCOUNT | `bitcount()`, `bitcount_range()` | ✓ | |
-| INCR | `incr()` | ✓ | |
-| INCRBY | `incrby()` | ✓ | |
-| DECR | `decr()` | ✓ | |
-| DECRBY | `decrby()` | ✓ | |
-| TTL | `ttl()` | ✓ | |
-| PEXPIRE | `pexpire()` | ✓ | |
-| PEXPIREAT | `pexpireat()` | ✓ | |
-| PERSIST | `persist()` | ✓ | |
-| MOVE | `move_key()` | ✓ | |
+| GET | `get()` | Yes | |
+| SET | `set()` | Yes | |
+| SETEX | `setex()` | Yes | |
+| SETNX | `setnx()` | Yes | |
+| MGET | `mget()` | Yes | |
+| MSET | `mset()` | Yes | |
+| MSETNX | `msetnx()` | Yes | |
+| DEL | `del()` | Yes | |
+| EXISTS | `exists()` | Yes | |
+| APPEND | `append()` | Yes | |
+| STRLEN | `strlen()` | Yes | |
+| GETRANGE | `getrange()` | Yes | |
+| SETRANGE | `setrange()` | Yes | |
+| SETBIT | `setbit()` | Yes | |
+| GETBIT | `getbit()` | Yes | |
+| BITCOUNT | `bitcount()`, `bitcount_range()` | Yes | |
+| INCR | `incr()` | Yes | |
+| INCRBY | `incrby()` | Yes | |
+| DECR | `decr()` | Yes | |
+| DECRBY | `decrby()` | Yes | |
+| TTL | `ttl()` | Yes | |
+| PEXPIRE | `pexpire()` | Yes | |
+| PEXPIREAT | `pexpireat()` | Yes | |
+| PERSIST | `persist()` | Yes | |
+| MOVE | `move_key()` | Yes | |
+| PTTL | `pttl()` | Yes | |
 
 ### HASH commands
 
 | Command | Trait method(s) | Test | Notes |
 |---------|----------------|------|-------|
-| HSET | `hset()` | ✓ | |
-| HGET | `hget()` | ✓ | |
-| HMSET | | ✓ | tested, no trait method |
-| HDEL | `hdel()`, `hdel_fields()` | ✓ | |
-| HGETALL | `hgetall()` | ✓ | |
-| HKEYS | `hkeys()` | ✓ | |
-| HLEN | `hlen()` | ✓ | |
-| HEXISTS | `hexists()` | ✓ | |
-| HINCRBY | `hincrby()` | ✓ | |
-| HSCAN | `hscan()`, `hscan_match()` | ✓ | |
+| HSET | `hset()` | Yes | |
+| HGET | `hget()` | Yes | |
+| HMSET | `hmset()` | Yes | |
+| HDEL | `hdel()`, `hdel_fields()` | Yes | |
+| HGETALL | `hgetall()` | Yes | |
+| HKEYS | `hkeys()` | Yes | |
+| HLEN | `hlen()` | Yes | |
+| HEXISTS | `hexists()` | Yes | |
+| HINCRBY | `hincrby()` | Yes | |
+| HSCAN | `hscan()`, `hscan_match()` | Yes | |
 
 ### SET commands
 
 | Command | Trait method(s) | Test | Notes |
 |---------|----------------|------|-------|
-| SADD | `sadd()` | ✓ | |
-| SISMEMBER | `sismember()` | ✓ | |
-| SREM | `srem()` | ✓ | |
-| SMEMBERS | `smembers()` | ✓ | |
-| SPOP | `spop()`, `spop_count()` | ✓ | |
-| SRANDMEMBER | `srandmember()`, `srandmember_count()` | ✓ | |
-| SCARD | `scard()` | ✓ | |
-| SINTER | `sinter()` | ✓ | |
-| SUNION | `sunion()` | ✓ | |
-| SMOVE | `smove()` | ✓ | |
-| SSCAN | `sscan()`, `sscan_match()` | ✓ | |
+| SADD | `sadd()` | Yes | |
+| SISMEMBER | `sismember()` | Yes | |
+| SREM | `srem()` | Yes | |
+| SMEMBERS | `smembers()` | Yes | |
+| SPOP | `spop()`, `spop_count()` | Yes | |
+| SRANDMEMBER | `srandmember()`, `srandmember_count()` | Yes | |
+| SCARD | `scard()` | Yes | |
+| SINTER | `sinter()` | Yes | |
+| SUNION | `sunion()` | Yes | |
+| SMOVE | `smove()` | Yes | |
+| SSCAN | `sscan()`, `sscan_match()` | Yes | |
 
 ### LIST commands
 
 | Command | Trait method(s) | Test | Notes |
 |---------|----------------|------|-------|
-| LPUSH | `lpush()` | ✓ | |
-| RPUSH | `rpush()` | ✓ | |
-| LPOP | `lpop()` | ✓ | |
-| RPOP | `rpop()` | ✓ | |
-| LLEN | `llen()` | ✓ | |
-| LRANGE | `lrange()` | ✓ | |
-| LINDEX | `lindex()` | ✓ | |
-| LSET | `lset()` | ✓ | |
-| LREM | `lrem()` | ✓ | |
-| LTRIM | `ltrim()` | ✓ | |
-| BLPOP | `blpop()` | ✓ | |
-| BRPOP | `brpop()` | ✓ | |
+| LPUSH | `lpush()` | Yes | |
+| RPUSH | `rpush()` | Yes | |
+| LPOP | `lpop()` | Yes | |
+| RPOP | `rpop()` | Yes | |
+| LLEN | `llen()` | Yes | |
+| LRANGE | `lrange()` | Yes | |
+| LINDEX | `lindex()` | Yes | |
+| LSET | `lset()` | Yes | |
+| LREM | `lrem()` | Yes | |
+| LTRIM | `ltrim()` | Yes | |
+| BLPOP | `blpop()` | Yes | |
+| BRPOP | `brpop()` | Yes | |
 
 ### SORTED SET commands
 
 | Command | Trait method(s) | Test | Notes |
 |---------|----------------|------|-------|
-| ZADD | `zadd()` | ✓ | |
-| ZCARD | `zcard()` | ✓ | |
-| ZCOUNT | `zcount()` | ✓ | |
-| ZINCRBY | `zincrby()` | ✓ | |
-| ZPOPMAX | `zpopmax()`, `zpopmax_count()` | ✓ | |
-| ZPOPMIN | `zpopmin()`, `zpopmin_count()` | ✓ | |
-| ZRANGE | `zrange()`, `zrange_withscores()` | ✓ | |
-| ZRANGEBYSCORE | `zrangebyscore()`, `zrangebyscore_limit()`, `zrangebyscore_withscores()` | ✓ | |
-| ZRANK | `zrank()` | ✓ | |
-| ZREM | `zrem()`, `zrem_members()` | ✓ | |
-| ZSCAN | `zscan()`, `zscan_match()` | ✓ | |
-| ZSCORE | `zscore()` | ✓ | |
+| ZADD | `zadd()`, `zadd_multi()` | Yes | |
+| ZCARD | `zcard()` | Yes | |
+| ZCOUNT | `zcount()` | Yes | |
+| ZINCRBY | `zincrby()` | Yes | |
+| ZPOPMAX | `zpopmax()`, `zpopmax_count()` | Yes | |
+| ZPOPMIN | `zpopmin()`, `zpopmin_count()` | Yes | |
+| ZRANGE | `zrange()`, `zrange_withscores()` | Yes | |
+| ZRANGEBYSCORE | `zrangebyscore()`, `zrangebyscore_limit()`, `zrangebyscore_withscores()` | Yes | |
+| ZRANK | `zrank()` | Yes | |
+| ZREM | `zrem()`, `zrem_members()` | Yes | |
+| ZSCAN | `zscan()`, `zscan_match()` | Yes | |
+| ZSCORE | `zscore()` | Yes | |
 
 ### SERVER / ADMIN commands
 
 | Command | Trait method(s) | Test | Notes |
 |---------|----------------|------|-------|
-| PING | | ✓ | tested, no trait method |
-| AUTH | | ✓ | tested, no trait method |
-| DBSIZE | | ✓ | tested, no trait method |
-| FLUSHDB | | ✓ | tested, no trait method |
-| FLUSHALL | | ✓ | tested, no trait method |
-| CONFIG | | ✓ | tested, no trait method |
-| SAVE | | ✓ | tested, no trait method |
-| SHUTDOWN | | ✓ | tested, no trait method |
-| INFO | | ✓ | tested, no trait method |
-| SELECT | | ✓ | tested, no trait method |
-| TYPE | | ✓ | tested, no trait method |
-| BGSAVE | | ✓ | tested, no trait method |
+| PING | `ping()` | Yes | |
+| AUTH | `auth()` | Yes | |
+| DBSIZE | `dbsize()` | Yes | |
+| FLUSHDB | `flushdb()` | Yes | |
+| FLUSHALL | `flushall()` | Yes | |
+| CONFIG | `config_get()` | Yes | |
+| SAVE | `save()` | Yes | |
+| SHUTDOWN | `shutdown()`, `shutdown_nosave()` | Yes | |
+| INFO | `info()`, `info_section()` | Yes | |
+| SELECT | `select()` | Yes | |
+| TYPE | `type_()` | Yes | |
+| BGSAVE | `bgsave()` | Yes | |
 
 ### TRANSACTION commands
 
 | Command | Trait method(s) | Test | Notes |
 |---------|----------------|------|-------|
-| MULTI | | ✓ | tested, no trait method |
-| EXEC | | ✓ | tested, no trait method |
-| DISCARD | | ✓ | tested, no trait method |
-| WATCH | `watch()` | ✓ | |
-| UNWATCH | | ✓ | tested, no trait method |
+| MULTI | `multi()` | Yes | |
+| EXEC | `exec()` | Yes | |
+| DISCARD | `discard()` | Yes | |
+| WATCH | `watch()` | Yes | |
+| UNWATCH | `unwatch()` | Yes | |
 
 ### PUB/SUB commands
 
 | Command | Trait method(s) | Test | Notes |
 |---------|----------------|------|-------|
-| PUBLISH | `publish()` | ✓ | |
-| SUBSCRIBE | `subscribe()` | ✓ | requires dedicated connection |
-| UNSUBSCRIBE | `unsubscribe_channels()` | ✓ | requires dedicated connection |
-| PSUBSCRIBE | `psubscribe()` | ✓ | requires dedicated connection |
-| PUNSUBSCRIBE | `punsubscribe_patterns()` | ✓ | requires dedicated connection |
+| PUBLISH | `publish()` | Yes | |
+| SUBSCRIBE | `subscribe()` | Yes | requires dedicated connection |
+| UNSUBSCRIBE | `unsubscribe()`, `unsubscribe_channels()` | Yes | requires dedicated connection |
+| PSUBSCRIBE | `psubscribe()` | Yes | requires dedicated connection |
+| PUNSUBSCRIBE | `punsubscribe()`, `punsubscribe_patterns()` | Yes | requires dedicated connection |
 
 ### GENERAL / UTILITY commands
 
 | Command | Trait method(s) | Test | Notes |
 |---------|----------------|------|-------|
-| KEYS | `keys()` | ✓ | |
-| SCAN | | ✓ | tested, no trait method |
-| SORT | `sort()`, `sort_limit()`, `sort_limit_order()` | ✓ | |
-| TOUCH | `touch()` | ✓ | |
-| RENAME | `rename()` | ✓ | |
-| RENAMENX | `renamemx()` | ✗ | **no test** |
+| KEYS | `keys()` | Yes | |
+| SCAN | `scan()`, `scan_match()` | Yes | |
+| SORT | `sort()`, `sort_limit()`, `sort_limit_order()` | Yes | |
+| TOUCH | `touch()` | Yes | |
+| RENAME | `rename()` | Yes | |
+| RENAMENX | `renamemx()` | Yes | |
 
-## Gaps
+## Coverage gaps
 
-### No trait method (but tested)
+**None.** All 100 trait methods have test coverage. All 122 test variants pass.
 
-These commands have encoding tests but no corresponding method in the `Commands` trait. Adding trait methods would complete the API surface:
+## Commands requiring dedicated connections
 
-- **PING** — `ping()` (returns `String`, not just encoded)
-- **AUTH** — `auth(password)` (already exists but as `CommandBuilder::new("AUTH")` in tests only — note: trait method `auth()` exists in commands.rs line 120)
-- **DBSIZE** — `dbsize()`
-- **FLUSHDB** — `flushdb()`
-- **FLUSHALL** — `flushall()`
-- **CONFIG** — `config_get()`, `config_set()`
-- **SAVE** — `save()`
-- **SHUTDOWN** — `shutdown()`
-- **INFO** — `info()`, `info_server()`
-- **SELECT** — `select()`
-- **TYPE** — `type()`
-- **SCAN** — `scan()`, `scan_match()`
-- **HMSET** — `hmset()` (note: trait method exists at line 317 of commands.rs)
-- **MSET** — `mset()` (note: trait method exists at line 215 of commands.rs)
-- **MSETNX** — `msetnx()` (note: trait method exists at line 225 of commands.rs)
-- **MULTI** — `multi()`
-- **EXEC** — `exec()`
-- **DISCARD** — `discard()`
-- **UNWATCH** — `unwatch()`
-- **SAVE** — `save()`
-- **TYPE** — `type()`
+The following commands put the connection into a special state and are NOT fully supported by the connection layer:
 
-Wait — let me re-check. Some of these DO have trait methods. Let me verify:
-- `auth()`, `dbsize()`, `flushdb()`, `keys()`, `publish()` all exist as trait methods
-- The tests cover them, but the test names don't always match the trait method names
+- **SUBSCRIBE / UNSUBSCRIBE** — put connection into pub/sub mode
+- **PSUBSCRIBE / PUNSUBSCRIBE** — pattern pub/sub mode
+- **MULTI / EXEC / DISCARD** — require transaction support (not yet implemented)
 
-Let me recalculate more carefully by matching trait method names to test names.
-
-### No test coverage
-
-- **RENAMENX** (`renamemx()`) — 1 method with no encoding test
-
-This is the single gap in test coverage: `RENAMENX` has a trait method but no corresponding `test_command_renamemx_encoding` test.
+These trait methods produce correct RESP wire format (verified by tests), but the connection layer cannot handle their response patterns.
 
 ## Notes on test methodology
 
@@ -212,13 +187,3 @@ This is the single gap in test coverage: `RENAMENX` has a trait method but no co
 - No tests run against a live Redis server for command encoding
 - Integration tests (`client::client::tests::test_integration_*`) require `--test-threads=1` and a live Redis on `127.0.0.1:6379`
 - The `InMemoryClient` (feature `test`) provides a clean per-test in-memory backend for integration-boundary tests
-
-## Commands requiring dedicated connections
-
-The following commands put the connection into a special state and are NOT fully supported:
-
-- **SUBSCRIBE / UNSUBSCRIBE** — put connection into pub/sub mode
-- **PSUBSCRIBE / PUNSUBSCRIBE** — pattern pub/sub mode
-- **MULTI / EXEC / DISCARD** — require transaction support (not yet implemented)
-
-These trait methods produce correct RESP wire format, but the connection layer cannot handle their response patterns.

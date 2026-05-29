@@ -315,14 +315,11 @@ fn nonblock_write(stream: &mut std::net::TcpStream, write_buf: &mut BytesMut) ->
     let len = buf.len();
     let mut write_cnt = 0;
     while write_cnt < len {
-        match stream.write(unsafe {
-            // SAFETY: `write_buf.chunk()` returns a slice over the initialized portion
-            // of `BytesMut`. The `while write_cnt < len` loop invariant guarantees
-            // `write_cnt <= buf.len()`, so `write_cnt..` is always a valid subslice.
-            // The kernel's `write()` call only reads from this slice — it never writes
-            // beyond it.
-            buf.get_unchecked(write_cnt..)
-        }) {
+        // AC-4.1, FR-033: Use safe bounds-checked indexing instead of `get_unchecked`.
+        // The `write_cnt <= len` loop invariant (checked by `while` condition) guarantees
+        // this slice is always valid. `buf[write_cnt..]` returns a subslice of `buf`
+        // that is at most `buf.len() - write_cnt` bytes — never past the end.
+        match stream.write(&buf[write_cnt..]) {
             Ok(0) => return Err(io::Error::new(io::ErrorKind::BrokenPipe, "closed")),
             Ok(n) => write_cnt += n,
             Err(e) if e.kind() == io::ErrorKind::WouldBlock => break,

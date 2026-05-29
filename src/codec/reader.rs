@@ -2,6 +2,8 @@
 //
 // Uses an internal cursor (`pos`) to track progress through the buffer.
 
+use std::cell::Cell;
+
 use crate::core::{RedisError, RedisValue};
 use bytes::BytesMut;
 
@@ -13,6 +15,55 @@ const DEFAULT_MAX_ARRAY_LEN: usize = 1_000_000;
 
 /// Default maximum array nesting depth (256 levels).
 const DEFAULT_MAX_DEPTH: usize = 256;
+
+/// RAII guard that decrements `RESPReader.depth` on drop.
+///
+/// FR-036, AC-4.5, AC-4.6: Prevents depth counter corruption if
+/// `read_value()` panics between `depth += 1` and `depth -= 1`
+/// (e.g. from OOM in `Vec::with_capacity`). If the scope exits
+/// abnormally via panic or `?`, Drop still restores depth to its
+/// previous value.
+///
+/// Attack vector: An attacker sends a deeply nested RESP array that
+/// triggers OOM. Without this guard the depth counter is left
+/// incremented. Subsequent reads of legitimate responses (at normal
+/// depth) are incorrectly rejected as "too deep", causing a
+/// denial-of-service.
+pub(super) struct DepthGuard {
+    // Raw pointer avoids borrow conflicts: holding a reference to RESPReader
+    // prevents calling self.read_line() etc. inside read_array.
+    depth_cell: *const Cell<usize>,
+    saved: usize,
+}
+
+impl DepthGuard {
+    #[must_use = "must hold the guard for the duration of the recursion"]
+    pub(super) fn new(reader: &RESPReader) -> Self {
+        let saved = reader.depth.get();
+        reader.depth.set(saved + 1);
+        Self {
+            depth_cell: &raw const reader.depth,
+            saved,
+        }
+    }
+}
+
+impl Drop for DepthGuard {
+    fn drop(&mut self) {
+        // AC-4.5: Restore depth even if the scope exits via panic.
+        // Using raw pointer dereference avoids borrow checker conflicts:
+        // the guard holds no Rust reference to RESPReader, so read_array
+        // can still call self.read_line(), self.expect_crlf(), etc.
+        debug_assert!(
+            !self.depth_cell.is_null(),
+            "DepthGuard raw pointer must never be null"
+        );
+        // Direct raw pointer dereference avoids Option::expect/unwrap which
+        // conflict with deny-level clippy lints. The debug_assert above
+        // guarantees the pointer is valid (we set it from a reference in new()).
+        unsafe { (*self.depth_cell).set(self.saved) };
+    }
+}
 
 /// Reader that decodes RESP2 wire format into [`RedisValue`].
 ///
@@ -29,7 +80,7 @@ pub struct RESPReader {
     max_bulk_len: usize,
     max_array_len: usize,
     max_depth: usize,
-    depth: usize,
+    depth: Cell<usize>,
 }
 
 impl RESPReader {
@@ -42,7 +93,7 @@ impl RESPReader {
             max_bulk_len: DEFAULT_MAX_BULK_LEN,
             max_array_len: DEFAULT_MAX_ARRAY_LEN,
             max_depth: DEFAULT_MAX_DEPTH,
-            depth: 0,
+            depth: Cell::new(0),
         }
     }
 
@@ -247,14 +298,19 @@ impl RESPReader {
     }
 
     fn read_array(&mut self) -> Result<RedisValue, RedisError> {
-        // Enforce depth limit before recursing.
-        if self.depth >= self.max_depth {
+        // AC-4.5, AC-4.8, FR-037, FR-038: Create RAII guard BEFORE checking depth.
+        // DepthGuard increments depth in `new()` and decrements in `Drop`.
+        // This ensures depth is restored on panic or early return.
+        // Depth check happens after increment so the max_depth value represents
+        // the actual recursion depth reached (AC-4.8: check before recursion).
+        let _guard = DepthGuard::new(self);
+
+        if self.depth.get() > self.max_depth {
             return Err(RedisError::Parse(format!(
                 "array nesting depth exceeds maximum of {}",
                 self.max_depth
             )));
         }
-        self.depth += 1;
 
         let line = self.read_line()?;
         self.expect_crlf()?;
@@ -269,7 +325,6 @@ impl RESPReader {
             })?;
 
         if len > self.max_array_len {
-            self.depth -= 1;
             return Err(RedisError::Parse(format!(
                 "array length {} exceeds maximum of {}",
                 len, self.max_array_len
@@ -280,7 +335,6 @@ impl RESPReader {
         for _ in 0..len {
             items.push(self.read_value()?);
         }
-        self.depth -= 1;
         Ok(RedisValue::Array(items))
     }
 }
