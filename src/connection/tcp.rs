@@ -24,6 +24,9 @@ pub enum ConnectionError {
     Timeout(String),
     /// SSRF protection: resolved address is in a deny-listed range.
     SsrfViolation(String),
+    /// TLS handshake failed.
+    #[cfg(feature = "tls")]
+    Tls(String),
 }
 
 impl std::fmt::Display for ConnectionError {
@@ -34,6 +37,8 @@ impl std::fmt::Display for ConnectionError {
             Self::SetNodelay(msg) => write!(f, "set nodelay error: {msg}"),
             Self::Timeout(msg) => write!(f, "connection timeout: {msg}"),
             Self::SsrfViolation(msg) => write!(f, "SSRF violation: {msg}"),
+            #[cfg(feature = "tls")]
+            Self::Tls(msg) => write!(f, "TLS error: {msg}"),
         }
     }
 }

@@ -21,6 +21,8 @@ pub mod codec;
 pub mod connection;
 pub mod core;
 pub mod protocol;
+#[cfg(feature = "tls")]
+pub mod tls;
 
 // Re-export the most common types at the crate root
 pub use client::client::RedisClient;

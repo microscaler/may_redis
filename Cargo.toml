@@ -11,10 +11,14 @@ bytes = "1.7"
 itoa = "1.0"
 log = "0.4"
 may = { version = "0.3", default-features = false, features = ["io_timeout"] }
+rustls = { version = "0.23", optional = true, default-features = false, features = ["ring", "std", "tls12"] }
+rustls-pemfile = { version = "2", optional = true }
 socket2 = "0.5"
+webpki-roots = { version = "0.25", optional = true }
 
 [features]
 default = []
+tls = ["dep:rustls", "dep:rustls-pemfile", "dep:webpki-roots"]
 test = []
 
 [dev-dependencies]

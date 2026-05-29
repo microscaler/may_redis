@@ -88,10 +88,7 @@ fn test_request_too_large_returns_error() {
 
     // PING fits (12 bytes < 32 limit)
     let (tx, _rx) = spsc::channel();
-    let ok = conn.send(super::Request::new(
-        b"*1\r\n$4\r\nPING\r\n".to_vec(),
-        tx,
-    ));
+    let ok = conn.send(super::Request::new(b"*1\r\n$4\r\nPING\r\n".to_vec(), tx));
     assert!(ok.is_ok());
 
     // Oversized request — build data outside send() to avoid clone warning
@@ -109,8 +106,7 @@ fn test_request_too_large_returns_error() {
 #[test]
 fn test_connection_limit_error_variants() {
     let queue_full = ConnectionLimitError::QueueFull(1024);
-    let request_too_large =
-        ConnectionLimitError::RequestTooLarge(65536, 100_000);
+    let request_too_large = ConnectionLimitError::RequestTooLarge(65536, 100_000);
 
     let err_full_str = format!("{queue_full}");
     let err_large_str = format!("{request_too_large}");
