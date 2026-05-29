@@ -436,39 +436,45 @@ mod tests {
     }
 
     #[test]
-    fn test_command_policy_default_blocks_flushall() {
+    fn test_deny_all_policy_blocks_flushall() {
+        let p = CommandPolicy::deny_all();
         let cmd = cmd("FLUSHALL");
-        assert!(cmd.build().is_none());
+        assert!(cmd.build_with_policy(p).is_none());
     }
 
     #[test]
-    fn test_command_policy_default_blocks_flushdb() {
+    fn test_deny_all_policy_blocks_flushdb() {
+        let p = CommandPolicy::deny_all();
         let cmd = cmd("FLUSHDB");
-        assert!(cmd.build().is_none());
+        assert!(cmd.build_with_policy(p).is_none());
     }
 
     #[test]
-    fn test_command_policy_default_blocks_debug() {
+    fn test_deny_all_policy_blocks_debug() {
+        let p = CommandPolicy::deny_all();
         let cmd = cmd("DEBUG");
-        assert!(cmd.build().is_none());
+        assert!(cmd.build_with_policy(p).is_none());
     }
 
     #[test]
-    fn test_command_policy_default_blocks_shutdown() {
+    fn test_deny_all_policy_blocks_shutdown() {
+        let p = CommandPolicy::deny_all();
         let cmd = cmd("SHUTDOWN");
-        assert!(cmd.build().is_none());
+        assert!(cmd.build_with_policy(p).is_none());
     }
 
     #[test]
-    fn test_command_policy_default_blocks_config() {
+    fn test_deny_all_policy_blocks_config() {
+        let p = CommandPolicy::deny_all();
         let cmd = cmd("CONFIG");
-        assert!(cmd.build().is_none());
+        assert!(cmd.build_with_policy(p).is_none());
     }
 
     #[test]
-    fn test_command_policy_default_blocks_keys() {
+    fn test_deny_all_policy_blocks_keys() {
+        let p = CommandPolicy::deny_all();
         let cmd = cmd("KEYS");
-        assert!(cmd.build().is_none());
+        assert!(cmd.build_with_policy(p).is_none());
     }
 
     #[test]

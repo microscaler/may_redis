@@ -651,6 +651,54 @@ impl Connection {
         })
     }
 
+    /// Establish a TCP connection with configurable resource limits.
+    ///
+    /// FR-023: New constructor that accepts custom queue depth and request
+    /// size limits for Issue #7 (Unbounded Request Queue).
+    ///
+    /// # Arguments
+    /// * `host` — Server hostname or IP address
+    /// * `port` — Server port
+    /// * `timeout` — Maximum duration to wait for the connection
+    /// * `max_queue_depth` — Maximum pending requests (default: 1024)
+    /// * `max_request_size` — Maximum request size in bytes (default: 64 KiB)
+    ///
+    /// # Errors
+    /// Returns [`ConnectionError`] if DNS resolution or TCP connect fails.
+    ///
+    /// # Coroutine context
+    ///
+    /// MUST be called from inside a may coroutine context (see [`Self::connect`]).
+    pub fn connect_with_limits(
+        host: &str,
+        port: u16,
+        timeout: std::time::Duration,
+        max_queue_depth: usize,
+        max_request_size: usize,
+    ) -> Result<Self, ConnectionError> {
+        let stream = TcpConnector::connect_with_timeout(host, port, timeout)?;
+
+        let id = stream.as_raw_fd() as usize;
+        let waker = stream.waker();
+        let req_queue = Arc::new(Queue::new());
+
+        let pending_count = Arc::new(AtomicUsize::new(0));
+
+        let io_handle = spawn_connection_loop(stream, req_queue.clone(), pending_count.clone());
+
+        Ok(Self {
+            io_handle,
+            req_queue,
+            waker,
+            id,
+            tag_counter: Arc::new(AtomicUsize::new(0)),
+            max_queue_depth,
+            max_request_size,
+            pending_count,
+            ssrf_config: None,
+        })
+    }
+
     /// Returns the SSRF configuration for this connection, if SSRF protection
     /// is enabled.
     #[must_use = "returns the SSRF configuration if enabled"]
