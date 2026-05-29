@@ -258,7 +258,7 @@ fn release_pending(pending_count: &Arc<AtomicUsize>) {
 /// connection loop used to discard this `bool` and hardcode
 /// `read_blocked = false`, which caused every integration test to
 /// hang. Treat the return value as load-bearing.
-fn nonblock_read(stream: &mut std::net::TcpStream, read_buf: &mut BytesMut) -> io::Result<bool> {
+fn nonblock_read<R: io::Read>(stream: &mut R, read_buf: &mut BytesMut) -> io::Result<bool> {
     // SAFETY: `BytesMut::chunk_mut()` returns a `&mut [u8]` with capacity equal to
     // `remaining_capacity()`. The buffer is uninitialized but guaranteed to hold at
     // least `len` bytes. `stream.read()` writes up to `len` bytes into this space.
@@ -310,7 +310,7 @@ fn nonblock_read(stream: &mut std::net::TcpStream, read_buf: &mut BytesMut) -> i
 /// Returns the underlying [`io::Error`] for any non-`WouldBlock`
 /// failure. A write of 0 bytes is mapped to
 /// [`io::ErrorKind::BrokenPipe`] so the caller treats it as fatal.
-fn nonblock_write(stream: &mut std::net::TcpStream, write_buf: &mut BytesMut) -> io::Result<usize> {
+fn nonblock_write<W: io::Write>(stream: &mut W, write_buf: &mut BytesMut) -> io::Result<usize> {
     let buf = write_buf.chunk();
     let len = buf.len();
     let mut write_cnt = 0;

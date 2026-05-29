@@ -371,8 +371,22 @@ pub struct TlsStream {
 }
 
 impl TlsStream {
-    fn new(conn: rustls::ClientConnection, stream: may::net::TcpStream) -> Self {
+    pub fn new(conn: rustls::ClientConnection, stream: may::net::TcpStream) -> Self {
         Self { conn, stream }
+    }
+
+    /// Return a mutable reference to the underlying `TcpStream`.
+    ///
+    /// Used by the connection loop for `wait_io()` (epoll registration)
+    /// and for feeding raw socket reads/writes into the rustls state machine.
+    pub fn inner_mut(&mut self) -> &mut may::net::TcpStream {
+        &mut self.stream
+    }
+
+    /// Return the raw inner tcp stream.
+    #[must_use]
+    pub fn inner(&self) -> &may::net::TcpStream {
+        &self.stream
     }
 }
 

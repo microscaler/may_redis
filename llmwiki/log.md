@@ -181,3 +181,11 @@
 - Created `llmwiki/concepts/command-policy.md` — CommandPolicy enum, validation flow, default deny list, factory methods, requirements FR-029/FR-030/FR-031/FR-032, NFR-015 O(1) lookups
 - Updated `llmwiki/index.md` — added both pages under Concepts section, bumped total to 14
 - Implemented in Epic 13 Story 3, Issues #8 (SSRF) and #9 (Command Policy)
+
+## [2026-05-29] audit | Module breakdown decision
+- Completed comprehensive file-size audit of all 23 src/ files (10,885 lines total)
+- Updated Cargo.toml: too_many_lines clippy lint set to "warn"
+- Created llmwiki/topics/module-breakdown.md documenting the decision
+- Decision: split protocol/commands.rs (1,988 lines, 167 methods) into 8 domain sub-modules
+- Plan: extract all #[cfg(test)] blocks into separate _tests.rs files
+- Target: 23 files -> ~36, avg 605 lines -> 260 lines per production file

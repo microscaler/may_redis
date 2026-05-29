@@ -252,7 +252,7 @@ impl RedisClient {
     pub fn connect_url(url: &str) -> Result<Self, RedisError> {
         // Issue #18: Reject double prefixes (FR-019, AC-2.13, AC-2.14)
         let after_scheme = if let Some(rest) = url.strip_prefix("rediss://") {
-            // TLS not yet supported — but check for double prefix first
+            // TLS not yet supported
             if rest.starts_with("rediss://") {
                 return Err(RedisError::Parse(
                     "double URL scheme prefix (rediss://rediss://)".into(),
@@ -279,7 +279,6 @@ impl RedisClient {
             ));
         }
 
-        // Split authority from path (strip any leading /path, FR-020)
         let rest = after_scheme.split('/').next().unwrap_or(after_scheme);
 
         // Find the LAST '@' to split user:password from host:port.
@@ -297,7 +296,7 @@ impl RedisClient {
         // Issue #5: URL-decode the password (FR-016, AC-2.10, AC-2.12)
         let password: Option<String> = password.map(url_decode).transpose()?;
 
-        // Parse host:port — handle IPv6 `[::1]:6379` and IPv4 `127.0.0.1:6379`
+        // Parse host:port  handle IPv6 `[::1]:6379` and IPv4 `127.0.0.1:6379`
         let (host, port) = if host_part.starts_with('[') {
             // IPv6: [addr]:port
             if let Some(close_bracket) = host_part.find(']') {

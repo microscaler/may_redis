@@ -1,143 +1,60 @@
-# Epic 14 — TLS and mTLS Support
+# Epic 14 — TLS and mTLS Support (Revised — 4-deliverable stories)
 
 **Objective:** Add TLS encryption and mutual TLS authentication for Redis connections, feature-gated behind a `tls` Cargo feature.
 
-**Status:** NEW
+**Status:** In progress
 
-## Findings Inventory
-
-| # | Title | File(s) | Story |
-|---|-------|---------|-------|
-| 1 | No TLS support — `rediss://` returns error | `client.rs` | Story 1 |
-| 2 | Connection layer operates on raw TCP only | `connection/connection.rs`, `connection/tcp.rs` | Story 1 |
-| 3 | No certificate verification — no encryption at rest in transit | N/A | Story 1 |
-| 4 | No mTLS — client certificate authentication | N/A | Story 2 |
-| 5 | No URL-based TLS configuration | `client.rs` | Story 3 |
-| 6 | SSRF checks not applied to TLS connections | `connection/connection.rs` | Story 4 |
-| 7 | No TLS version configuration | N/A | Story 5 |
-| 8 | TLS handshake uses async-await pattern — incompatible with may runtime | N/A | Story 1 |
-
-## Dependency Order
+## Revised Dependency Order (4 deliverables per original story)
 
 ```mermaid
 flowchart LR
-    S1[Story 1: TLS Foundation<br/>TlsConfig, TlsConnector,<br/>polling handshake, connect_tls()] --> S2[Story 2: mTLS<br/>ClientCerts, PEM loading,<br/>with_client_auth_cert()]
-    S1 --> S3[Story 3: URL Parsing<br/>rediss://, query params,<br/>TlsConfig builder from URL]
-    S3 --> S4[Story 4: SSRF for TLS<br/>connect_tls_with_ssrf(),<br/>SSRF check before handshake]
-    S2 --> S5[Story 5: TLS Config<br/>min/max version,<br/>cipher suite, handshake timeout]
-    S4 --> S5
-    S5 --> V1[All stories: cargo test + clippy]
-    S2 --> V1
-    S3 --> V1
-    
     classDef story fill:#e8f4f8,stroke:#333,stroke-width:2px
-    class S1,S2,S3,S4,S5 story
+
+    s1a[14.1a: Cargo + types] --> s1b[14.1b: TlsConnector + handshake]
+    s1b --> s1c[14.1c: TlsStream + nonblock]
+    s1c --> s1d[14.1d: connect_tls wiring]
+
+    s2a[14.2a: ClientCerts from_der] --> s2b[14.2b: ClientCerts from_pem]
+    s2b --> s2c[14.2c: with_client_auth_cert]
+    s2c --> s2d[14.2d: Re-export + unit tests]
+
+    s1d --> s3a[14.3a: parse_tls_query_params]
+    s3a --> s3b[14.3b: build_tls_config]
+    s3b --> s3c[14.3c: connect_url rediss:// wiring]
+    s3c --> s3d[14.3d: URL unit tests]
+
+    s3c --> s4a[14.4a: Connection::connect_tls_with_ssrf]
+    s4a --> s4b[14.4b: from_tls_stream_with_ssrf]
+    s4b --> s4c[14.4c: RedisClient::connect_tls_with_ssrf]
+    s4c --> s4d[14.4d: ssrf=true URL param]
+
+    s3c --> s5a[14.5a: TlsVersion::from_str]
+    s5a --> s5b[14.5b: version bounds validation]
+    s5b --> s5c[14.5c: URL version params]
+    s5c --> s5d[14.5d: Version unit tests]
 ```
 
-**Story 1** has no dependencies — it introduces the TLS layer from scratch: `TlsConfig`, `TlsConnector`, polling handshake, `connect_tls()`.
+**Each deliverable is independently compilable and testable.** Every sub-story:
+1. Builds with `cargo build --features tls`
+2. Passes `cargo test --lib --features tls`
+3. Passes `cargo fmt --all --check`
+4. Passes `cargo clippy --lib --features tls --all-targets -- -D warnings`
 
-**Story 2** depends on Story 1 — mTLS builds on the TLS foundation: `ClientCerts`, PEM/DER loading, `with_client_auth_cert()`.
+## Original Story Mapping
 
-**Story 3** depends on Story 1 — URL parsing needs a working `connect_tls()`: `rediss://` parsing, query parameter handling, `TlsConfig` builder from URL.
+| Original | New Deliverables |
+|----------|-----------------|
+| 14.1 TLS Foundation | 14.1a, 14.1b, 14.1c, 14.1d |
+| 14.2 mTLS | 14.2a, 14.2b, 14.2c, 14.2d |
+| 14.3 URL Parsing | 14.3a, 14.3b, 14.3c, 14.3d |
+| 14.4 SSRF for TLS | 14.4a, 14.4b, 14.4c, 14.4d |
+| 14.5 TLS Config Options | 14.5a, 14.5b, 14.5c, 14.5d |
 
-**Story 4** depends on Story 3 — SSRF for TLS needs the TLS connection path: `connect_tls_with_ssrf()`, SSRF check before handshake.
+## Global Constraints
 
-**Story 5** depends on Stories 1 and 3 — config options span multiple layers: TLS version bounds, handshake timeout, protocol version validation.
-
-## Architecture
-
-```mermaid
-graph LR
-    subgraph Application
-        Client[RedisClient]
-    end
-    subgraph Connection
-        Protocol[CommandBuilder / Commands]
-        RESP[RESP Codec: reader + writer]
-    end
-    subgraph Transport
-        TLS[TlsConnector + TlsStream]
-        TCP[TcpConnector + TcpStream]
-    end
-    subgraph Network
-        Redis[(Redis Server)]
-    end
-
-    Client --> Protocol
-    Protocol --> RESP
-    RESP --> TLS
-    TLS --> TCP
-    TCP --> Redis
-
-    style TLS fill:#ff9,stroke:#333
-    style TCP fill:#ccf,stroke:#333
-```
-
-**Key decision:** TLS wraps the raw `may::net::TcpStream` *before* it enters the connection loop. The epoll loop does not change — `nonblock_read`/`nonblock_write` already handle `WouldBlock` correctly.
-
-```mermaid
-sequenceDiagram
-    participant App as Application Coroutine
-    participant Client as RedisClient
-    participant TCP as TcpConnector
-    participant TLS as TlsConnector
-    participant Loop as Connection Loop (epoll)
-    participant Redis as Redis Server
-
-    App->>Client: connect_tls(host, port, config)
-    Client->>TCP: connect(host, port)
-    TCP-->>Client: TcpStream (raw, non-blocking)
-    Client->>TLS: handshake(stream, config)
-    Note over TLS: Polling loop with yield_now()<br/>instead of .await
-    TLS->>Redis: ClientHello
-    Redis->>TLS: ServerHello + Certificate
-    TLS->>Redis: ClientKeyExchange + Finished
-    Redis->>TLS: Finished
-    TLS-->>Client: TlsStream (handshake complete)
-    Client->>Loop: spawn_connection_loop(tls_stream)
-    loop Each iteration
-        Loop->>Loop: nonblock_write(tls_stream)
-        Loop->>Redis: [TLS records]
-        Loop->>Redis: read
-        Redis->>Loop: [TLS records]
-        Loop->>Loop: nonblock_read(tls_stream)
-        Loop->>Loop: decode_responses
-    end
-```
-
-## Functional Requirements
-
-- **FR-001:** Add `tls` Cargo feature that pulls in `rustls` + `ring` (no system deps)
-- **FR-002:** `RedisClient::connect_tls()` establishes TCP → TLS handshake → spawns connection loop
-- **FR-003:** TLS handshake uses polling pattern with `may::coroutine::yield_now()` — no async-await
-- **FR-004:** `TlsStream` implements `Read`/`Write` so the existing `nonblock_read`/`nonblock_write` work unchanged
-- **FR-005:** `TlsStream::inner_mut()` returns the underlying `may::net::TcpStream` for `wait_io()` calls
-- **FR-006:** Default TLS minimum version is 1.2, maximum is 1.3
-- **FR-007:** Server certificate verification is enabled by default
-- **FR-008:** Handshake timeout defaults to 5 seconds
-- **FR-009:** `rediss://` URL scheme is recognized and parsed
-- **FR-010:** Query parameters in `rediss://` URLs configure TLS: `ca`, `client_cert`, `client_key`, `server_name`, `system_certs`, `verify`, `tls_min_version`, `tls_max_version`
-- **FR-011:** mTLS (`tls-auth-clients yes`) supported via `client_certs` in `TlsConfig`
-- **FR-012:** SSRF protection applies to TLS connections the same way it applies to plain TCP
-- **FR-013:** All `connect_*` methods continue to work for plain TCP (backward compatible)
-
-## Non-Functional Requirements
-
-- **NFR-001:** TLS is optional — `cargo build` without `--features tls` adds zero new dependencies
-- **NFR-002:** No blocking I/O — all TLS I/O cooperates with may via cooperative yielding
-- **NFR-003:** No new `unsafe` blocks introduced beyond what exists in the connection layer
-- **NFR-004:** Binary size impact with `tls` feature: ≤ 2 MB (rustls + ring)
-- **NFR-005:** TLS handshake latency: ≤ 200ms on well-connected network (1-2 RTTs)
-- **NFR-006:** Per-message TLS overhead: ≤ 30 bytes per record (header + AEAD tag)
-- **NFR-007:** `cargo clippy --all-features` passes at deny level
-- **NFR-008:** `cargo fmt --all --check` passes
-- **NFR-009:** `min_version` defaults to TLS 1.2; `max_version` defaults to TLS 1.3
-- **NFR-010:** `verify_server` defaults to `true`; disabling it returns a compile-time warning via `#[must_use]` pattern or docs
-
-## Source References
-
-- TLS/mTLS PRD: `docs/PRD_TLS_mTLS.md`
-- Connection loop pitfalls: `llmwiki/topics/connection-loop-pitfalls.md`
-- SSRF protection: `src/connection/tcp.rs` (`SsrfConfig`, `ssrf_allowed`)
-- URL parsing: `src/client/client.rs` (`connect_url`, `url_decode`)
-- Existing `ConnectionScheme` enum: `src/client/client.rs` line 57 (currently unused TLS variant)
+- Feature-gate all TLS code behind `#[cfg(feature = "tls")]`
+- Use `rustls` 0.23 with `ring` as crypto backend
+- No `.await`, no `tokio` — all I/O via may coroutines
+- Follow may_postgres connection loop patterns
+- RESP2 only, no RESP3
+- API surface mirrors `redis` crate

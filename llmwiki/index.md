@@ -1,7 +1,7 @@
 # Wiki Index
 
 > Content catalog. Every wiki page listed under its type with a one-line summary.
-> Last updated: 2026-06-01 | Total pages: 14
+> Last updated: 2026-05-29 | Total pages: 15
 
 ## Entities
 - [[may-redis]] — Coroutine-native Redis client built on may runtime, single crate
@@ -30,5 +30,6 @@
 - [[module-structure]] — Target modular workspace architecture: base → codec → protocol → connection → client → may-redis umbrella re-exports
 - [[sesame-idam-integration]] — Sesame-IDAM Redis usage: 11 canonical commands, 5 modules, command frequency analysis
 - [[code-review-2026-05-28]] — Full codebase expert review: APPROVE with conditions (2 must-fix: worker thread blocking, missing safety comments)
+- [[module-breakdown]] — Comprehensive audit of single-crate structure: 1,988-line Commands trait split into 8 domain sub-modules, test extraction pattern, target layout
 
 ## Queries
