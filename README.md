@@ -1,33 +1,45 @@
 # may-redis
 
-[![CI](https://github.com/microscaler/may_redis/actions/workflows/ci.yaml/badge.svg)](https://github.com/microscaler/may_redis/actions/workflows/ci.yaml)
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE-MIT)
-[![License: Apache-2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE-Apache)
-
 A coroutine-native Redis client built on the
 [`may`](https://crates.io/crates/may) stackful-coroutine runtime.
 
 **Zero tokio. Zero `async` / `.await`. Only `may` coroutines.**
 
-This crate exists so codebases that already run on `may` can talk to
-Redis without dragging a second runtime into the process. The public
-API surface deliberately mirrors the [`redis`](https://crates.io/crates/redis)
-crate so migration is mechanical: build a command, execute it, decode
-the typed result.
-
-> **Status: pre-1.0, internal use only.** Single-connection client,
-> `Pipeline`, and `InMemoryClient` (test backend) work end-to-end against a
-> real Redis. Pub/Sub, MULTI/EXEC, cluster/sentinel, TLS, and connection
-> pooling are explicitly out of scope for v1 — see
-> [`docs/architecture.md`](./docs/architecture.md) section 1.
-
 ---
+
+## Why may-redis
+
+Codebases that already run on `may` need Redis but don't want a second
+runtime. `may-redis` eliminates that trade-off — same runtime, same
+thread model, no `async` boilerplate, no `Pin`, no `BoxFuture`.
+
+The public API surface deliberately mirrors the
+[`redis`](https://crates.io/crates/redis) crate so migration is
+mechanical: build a command, execute it, decode the typed result.
+
+## What works
+
+- [`RedisClient`](./docs/architecture.md) — connect, execute commands, decode responses
+- [`Pipeline`](./docs/architecture.md) — batch multiple commands in one round-trip
+- [`InMemoryClient`](./docs/architecture.md) — test backend for unit and boundary tests
+- **30+ Redis commands** — `GET`, `SET`, `DEL`, `PING`, `EXISTS`, `TTL`, `EXPIRE`, `INCR`, `AUTH`, `PUBLISH`, `KEYS`, `DBSIZE`, `FLUSHDB`
+
+## What's next
+
+Pub/Sub, MULTI/EXEC, cluster/sentinel, TLS, and connection pooling are
+planned for later epics. Out of scope for v1.
+
+## Security
+
+- **SSRF protection** — blocks connections to private, link-local,
+  loopback, and reserved IP ranges after DNS resolution
+- **Command policy** — `AllowAll`, `DenyCommands`, `AllowCommands`
+  with O(1) `HashSet` lookups to block dangerous commands like
+  `CONFIG`, `FLUSHALL`, `SHUTDOWN`
 
 ## Quick start
 
-`may-redis` calls must happen inside a `may` coroutine. From a
-`main`, that means wrapping in `may::run(..)` and spawning a coroutine
-with `may::go(..)`:
+`may-redis` calls happen inside a `may` coroutine:
 
 ```rust
 use may_redis::{RedisClient, Commands};
@@ -35,8 +47,6 @@ use may_redis::{RedisClient, Commands};
 fn main() {
     may::run(|| {
         may::go(|| {
-            // Host + port, NOT a single "host:port" string. Use
-            // RedisClient::connect_url("redis://host:port") for the URL form.
             let client = RedisClient::connect("127.0.0.1", 6379)
                 .expect("Redis must be running on localhost:6379");
 
@@ -68,49 +78,15 @@ A complete API tour — `Commands` trait method-by-method, `Pipeline`
 tuple shapes, error handling, the runtime architecture diagram — lives
 in [`docs/architecture.md`](./docs/architecture.md).
 
----
-
-## Building and testing
-
-```bash
-cargo build                                            # build the crate
-cargo build --release                                  # release build
-
-cargo test                                             # unit tests only
-cargo test --features test -- --test-threads=1         # unit + integration
-                                                       # (needs Redis on
-                                                       #  127.0.0.1:6379)
-
-cargo fmt                                              # format
-cargo clippy --lib --tests --all-features              # lint
-cargo doc --no-deps --open                             # browse rustdoc
-```
-
-The integration tests (`client::client::tests::test_integration_*`) require
-a Redis server on `127.0.0.1:6379` and **must** run with
-`--test-threads=1` — they share Redis state and `FLUSHDB` between
-assertions. See [`docs/architecture.md`](./docs/architecture.md) section 9
-for the full testing-architecture rules.
-
----
-
 ## Where to read next
-
-For a full catalog of all docs, tests, architecture, and epics, see
-[`docs/INDEX.md`](./docs/INDEX.md).
 
 | Audience | Start here |
 |----------|------------|
-| Reading the codebase | [`docs/architecture.md`](./docs/architecture.md) |
+| Architecture & runtime diagram | [`docs/architecture.md`](./docs/architecture.md) |
+| All docs catalog | [`docs/INDEX.md`](./docs/INDEX.md) |
 | Contributing | [`CONTRIBUTING.md`](./CONTRIBUTING.md) |
-| Agent rule set (build/lint/test, modular targets, etc.) | [`AGENTS.md`](./AGENTS.md) |
-| Implementing a specific feature | [`docs/Epics/`](./docs/Epics/) — each epic has `Story_0.md` (overview) + `Story_1..N.md` (tasks) |
-| Understanding SSRF protection | [`llmwiki/concepts/ssrf-protection.md`](./llmwiki/concepts/ssrf-protection.md) |
-| Understanding command policy | [`llmwiki/concepts/command-policy.md`](./llmwiki/concepts/command-policy.md) |
-| Test strategy in depth | [`docs/10-test-strategy.md`](./docs/10-test-strategy.md) |
-
----
 
 ## License
 
-Dual-licensed under MIT or Apache-2.0, at your option. See `Cargo.toml`.
+Dual-licensed under MIT or Apache-2.0, at your option. See
+`Cargo.toml`.
