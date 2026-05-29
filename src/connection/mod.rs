@@ -58,6 +58,8 @@
 #[allow(clippy::module_inception)]
 pub mod connection;
 pub mod tcp;
+#[cfg(test)]
+mod test_limits;
 
 pub use connection::{Connection, ConnectionLimitError, Request};
 pub use tcp::{ssrf_allowed, ConnectionError, SsrfConfig, TcpConnector};
