@@ -379,6 +379,15 @@ impl RedisClient {
         cmd: CommandBuilder,
         timeout: Duration,
     ) -> Result<T, RedisError> {
+        // AC-3.15: validate against client's policy BEFORE building (FR-031)
+        if let Some(name) = cmd.command_name() {
+            if !self.inner.command_policy.is_allowed(name) {
+                return Err(RedisError::Security(format!(
+                    "command '{name}' is denied by policy"
+                )));
+            }
+        }
+
         // Step 1: Build the command into RESP bytes
         // AC-3.11: build() returns None if the command is blocked by the
         // CommandPolicy, so we return a Protocol error here.

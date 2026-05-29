@@ -93,6 +93,7 @@ impl CommandPolicy {
     }
 
     /// Check if a command is allowed by this policy.
+    #[must_use]
     pub fn is_allowed(&self, cmd: &str) -> bool {
         let cmd_upper = cmd.to_ascii_uppercase();
         match self {
