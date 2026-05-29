@@ -27,19 +27,29 @@
 //! ## Usage
 //!
 //! ```ignore
-//! use crate::connection::{Connection, Request};
+//! use may_redis::connection::{Connection, Request, SsrfConfig, ssrf_allowed};
 //! use may::sync::spsc;
 //!
+//! // SSRF-safe connection
+//! let ssrf = SsrfConfig {
+//!     deny_private: true,
+//!     deny_link_local: true,
+//!     deny_loopback: true,
+//! };
 //! may::run(|| {
 //!     may::go(|| {
-//!         let conn = Connection::connect("127.0.0.1", 6379).unwrap();
+//!         let conn = Connection::connect_with_ssrf_protection(
+//!             "localhost", 6379,
+//!             std::time::Duration::from_secs(5),
+//!             ssrf,
+//!         ).unwrap();
 //!         let (tx, rx) = spsc::channel();
 //!         let request = Request::new(
 //!             vec![b'*1\r\n$4\r\nPING\r\n'],
 //!             tx,
 //!         );
 //!         conn.send(request);
-//!         let response: RedisValue = rx.recv().unwrap();
+//!         let response: may_redis::RedisValue = rx.recv().unwrap();
 //!         println!("{response:?}");
 //!     }).join();
 //! });
@@ -50,4 +60,4 @@ pub mod connection;
 pub mod tcp;
 
 pub use connection::{Connection, ConnectionLimitError, Request};
-pub use tcp::{ConnectionError, SsrfConfig, TcpConnector};
+pub use tcp::{ssrf_allowed, ConnectionError, SsrfConfig, TcpConnector};

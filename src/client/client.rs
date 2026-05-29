@@ -2,14 +2,13 @@
 //
 // Provides the main user-facing API for connecting to Redis and executing commands.
 
+use crate::connection::{Connection, Request};
 use crate::core::{FromRedisValue, RedisError, RedisValue, ToRedisArgs};
 use crate::protocol::{builder::CommandBuilder, commands::Commands};
 use may::sync::spsc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
-
-use crate::connection::{Connection, Request};
 
 use super::pipeline::Pipeline;
 
@@ -128,6 +127,8 @@ struct InnerClient {
     connection: Connection,
     /// Default timeout for `execute()` — overrides hardcoded 30s.
     default_timeout: Duration,
+    /// Command policy enforced on every `execute()` call (Story 3, Issue #9, FR-031).
+    command_policy: crate::protocol::builder::CommandPolicy,
 }
 
 // ---------------------------------------------------------------------------
@@ -179,8 +180,47 @@ impl RedisClient {
             inner: Arc::new(InnerClient {
                 connection,
                 default_timeout: timeout,
+                command_policy: crate::protocol::builder::CommandPolicy::AllowAll,
             }),
         })
+    }
+
+    /// Connect to a Redis server with SSRF protection enabled.
+    ///
+    /// FR-027: Enables SSRF checks on DNS resolution.
+    ///
+    /// # Arguments
+    /// * `host` - Server hostname or IP address
+    /// * `port` - Server port
+    /// * `timeout` - Default timeout for all `execute()` calls
+    /// * `ssrf_config` - Configuration for which IP ranges to block
+    /// * `command_policy` - Policy for which Redis commands are allowed
+    ///
+    /// # Errors
+    /// Returns [`ConnectionError`] if DNS resolution, TCP connect, or SSRF
+    /// check fails, or the connection layer error type if TCP fails.
+    pub fn connect_with_ssrf_protection(
+        host: &str,
+        port: u16,
+        timeout: Duration,
+        ssrf_config: crate::connection::SsrfConfig,
+        command_policy: crate::protocol::builder::CommandPolicy,
+    ) -> Result<Self, crate::connection::ConnectionError> {
+        let connection =
+            Connection::connect_with_ssrf_protection(host, port, timeout, ssrf_config)?;
+        Ok(Self {
+            inner: Arc::new(InnerClient {
+                connection,
+                default_timeout: timeout,
+                command_policy,
+            }),
+        })
+    }
+
+    /// Returns the current command policy enforced by this client.
+    #[must_use]
+    pub fn command_policy(&self) -> &crate::protocol::builder::CommandPolicy {
+        &self.inner.command_policy
     }
 
     /// Connect to a Redis server given a URL.
@@ -324,13 +364,15 @@ impl RedisClient {
     /// (Finding #2). No more than one sleeping coroutine exists per request.
     ///
     /// # Errors
-    /// Returns [`RedisError::Connection`] if the TCP connection fails, the
+    /// Returns [`ConnectionError`] if the TCP connection fails, the
     /// response channel is closed, or the timeout expires before a response
     /// is received.
     /// # Panics
     ///
-    /// Panics if the command is blocked by the default [`CommandPolicy`].
+    /// Panics if the command is blocked by the [`command_policy`].
     /// Blocked commands should be caught at build time, not at execution time.
+    ///
+    /// [`command_policy`]: Self::command_policy
     #[allow(clippy::unwrap_used)]
     pub fn execute_with_timeout<T: FromRedisValue>(
         &self,
@@ -381,10 +423,7 @@ impl RedisClient {
         }
 
         // Step 6: Send the request to the connection loop
-        let _tag = self
-            .inner
-            .connection
-            .send(Request::new(data.unwrap().to_vec(), tx));
+        let _tag = self.inner.connection.send(Request::new(data.to_vec(), tx));
 
         // Step 7: Poll loop — wait for response or timeout signal
         let response = loop {

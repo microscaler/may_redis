@@ -26,7 +26,7 @@ pub mod protocol;
 pub use client::client::RedisClient;
 pub use client::pipeline::{FromPipelineResponse, Pipeline};
 pub use core::{FromRedisValue, RedisError, RedisValue, ToRedisArgs};
-pub use protocol::builder::{cmd, CommandBuilder};
+pub use protocol::builder::{cmd, CommandBuilder, CommandPolicy};
 pub use protocol::commands::Commands;
 
 #[cfg(feature = "test")]

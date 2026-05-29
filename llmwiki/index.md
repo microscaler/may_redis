@@ -1,13 +1,16 @@
 # Wiki Index
 
 > Content catalog. Every wiki page listed under its type with a one-line summary.
-> Last updated: 2026-05-28 | Total pages: 12
+> Last updated: 2026-06-01 | Total pages: 14
 
 ## Entities
 - [[may-redis]] — Coroutine-native Redis client built on may runtime, single crate
 - [[sesame-idam]] — Microscaler IDAM platform, 9 microservices using Redis for auth
 
 ## Concepts
+- [[command-policy]] — Enum-based command-level access control: AllowAll, DenyCommands, AllowCommands with HashSet O(1) lookups
+- [[jsf-compliance]] — JSF-AV rule compliance: AV1, AV3, AV206, AV208, AV119, AV148/209 enforced via clippy
+- [[ssrf-protection]] — SSRF prevention: blocks connections to private, link-local, loopback, reserved IPs after DNS resolution
 
 ## Comparisons
 

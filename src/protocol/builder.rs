@@ -3,60 +3,103 @@
 use crate::codec::writer::RESPWriter;
 use crate::core::{RedisValue, ToRedisArgs};
 use bytes::BytesMut;
+use std::collections::HashSet;
 
 /// Policy for controlling which Redis commands are allowed.
 ///
-/// Used by the `CommandBuilder` to validate commands before building them
-/// into RESP format. Prevents potentially dangerous commands from being
-/// executed (e.g. `FLUSHALL`, `KEYS`, `DEBUG`).
-///
 /// AC-3.11: Commands are validated at build time, not at execution time.
-/// If a command is blocked, [`build`] returns `None` and no data is
-/// sent to the connection loop.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub struct CommandPolicy {
-    /// Allow dangerous write commands (FLUSHALL, FLUSHDB, DEBUG, SHUTDOWN).
-    /// When `false` (default), these commands are blocked.
-    pub allow_dangerous_writes: bool,
-    /// Allow scan-heavy commands (KEYS, RANDOMKEY).
-    /// When `false` (default), these commands are blocked.
-    pub allow_scan_heavy: bool,
+/// If a command is blocked, [`build`](CommandBuilder::build) returns
+/// `None` and no data is sent to the connection loop.
+///
+/// AC-3.12: `AllowAll` is the default and allows every command (backward
+/// compatible). Security-conscious callers should use `DenyCommands`
+/// to block dangerous commands like FLUSHALL, CONFIG, DEBUG, SHUTDOWN, etc.
+///
+/// AC-3.14: `AllowCommands` provides a whitelist mode — only the specified
+/// commands pass validation.
+///
+/// NFR-015: All three variants use `HashSet` for O(1) command lookups.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub enum CommandPolicy {
+    /// Allow all commands (no restrictions).
+    ///
+    /// Default for backward compatibility (AC-3.12). Documented as a
+    /// security concern — callers should prefer `DenyCommands`.
+    #[default]
+    AllowAll,
+
+    /// Deny the listed commands; allow everything else.
+    DenyCommands(HashSet<String>),
+
+    /// Allow only the listed commands; deny everything else.
+    AllowCommands(HashSet<String>),
 }
 
-impl CommandPolicy {
-    /// Default policy: block all dangerous and scan-heavy commands.
-    pub const DEFAULT: Self = Self {
-        allow_dangerous_writes: false,
-        allow_scan_heavy: false,
-    };
+/// Default set of dangerous commands denied by `deny_all()`.
+///
+/// FLUSHALL, FLUSHDB, CONFIG, DEBUG, SLAVEOF, REPLICAOF, SHUTDOWN,
+/// KEYS, BGSAVE, BGREWRITEAOF.
+const DEFAULT_DENY_SET: &[&str] = &[
+    "FLUSHALL",
+    "FLUSHDB",
+    "CONFIG",
+    "DEBUG",
+    "SLAVEOF",
+    "REPLICAOF",
+    "SHUTDOWN",
+    "KEYS",
+    "BGSAVE",
+    "BGREWRITEAOF",
+];
 
-    /// Allow all commands (no restrictions).
-    pub const PERMISSIVE: Self = Self {
-        allow_dangerous_writes: true,
-        allow_scan_heavy: true,
-    };
+/// Lazily-initialized HashSet for the default deny list.
+static DEFAULT_DENY_HASHSET: std::sync::LazyLock<std::collections::HashSet<String>> =
+    std::sync::LazyLock::new(|| {
+        DEFAULT_DENY_SET
+            .iter()
+            .map(|s| s.to_ascii_uppercase())
+            .collect()
+    });
+
+impl CommandPolicy {
+    /// Permissive policy: allow all commands.
+    pub const PERMISSIVE: Self = Self::AllowAll;
+
+    /// Strict policy: deny all dangerous commands (AC-3.13).
+    ///
+    /// Blocks: FLUSHALL, FLUSHDB, CONFIG, DEBUG, SLAVEOF, REPLICAOF,
+    /// SHUTDOWN, KEYS, BGSAVE, BGREWRITEAOF.
+    #[must_use]
+    pub fn deny_all() -> Self {
+        Self::DenyCommands((*DEFAULT_DENY_HASHSET).clone())
+    }
+
+    /// Create a deny policy from a slice of command names.
+    ///
+    /// Command names are stored in uppercase for case-insensitive matching.
+    #[must_use]
+    pub fn deny_set(cmds: &[&str]) -> Self {
+        let set = cmds.iter().map(|s| s.to_ascii_uppercase()).collect();
+        Self::DenyCommands(set)
+    }
+
+    /// Create a whitelist (allow) policy from a list of command names.
+    ///
+    /// Command names are stored in uppercase for case-insensitive matching.
+    #[must_use]
+    pub fn allow_set(cmds: &[&str]) -> Self {
+        let set = cmds.iter().map(|s| s.to_ascii_uppercase()).collect();
+        Self::AllowCommands(set)
+    }
 
     /// Check if a command is allowed by this policy.
     pub fn is_allowed(&self, cmd: &str) -> bool {
         let cmd_upper = cmd.to_ascii_uppercase();
-
-        // Dangerous write commands
-        if !self.allow_dangerous_writes {
-            match cmd_upper.as_str() {
-                "FLUSHALL" | "FLUSHDB" | "DEBUG" | "SHUTDOWN" | "CONFIG" => return false,
-                _ => {}
-            }
+        match self {
+            Self::AllowAll => true,
+            Self::DenyCommands(denied) => !denied.contains(&cmd_upper),
+            Self::AllowCommands(allowed) => allowed.contains(&cmd_upper),
         }
-
-        // Scan-heavy commands
-        if !self.allow_scan_heavy {
-            match cmd_upper.as_str() {
-                "KEYS" | "RANDOMKEY" | "SCAN" | "SSCAN" | "HSCAN" | "ZSCAN" => return false,
-                _ => {}
-            }
-        }
-
-        true
     }
 }
 
@@ -75,13 +118,13 @@ impl CommandBuilder {
     /// Create a new `CommandBuilder` with the given command name.
     ///
     /// The command name is converted to a `BulkString` `RedisValue`.
-    /// Uses the default [`CommandPolicy`].
+    /// Uses the default [`CommandPolicy::AllowAll`].
     #[must_use]
     pub fn new(cmd: &str) -> Self {
         Self {
             args: vec![RedisValue::BulkString(cmd.as_bytes().to_vec())],
             buf: Vec::new(),
-            policy: CommandPolicy::DEFAULT,
+            policy: CommandPolicy::default(),
         }
     }
 
@@ -120,6 +163,41 @@ impl CommandBuilder {
             self.args.push(RedisValue::BulkString(item));
         }
         self
+    }
+
+    /// Returns the command name as a UTF-8 string.
+    ///
+    /// FR-032: Accessor for policy checks. Returns `None` if the
+    /// command name is not valid UTF-8.
+    #[must_use]
+    pub fn command_name(&self) -> Option<&str> {
+        if let RedisValue::BulkString(data) = self.args.first()? {
+            std::str::from_utf8(data).ok()
+        } else {
+            None
+        }
+    }
+
+    /// Validate this command against a [`CommandPolicy`].
+    ///
+    /// FR-030: Returns `Ok(())` if the command is allowed by the policy,
+    /// `Err(RedisError::Security)` if it is denied.
+    ///
+    /// AC-3.11: Policy checking happens here, before the command is
+    /// encoded or sent to the connection loop.
+    ///
+    /// # Errors
+    /// Returns [`RedisError::Security`] if the command is blocked
+    /// by the given policy.
+    pub fn validate_policy(&self, policy: &CommandPolicy) -> Result<(), crate::core::RedisError> {
+        if let Some(name) = self.command_name() {
+            if !policy.is_allowed(name) {
+                return Err(crate::core::RedisError::Security(format!(
+                    "command '{name}' is denied by policy"
+                )));
+            }
+        }
+        Ok(())
     }
 
     /// Encode the command into RESP2 wire format using the builder's
@@ -269,7 +347,93 @@ mod tests {
         assert_eq!(buf.unwrap().as_ref(), b"*2\r\n$4\r\nINCR\r\n$2\r\n42\r\n");
     }
 
-    // ======================== Issue #9 tests ========================
+    // ======================== command_name() accessor ========================
+
+    #[test]
+    fn test_command_name_simple() {
+        assert_eq!(cmd("SET").command_name(), Some("SET"));
+        assert_eq!(cmd("GET").command_name(), Some("GET"));
+    }
+
+    #[test]
+    fn test_command_name_case_preserved() {
+        assert_eq!(cmd("flushall").command_name(), Some("flushall"));
+    }
+
+    // ======================== Issue #9: CommandPolicy enum ========================
+
+    #[test]
+    fn test_policy_allow_all() {
+        let p = CommandPolicy::AllowAll;
+        assert!(p.is_allowed("FLUSHALL"));
+        assert!(p.is_allowed("SET"));
+        assert!(p.is_allowed("KEYS"));
+    }
+
+    #[test]
+    fn test_policy_deny_all_blocks_dangerous() {
+        // deny_all() blocks: FLUSHALL, FLUSHDB, CONFIG, DEBUG, SLAVEOF, REPLICAOF,
+        // SHUTDOWN, KEYS, BGSAVE, BGREWRITEAOF
+        let p = CommandPolicy::deny_all();
+        assert!(!p.is_allowed("FLUSHALL"));
+        assert!(!p.is_allowed("FLUSHDB"));
+        assert!(!p.is_allowed("CONFIG"));
+        assert!(!p.is_allowed("DEBUG"));
+        assert!(!p.is_allowed("SLAVEOF"));
+        assert!(!p.is_allowed("REPLICAOF"));
+        assert!(!p.is_allowed("SHUTDOWN"));
+        assert!(!p.is_allowed("KEYS"));
+        assert!(!p.is_allowed("BGSAVE"));
+        assert!(!p.is_allowed("BGREWRITEAOF"));
+    }
+
+    #[test]
+    fn test_command_policy_deny_all_allows_safe() {
+        let p = CommandPolicy::deny_all();
+        assert!(p.is_allowed("GET"));
+        assert!(p.is_allowed("SET"));
+        assert!(p.is_allowed("DEL"));
+        assert!(p.is_allowed("PING"));
+    }
+
+    #[test]
+    fn test_policy_allow_set_whitelist() {
+        let p = CommandPolicy::allow_set(&["GET", "SET", "DEL"]);
+        assert!(p.is_allowed("GET"));
+        assert!(p.is_allowed("SET"));
+        assert!(p.is_allowed("DEL"));
+        assert!(!p.is_allowed("FLUSHALL"));
+        assert!(!p.is_allowed("KEYS"));
+    }
+
+    #[test]
+    fn test_policy_case_insensitive() {
+        let p = CommandPolicy::deny_set(&["FLUSHALL"]);
+        assert!(!p.is_allowed("FLUSHALL"));
+        assert!(!p.is_allowed("flushall"));
+        assert!(!p.is_allowed("FlushAll"));
+    }
+
+    #[test]
+    fn test_policy_default_is_allow_all() {
+        let p = CommandPolicy::default();
+        assert!(matches!(p, CommandPolicy::AllowAll));
+        assert!(p.is_allowed("ANYTHING"));
+    }
+
+    #[test]
+    fn test_policy_deny_set_from_slice() {
+        let p = CommandPolicy::deny_set(&["MYCUSTOM"]);
+        assert!(!p.is_allowed("MYCUSTOM"));
+        assert!(p.is_allowed("SET"));
+    }
+
+    #[test]
+    fn test_policy_permissive_alias() {
+        let p = CommandPolicy::PERMISSIVE;
+        assert!(matches!(p, CommandPolicy::AllowAll));
+        assert!(p.is_allowed("FLUSHALL"));
+    }
 
     #[test]
     fn test_command_policy_default_blocks_flushall() {
@@ -308,16 +472,17 @@ mod tests {
     }
 
     #[test]
-    fn test_command_policy_default_blocks_scan_commands() {
-        assert!(cmd("RANDOMKEY").build().is_none());
-        assert!(cmd("SCAN").build().is_none());
-        assert!(cmd("SSCAN").build().is_none());
-        assert!(cmd("HSCAN").build().is_none());
-        assert!(cmd("ZSCAN").build().is_none());
+    fn test_command_policy_deny_all_blocks_scan_commands() {
+        // KEYS is in the default deny list (AC-3.13); SCAN-style commands
+        // (RANDOMKEY, SCAN, SSCAN, HSCAN, ZSCAN) were blocked by the old
+        // allow_scan_heavy flag but are NOT in AC-3.13's required deny set.
+        let p = CommandPolicy::deny_all();
+        assert!(!p.is_allowed("KEYS"));
     }
 
     #[test]
     fn test_command_policy_default_allows_safe_commands() {
+        // Default is AllowAll — all safe commands pass
         assert!(cmd("GET").build().is_some());
         assert!(cmd("SET").build().is_some());
         assert!(cmd("DEL").build().is_some());
@@ -339,27 +504,54 @@ mod tests {
 
     #[test]
     fn test_command_policy_case_insensitive() {
-        assert!(cmd("flushall").build().is_none());
-        assert!(cmd("FlushAll").build().is_none());
-        assert!(cmd("FLUSHALL").build().is_none());
+        let builder = cmd("flushall").build_with_policy(CommandPolicy::deny_all());
+        assert!(builder.is_none());
+        let builder = cmd("FlushAll").build_with_policy(CommandPolicy::deny_all());
+        assert!(builder.is_none());
+        let builder = cmd("FLUSHALL").build_with_policy(CommandPolicy::deny_all());
+        assert!(builder.is_none());
+    }
+
+    // ======================== validate_policy() ========================
+
+    #[test]
+    fn test_validate_policy_allows_safe() {
+        let builder = cmd("GET");
+        assert!(builder.validate_policy(&CommandPolicy::deny_all()).is_ok());
     }
 
     #[test]
-    fn test_command_policy_partial_allow_dangerous() {
-        let mut p = CommandPolicy::DEFAULT;
-        p.allow_dangerous_writes = true;
-        let result = cmd("FLUSHALL").build_with_policy(p);
-        assert!(result.is_some());
-        // But scan-heavy should still be blocked
-        assert!(cmd("KEYS").build_with_policy(p).is_none());
+    fn test_validate_policy_denies_dangerous() {
+        let builder = cmd("FLUSHALL");
+        assert!(builder.validate_policy(&CommandPolicy::deny_all()).is_err());
     }
 
     #[test]
-    fn test_command_policy_partial_allow_scan_heavy() {
-        let mut p = CommandPolicy::DEFAULT;
-        p.allow_scan_heavy = true;
-        assert!(cmd("KEYS").build_with_policy(p).is_some());
-        // But dangerous writes should still be blocked
-        assert!(cmd("FLUSHALL").build_with_policy(p).is_none());
+    fn test_validate_policy_allows_all_passes() {
+        let builder = cmd("FLUSHALL");
+        assert!(builder.validate_policy(&CommandPolicy::AllowAll).is_ok());
+    }
+
+    #[test]
+    fn test_validate_policy_error_message() {
+        let builder = cmd("CONFIG");
+        let err = builder
+            .validate_policy(&CommandPolicy::deny_all())
+            .unwrap_err();
+        assert!(format!("{err}").contains("CONFIG"));
+    }
+
+    #[test]
+    fn test_validate_policy_whitelist_blocks_unlisted() {
+        let builder = cmd("KEYS");
+        let whitelist = CommandPolicy::allow_set(&["GET", "SET"]);
+        assert!(builder.validate_policy(&whitelist).is_err());
+    }
+
+    #[test]
+    fn test_validate_policy_whitelist_allows_listed() {
+        let builder = cmd("GET");
+        let whitelist = CommandPolicy::allow_set(&["GET", "SET"]);
+        assert!(builder.validate_policy(&whitelist).is_ok());
     }
 }

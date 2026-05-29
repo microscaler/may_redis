@@ -55,7 +55,7 @@ use std::os::fd::AsRawFd;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
-use super::tcp::{ConnectionError, TcpConnector};
+use super::tcp::{self, ConnectionError, TcpConnector};
 use crate::codec::reader::RESPReader;
 use crate::core::{RedisError, RedisValue};
 
@@ -142,6 +142,9 @@ pub struct Connection {
     max_request_size: usize,
     /// Current pending request count (for O(1) bounded queue check, NFR-012).
     pending_count: Arc<AtomicUsize>,
+    /// SSRF configuration — if Some, resolved IPs are checked against deny-lists.
+    /// Story 3, Issue #8: SSRF protection for DNS-resolved connections.
+    ssrf_config: Option<tcp::SsrfConfig>,
 }
 
 /// Connection errors for resource limit violations (Story 3, Issue #7).
@@ -156,10 +159,10 @@ pub enum ConnectionLimitError {
 impl std::fmt::Display for ConnectionLimitError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ConnectionLimitError::QueueFull(max) => {
+            Self::QueueFull(max) => {
                 write!(f, "request queue is full (max {max} pending requests)")
             }
-            ConnectionLimitError::RequestTooLarge(max, got) => {
+            Self::RequestTooLarge(max, got) => {
                 write!(f, "request too large (max {max} bytes, got {got})")
             }
         }
@@ -593,7 +596,66 @@ impl Connection {
             max_queue_depth: DEFAULT_MAX_QUEUE_DEPTH,
             max_request_size: DEFAULT_MAX_REQUEST_SIZE,
             pending_count,
+            ssrf_config: None,
         })
+    }
+
+    /// Establish a TCP connection with SSRF protection enabled.
+    ///
+    /// After DNS resolution, every resolved IP is checked against the
+    /// deny-list in `ssrf_config`. If ANY resolved address matches,
+    /// connection is refused.
+    ///
+    /// FR-027: New constructor that enables SSRF checks.
+    /// AC-3.9: This constructor enables SSRF protection by default.
+    ///
+    /// # Arguments
+    /// * `host` — Server hostname or IP address
+    /// * `port` — Server port
+    /// * `timeout` — Maximum duration to wait for the connection
+    /// * `ssrf_config` — Configuration for which IP ranges to block
+    ///
+    /// # Errors
+    /// Returns [`ConnectionError::SsrfViolation`] if any resolved address
+    /// is in a deny-listed range, otherwise same as [`Self::connect`].
+    ///
+    /// # Coroutine context
+    ///
+    /// MUST be called from inside a may coroutine context (see [`Self::connect`]).
+    pub fn connect_with_ssrf_protection(
+        host: &str,
+        port: u16,
+        timeout: std::time::Duration,
+        ssrf_config: tcp::SsrfConfig,
+    ) -> Result<Self, ConnectionError> {
+        let stream = TcpConnector::connect_with_ssrf_check(host, port, timeout, ssrf_config)?;
+
+        let id = stream.as_raw_fd() as usize;
+        let waker = stream.waker();
+        let req_queue = Arc::new(Queue::new());
+
+        let pending_count = Arc::new(AtomicUsize::new(0));
+
+        let io_handle = spawn_connection_loop(stream, req_queue.clone(), pending_count.clone());
+
+        Ok(Self {
+            io_handle,
+            req_queue,
+            waker,
+            id,
+            tag_counter: Arc::new(AtomicUsize::new(0)),
+            max_queue_depth: DEFAULT_MAX_QUEUE_DEPTH,
+            max_request_size: DEFAULT_MAX_REQUEST_SIZE,
+            pending_count,
+            ssrf_config: Some(ssrf_config),
+        })
+    }
+
+    /// Returns the SSRF configuration for this connection, if SSRF protection
+    /// is enabled.
+    #[must_use = "returns the SSRF configuration if enabled"]
+    pub const fn ssrf_config(&self) -> Option<&tcp::SsrfConfig> {
+        self.ssrf_config.as_ref()
     }
 
     /// Enqueue `request` for the connection loop.
@@ -621,7 +683,15 @@ impl Connection {
     /// to be written or for the response to come back. The caller is
     /// expected to keep the matching `may::sync::spsc::Receiver` and
     /// call `recv()` on it to obtain the [`RedisValue`] response.
-    #[must_use]
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ConnectionLimitError::QueueFull`] if the pending request
+    /// queue has reached its maximum depth.
+    ///
+    /// Returns [`ConnectionLimitError::RequestTooLarge`] if the request
+    /// data exceeds the configured maximum size.
+    #[must_use = "returns the tag assigned to the enqueued request"]
     pub fn send(&self, request: Request) -> Result<usize, ConnectionLimitError> {
         // Story 3, Issue #7: enforce resource limits before sending (AC-3.1–AC-3.4)
         if self.pending_count.load(Ordering::SeqCst) >= self.max_queue_depth {

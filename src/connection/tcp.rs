@@ -77,16 +77,33 @@ impl Default for SsrfConfig {
     }
 }
 
+/// Check if a resolved [`SocketAddr`] is allowed by the given [`SsrfConfig`].
+///
+/// FR-025: Standalone SSRF guard function. Returns `true` if the address is
+/// NOT in any deny-listed range, `false` if it is blocked.
+///
+/// This is the O(1) check required by NFR-013 — just bitwise range comparisons,
+/// no iteration over lists.
+///
+/// AC-3.5 through AC-3.10: Covers RFC 1918 private, link-local, loopback,
+/// IPv6 loopback, and reserved/reserved ranges (0.0.0.0/8, 100.64.0.0/10,
+/// multicast, 240.0.0.0/4).
+#[must_use]
+pub fn ssrf_allowed(addr: &SocketAddr, config: &SsrfConfig) -> bool {
+    !config.is_blocked(addr)
+}
+
 impl SsrfConfig {
     /// Check if an address is blocked by this config.
-    fn is_blocked(&self, addr: &SocketAddr) -> bool {
+    fn is_blocked(self, addr: &SocketAddr) -> bool {
         match addr {
             SocketAddr::V4(v4) => self.is_blocked_v4(*v4.ip()),
             SocketAddr::V6(v6) => self.is_blocked_v6(v6.ip()),
         }
     }
 
-    fn is_blocked_v4(&self, addr: std::net::Ipv4Addr) -> bool {
+    #[allow(clippy::missing_const_for_fn)]
+    fn is_blocked_v4(self, addr: std::net::Ipv4Addr) -> bool {
         if !self.deny_private && !self.deny_link_local && !self.deny_loopback {
             return false;
         }
@@ -107,16 +124,12 @@ impl SsrfConfig {
             }
         }
         // Link-local (cloud metadata)
-        if self.deny_link_local {
-            if first == 169 && second == 254 {
-                return true;
-            }
+        if self.deny_link_local && first == 169 && second == 254 {
+            return true;
         }
         // Loopback
-        if self.deny_loopback {
-            if first == 127 {
-                return true;
-            }
+        if self.deny_loopback && first == 127 {
+            return true;
         }
         // Always block: 0.0.0.0/8, 100.64.0.0/10, multicast, reserved
         if first == 0 {
@@ -125,7 +138,7 @@ impl SsrfConfig {
         if first == 100 && (64..=127).contains(&second) {
             return true;
         }
-        if first >= 224 && first <= 239 {
+        if (224..=239).contains(&first) {
             return true;
         }
         if first >= 240 {
@@ -134,7 +147,8 @@ impl SsrfConfig {
         false
     }
 
-    fn is_blocked_v6(&self, addr: &std::net::Ipv6Addr) -> bool {
+    #[allow(clippy::missing_const_for_fn)]
+    fn is_blocked_v6(self, addr: &std::net::Ipv6Addr) -> bool {
         if !self.deny_loopback && !self.deny_link_local && !self.deny_private {
             // Always block multicast and unspecified regardless of config
             return addr.is_multicast() || addr.is_unspecified();

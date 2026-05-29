@@ -72,6 +72,7 @@ impl<'a> Pipeline<'a> {
     ///
     /// Panics if the command is blocked by the default [`CommandPolicy`].
     /// This is by design: blocked commands should be caught at build time.
+    #[allow(clippy::unwrap_used)]
     pub fn add(&mut self, cmd: CommandBuilder) {
         // Encode the command into RESP bytes
         // AC-3.11: build() returns None if the command is blocked by the CommandPolicy.

@@ -175,3 +175,9 @@
 - AV206 (No Heap After Init): PARTIAL — hot path pre-allocated buffers, error formatting uses format!() (bounded, rare)
 - AV208 (No Panics): PASS — zero panic-inducing calls in production dispatch
 - 297 tests pass, clippy clean across lib+tests+all features
+
+## [2026-06-01] create | SSRF Protection and Command Policy documentation
+- Created `llmwiki/concepts/ssrf-protection.md` — SSRF guard architecture, deny-listed IP ranges, SsrfConfig, requirements FR-025/FR-027/FR-028, NFR-013 O(1) lookups
+- Created `llmwiki/concepts/command-policy.md` — CommandPolicy enum, validation flow, default deny list, factory methods, requirements FR-029/FR-030/FR-031/FR-032, NFR-015 O(1) lookups
+- Updated `llmwiki/index.md` — added both pages under Concepts section, bumped total to 14
+- Implemented in Epic 13 Story 3, Issues #8 (SSRF) and #9 (Command Policy)

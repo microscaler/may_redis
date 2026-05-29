@@ -19,6 +19,8 @@ pub enum RedisError {
     Protocol(String),
     /// A parse error (e.g. invalid UTF-8, conversion failure).
     Parse(String),
+    /// A security policy violation (e.g. command denied by `CommandPolicy`).
+    Security(String),
     /// A generic error that does not fit the above categories.
     Other(String),
 }
@@ -29,6 +31,7 @@ impl fmt::Display for RedisError {
             Self::Connection(msg) => write!(f, "connection: {msg}"),
             Self::Protocol(msg) => write!(f, "protocol: {msg}"),
             Self::Parse(msg) => write!(f, "parse: {msg}"),
+            Self::Security(msg) => write!(f, "security: {msg}"),
             Self::Other(msg) => write!(f, "error: {msg}"),
         }
     }
