@@ -7,86 +7,39 @@ A coroutine-native Redis client built on the
 
 ---
 
-## Why may-redis
-
-Codebases that already run on `may` need Redis but don't want a second
-runtime. `may-redis` eliminates that trade-off — same runtime, same
-thread model, no `async` boilerplate, no `Pin`, no `BoxFuture`.
-
-The public API surface deliberately mirrors the
-[`redis`](https://crates.io/crates/redis) crate so migration is
-mechanical: build a command, execute it, decode the typed result.
-
 ## Redis API coverage
 
 `may-redis` implements the vast majority of the Redis command set with
 correct RESP2 encoding tests. Every command is tested to produce the
 exact wire format the Redis server expects.
 
-| Category | Implemented | Tested | Coverage |
-|----------|:-----------:|:------:|:--------:|
-| STRING | 22 | 22 | 100% |
-| HASH | 9 | 9 | 100% |
-| SET | 11 | 11 | 100% |
-| LIST | 12 | 12 | 100% |
-| SORTED SET | 12 | 12 | 100% |
-| SERVER | 12 | 12 | 100% |
-| TRANSACTION | 4 | 4 | 100% |
-| PUB/SUB | 5 | 5 | 100% |
-| GENERAL | 8 | 8 | 100% |
-| **Total** | **83** | **82** | **98.8%** |
+**81 commands with trait methods — 96 commands tested — 1 gap: `RENAMENX`**
 
-> 1 command (`RENAMENX`) has a trait method but no encoding test — the sole
-> gap.
+<details>
+<summary>Click to expand full command coverage table</summary>
 
-### String commands
+| Category | Commands |
+|----------|----------|
+| **STRING** | `GET` (`get`), `SET` (`set`, `set_ex`), `SETEX` (`setx`), `SETNX` (`setnx`), `MGET` (`mget`), `MSET` (`mset`), `MSETNX` (`msetnx`), `DEL` (`del`), `EXISTS` (`exists`), `APPEND` (`append`), `STRLEN` (`strlen`), `GETRANGE` (`getrange`), `SETRANGE` (`setrange`), `SETBIT` (`setbit`), `GETBIT` (`getbit`), `BITCOUNT` (`bitcount`, `bitcount_range`), `INCR` (`incr`), `INCRBY` (`incrby`), `DECR` (`decr`), `DECRBY` (`decrby`), `TTL` (`ttl`), `PEXPIRE` (`pexpire`), `PEXPIREAT` (`pexpireat`), `PERSIST` (`persist`), `MOVE` (`move_key`) |
+| **HASH** | `HSET` (`hset`), `HGET` (`hget`), `HMSET` (`hmset`), `HDEL` (`hdel`, `hdel_fields`), `HGETALL` (`hgetall`), `HKEYS` (`hkeys`), `HLEN` (`hlen`), `HEXISTS` (`hexists`), `HINCRBY` (`hincrby`), `HSCAN` (`hscan`, `hscan_match`) |
+| **SET** | `SADD` (`sadd`), `SISMEMBER` (`sismember`), `SREM` (`srem`), `SMEMBERS` (`smembers`), `SPOP` (`spop`, `spop_count`), `SRANDMEMBER` (`srandmember`, `srandmember_count`), `SCARD` (`scard`), `SINTER` (`sinter`), `SUNION` (`sunion`), `SMOVE` (`smove`), `SSCAN` (`sscan`, `sscan_match`) |
+| **LIST** | `LPUSH` (`lpush`), `RPUSH` (`rpush`), `LPOP` (`lpop`), `RPOP` (`rpop`), `LLEN` (`llen`), `LRANGE` (`lrange`), `LINDEX` (`lindex`), `LSET` (`lset`), `LREM` (`lrem`), `LTRIM` (`ltrim`), `BLPOP` (`blpop`), `BRPOP` (`brpop`) |
+| **SORTED SET** | `ZADD` (`zadd`, `zadd_multi`), `ZCARD` (`zcard`), `ZCOUNT` (`zcount`), `ZINCRBY` (`zincrby`), `ZPOPMAX` (`zpopmax`, `zpopmax_count`), `ZPOPMIN` (`zpopmin`, `zpopmin_count`), `ZRANGE` (`zrange`, `zrange_withscores`), `ZRANGEBYSCORE` (`zrangebyscore`, `zrangebyscore_withscores`, `zrangebyscore_limit`), `ZRANK` (`zrank`), `ZREM` (`zrem`, `zrem_members`), `ZSCAN` (`zscan`, `zscan_match`), `ZSCORE` (`zscore`) |
+| **SERVER** | `PING`, `AUTH`, `DBSIZE`, `FLUSHDB`, `FLUSHALL`, `CONFIG`, `SAVE`, `SHUTDOWN`, `INFO`, `SELECT`, `TYPE`, `BGSAVE` |
+| **TRANSACTION** | `MULTI`, `EXEC`, `DISCARD`, `WATCH` (`watch`), `UNWATCH` |
+| **PUB/SUB** | `PUBLISH` (`publish`), `SUBSCRIBE` (`subscribe`), `UNSUBSCRIBE` (`unsubscribe_channels`), `PSUBSCRIBE` (`psubscribe`), `PUNSUBSCRIBE` (`punsubscribe_patterns`) |
+| **GENERAL** | `KEYS` (`keys`), `SCAN`, `SORT` (`sort`, `sort_limit`, `sort_limit_order`), `TOUCH` (`touch`), `RENAME` (`rename`), `RENAMENX` (`renamemx`) |
 
-GET, SET, SETEX, SETNX, MGET, MSET, MSETNX, DEL, EXISTS, APPEND, STRLEN,
-GETRANGE, SETRANGE, SETBIT, GETBIT, BITCOUNT, INCR, INCRBY, DECR, DECRBY,
-TTL, PEXPIRE, PEXPIREAT, PERSIST, MOVE
+</details>
 
-### Hash commands
-
-HSET, HGET, HMSET, HDEL, HGETALL, HKEYS, HLEN, HEXISTS, HINCRBY, HSCAN
-
-### Set commands
-
-SADD, SISMEMBER, SREM, SMEMBERS, SPOP, SRANDMEMBER, SCARD, SINTER, SUNION,
-SMOVE, SSCAN
-
-### List commands
-
-LPUSH, RPUSH, LPOP, RPOP, LLEN, LRANGE, LINDEX, LSET, LREM, LTRIM, BLPOP,
-BRPOP
-
-### Sorted set commands
-
-ZADD, ZCARD, ZCOUNT, ZINCRBY, ZPOPMAX, ZPOPMIN, ZRANGE, ZRANGEBYSCORE,
-ZRANK, ZREM, ZSCAN, ZSCORE
-
-### Server / admin commands
-
-PING, AUTH, DBSIZE, FLUSHDB, FLUSHALL, CONFIG, SAVE, SHUTDOWN, INFO, SELECT,
-TYPE, BGSAVE
-
-### Transaction commands
-
-MULTI, EXEC, DISCARD, WATCH, UNWATCH
-
-### Pub/Sub commands
-
-PUBLISH, SUBSCRIBE, UNSUBSCRIBE, PSUBSCRIBE, PUNSUBSCRIBE
-
-### General commands
-
-KEYS, SCAN, SORT, TOUCH, RENAME, RENAMENX
+---
 
 ## What works
 
 - [`RedisClient`](./docs/architecture.md) — connect, execute commands, decode responses
 - [`Pipeline`](./docs/architecture.md) — batch multiple commands in one round-trip
 - [`InMemoryClient`](./docs/architecture.md) — test backend for unit and boundary tests
-- **83 Redis commands** — fully tested RESP2 encoding across 7 data categories
+- **81 Redis commands** — fully tested RESP2 encoding across 9 data categories
 
 ## What's next
 
