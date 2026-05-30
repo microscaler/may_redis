@@ -1,239 +1,378 @@
 # PRD: File Size Audit & Breakdown Plan
 
 ## Goal
-Identify how to break down files exceeding 350 lines into smaller, focused modules following the modular architecture outlined in Story 0 of each epic.
+Break down all files exceeding 350 lines into smaller, focused modules.
 
-## Current State (post-connection split)
+## Current State (post-connection split + client test fixes)
 
-### Files OVER 350 lines: 14
+**Total: 10,996 lines across 37 files.**
+**356 tests pass. 0 compilation errors.**
 
-| # | File | Lines | Status |
-|---|------|-------|--------|
-| 1 | `client/client.rs` | 1152 | OVER — needs split |
-| 2 | `protocol/commands_tests.rs` | 876 | OVER — test extraction needed |
-| 3 | `codec/reader.rs` | 820 | OVER — needs split |
-| 4 | `client/in_memory.rs` | 754 | OVER — needs split |
-| 5 | `core/from_value.rs` | 599 | OVER — needs split |
-| 6 | `protocol/builder.rs` | 564 | OVER — needs split |
-| 7 | `tls/mod.rs` | 552 | OVER — needs split |
-| 8 | `codec/roundtrip.rs` | 510 | OVER — needs split |
-| 9 | `connection/connection_tests.rs` | 489 | OVER — test extraction |
-| 10 | `connection/tcp.rs` | 477 | OVER — needs split |
-| 11 | `connection/connection.rs` | 404 | DONE — already split |
-| 12 | `connection/connection_io.rs` | 371 | DONE — already split |
-| 13 | `core/error.rs` | 360 | NEAR — extract tests |
-| 14 | `protocol/fake.rs` | 354 | OK — just under |
+### Production files over 350 lines: 8
 
-### Files under 350 lines: 20 (OK)
+| # | File | Lines | Structs | Impl blocks | Fns |
+|---|------|-------|---------|-------------|-----|
+| 1 | `protocol/commands_tests.rs` | 875 | 0 | 0 | 123 (all tests) |
+| 2 | `client/client_tests.rs` | 607 | 0 | 0 | 38 (all tests) |
+| 3 | `client/client.rs` | 557 | 3 | 11 | 13 |
+| 4 | `tls/mod.rs` | 552 | 5 | 12 | 26 (+56 tests) |
+| 5 | `connection/connection_tests.rs` | 489 | 0 | 0 | 19 (all tests) |
+| 6 | `connection/tcp.rs` | 477 | 2 | 6 | 25 (+100 tests) |
+| 7 | `connection/connection.rs` | 404 | 2 | 5 | 6 |
+| 8 | `connection/connection_io.rs` | 368 | 0 | 0 | 3 |
 
-## Phase 1: Trivial wins (extract tests only)
+### Production files with embedded tests over 350 lines: 5
 
-### Priority 1.1: `core/error.rs` (360 lines)
-**Action:** Extract `#[cfg(test)]` module to `error_tests.rs`
+| File | Total | Prod | Tests | Split point |
+|------|-------|------|-------|-------------|
+| `codec/reader.rs` | 820 | 342 | 478 | #[cfg(test)] at line 343 |
+| `client/in_memory.rs` | 754 | 344 | 410 | #[cfg(test)] at line 345 |
+| `protocol/builder.rs` | 564 | 293 | 271 | #[cfg(test)] at line 294 |
+| `core/from_value.rs` | 599 | 160 | 439 | #[cfg(test)] at line 161 |
+| `codec/roundtrip.rs` | 510 | 23 | 487 | #[cfg(test)] at line 24 |
 
-**Analysis:**
-- Line 141: `#[cfg(test)]` starts
-- ~18 lines of tests
-- Result: ~342 lines
+### Production files under 350 lines: 22 (OK)
 
-**Steps:**
-1. Extract `#[cfg(test)]` block from end of `core/error.rs` to `core/error_tests.rs`
-2. Strip 4-space indentation from test content
-3. Add explicit imports to `error_tests.rs`
-4. Wire up `mod.rs`: add `#[cfg(test)] mod error_tests;`
-
----
-
-### Priority 1.2: `protocol/fake.rs` (354 lines)
-**Action:** Extract `#[cfg(test)]` module to `fake_tests.rs`
-
-**Analysis:**
-- Line 236: `#[cfg(test)]` starts
-- ~12 lines of tests
-- Result: ~342 lines
-
-**Steps:** Same as 1.1 pattern.
+```
+client/pipeline.rs             318  protocol/commands/admin.rs     230
+core/to_args.rs                327  protocol/fake.rs               235
+protocol/commands/strings.rs   217  core/error_tests.rs            220
+protocol/commands/sorted_sets.rs 216 core/from_value.rs             160 (prod only)
+protocol/commands/hashes.rs    127  connection/test_limits.rs       134
+protocol/commands/sets.rs      130  core/error.rs                   138
+protocol/commands/lists.rs     130  protocol/fake_tests.rs          119
+protocol/commands/pubsub.rs     95  codec/writer.rs                 109
+core/value.rs                   107 protocol/mod.rs                    32
+connection/mod.rs                61  client/mod.rs                      46
+protocol/commands/mod.rs         54  core/mod.rs                         42
+protocol/commands/transactions.rs 50  codec/mod.rs                        36
+lib.rs                            35  lib.rs                              35
+```
 
 ---
 
-### Priority 1.3: `connection/connection_tests.rs` (489 lines)
-**Action:** This is the test module for `connection.rs` — already extracted. No further action needed here; this is by design.
+## PRIORITY 0: Extract all test-only files (zero risk)
+
+Files where the ENTIRE file is tests with no production code:
+
+### 0a. `protocol/commands_tests.rs` (875 lines, 123 test fns)
+
+Already a test module under `protocol/mod.rs`. Split by domain:
+
+```
+protocol/commands_tests.rs       (875 lines)
+  -> commands_strings_tests.rs  (~100 lines): GET, SET, DEL, INCR, TTL, EXPIRE, PUBLISH, KEYS, DBSIZE, FLUSHDB, PING, AUTH, STRLEN, GETRANGE, SETRANGE, SETBIT, GETBIT, BITCOUNT, APPEND, DECR, DECRBY, SETNX, MGET, MSET, MSETNX
+  -> commands_hashes_tests.rs   (~100 lines): HSET, HGET, HDEL, HKEYS, HGETALL, HMSET, HINCRBY, HLEN, HEXISTS, HSCAN
+  -> commands_sets_tests.rs     (~100 lines): SADD, SISMEMBER, SREM, SMEMBERS, SPOP, SRANDMEMBER, SCARD, SINTER, SUNION, SMOVE, SSCAN
+  -> commands_lists_tests.rs    (~80 lines): LPUSH, RPUSH, LPOP, RPOP, LLEN, LRANGE, LINDEX, LSET, LREM, LTRIM, BLPOP, BRPOP
+  -> commands_sorted_sets_tests.rs (~100 lines): ZADD, ZREM, ZRANGE, ZRANK, ZSCORE, ZCARD, ZCOUNT, ZINCRBY, ZPOPMAX, ZPOPMIN, ZSCAN
+  -> commands_pubsub_tests.rs   (~70 lines): SUBSCRIBE, UNSUBSCRIBE, PSUBSCRIBE, PUNSUBSCRIBE
+  -> commands_transactions_tests.rs (~60 lines): MULTI, EXEC, DISCARD, WATCH, UNWATCH, SELECT
+  -> commands_admin_tests.rs    (~150 lines): SCAN, TOUCH, SAVE, BGSAVE, FLUSHALL, PTTL, PEXPIRE, PEXPIREAT, PERSIST, SHUTDOWN, INFO, CONFIG GET, MOVE, RENAME, RENAMENX, SORT, TYPE
+```
+
+Result: 8 files x ~70-150 lines each.
+
+### 0b. `client/client_tests.rs` (607 lines, 38 fns)
+
+Already a test module under `client/mod.rs`. Split into unit + integration:
+
+```
+client/client_tests.rs           (607 lines)
+  -> client_tests.rs             (~180 lines): test_redis_client_struct, test_commands_trait_methods_exist, init_may_runtime, shared_client, run_may helper
+  -> client_integration_tests.rs (~420 lines): all test_integration_* functions (ping, set_get, incr, exists_del, dbsize, set_ex_ttl, keys, send_sync_clone, error_propagation, pipeline, concurrent variants, request_ordering, response_correlation, server_error, wrong_type, empty_pipeline, null_response, redis_server_error_value, set_get_ex, del, expire, publish)
+```
+
+Result: 2 files, 180 + 420 lines.
+
+### 0c. `connection/connection_tests.rs` (489 lines, 19 fns)
+
+Already a test module under `connection/mod.rs`. Can stay as-is (489 is the test module, production code is already split). Or split:
+
+```
+connection/connection_tests.rs   (489 lines)
+  -> connection_tests.rs         (~200 lines): test_request_new, test_pending_request, test_process_req_moves_to_write_buf, test_process_req_multiple, test_decode_responses_*
+  -> connection_lifecycle_tests.rs (~280 lines): test_connection_connect, test_connection_send_tags, test_connection_id, test_connection_drop variants
+```
+
+Result: Optional. Can stay as-is since it is a test module.
 
 ---
 
-## Phase 2: Module extraction (extract I/O, helpers, tests)
+## PRIORITY 1: Extract embedded tests from production files
 
-### Priority 2.1: `codec/reader.rs` (820 lines)
+### 1a. `codec/roundtrip.rs` (510 lines, PROD=23, TESTS=487) — BEST WIN
 
-**Structure analysis needed:** This is the largest remaining file. I need to identify logical groupings.
+Only 23 lines of production code (just the `roundtrip()` helper). 45 test functions under `#[cfg(test)]`.
 
-**Hypothesis:** Contains:
-- `RESPReader` struct definition and core impl
-- Helper methods for RESP parsing
-- Test module
+```
+codec/roundtrip.rs               (23 lines)   -> keep (just the helper)
+codec/roundtrip_tests.rs         (487 lines)  -> extract all tests
+```
 
-**Proposed split:**
-- `reader.rs` — `RESPReader` struct, constructor, public API
-- `reader_impl.rs` — private helper methods
-- `reader_tests.rs` — extracted tests
+Wire: `codec/mod.rs` add `#[cfg(test)] mod roundtrip_tests;`
 
-**Estimated result:** ~250-300 lines per file
+Result: 2 files. Production is 23 lines. Cleanest win in the codebase.
 
----
+### 1b. `core/from_value.rs` (599 lines, PROD=160, TESTS=439)
 
-### Priority 2.2: `codec/roundtrip.rs` (510 lines)
+10 impl blocks for FromRedisValue (Vec<i64>, Vec<String>, Option<String>, usize, u64, i32, u8, f64). 439 lines of tests under `#[cfg(test)]`.
 
-**Structure analysis needed:** Likely a mix of encode/decode round-trip tests.
+```
+core/from_value.rs               (160 lines) -> keep (all 10 impl blocks)
+core/from_value_tests.rs         (439 lines) -> extract tests
+```
 
-**Hypothesis:** Contains test functions for each RESP type.
+Result: 2 files, both under 350.
 
-**Proposed split:**
-- `roundtrip.rs` — test fixture/harness
-- `roundtrip_tests.rs` — extracted test cases (likely >400 lines)
+### 1c. `codec/reader.rs` (820 lines, PROD=342, TESTS=478)
 
-**Estimated result:** ~100 lines + ~400 lines
+1 struct (RESPReader), 1 Drop impl, 3 impl blocks, 13 fns in prod. Tests at line 343.
 
----
+```
+codec/reader.rs                  (342 lines) -> already under 350, keep
+codec/reader_tests.rs            (478 lines) -> extract tests
+```
 
-### Priority 2.3: `tls/mod.rs` (552 lines)
+Result: reader.rs stays at 342 (safe). Test file extracted.
 
-**Structure analysis needed:** TLS configuration and connection setup.
+### 1d. `client/in_memory.rs` (754 lines, PROD=344, TESTS=410)
 
-**Hypothesis:** Contains:
-- TLS config structs
-- Connector logic
-- Test module
+2 structs (InMemoryStore, InMemoryClient), 4 impl blocks, 28 production fns.
 
-**Proposed split:**
-- `tls_config.rs` — config types
-- `tls_connector.rs` — connection logic
-- `tls_tests.rs` — extracted tests
+```
+client/in_memory.rs              (344 lines) -> already under 350, keep
+client/in_memory_tests.rs        (410 lines) -> extract tests
+```
 
-**Estimated result:** ~200 lines each
+Result: in_memory.rs stays at 344 (safe).
 
----
+### 1e. `protocol/builder.rs` (564 lines, PROD=293, TESTS=271)
 
-## Phase 3: Client layer split
+1 struct (CommandBuilder), 2 impl blocks, 13 production fns.
 
-### Priority 3.1: `client/client.rs` (1152 lines)
+```
+protocol/builder.rs              (293 lines) -> already under 350, keep
+protocol/builder_tests.rs        (271 lines) -> extract tests
+```
 
-**This is the single largest file and highest priority.**
-
-**Structure analysis needed:** Contains `RedisClient` struct and Commands trait implementations.
-
-**Proposed split (following the modular architecture):**
-- `client.rs` — `RedisClient` struct, connection management, lifecycle
-- `client_impl.rs` — `impl Connection` helpers
-- `client_commands.rs` — Commands trait method implementations (~122 methods)
-- `client_tests.rs` — extracted tests
-
-**Reference:** The Commands are already split into 8 domain modules (`protocol/commands/`). The client should similarly delegate to these.
-
-**Estimated result:** ~250 lines each for 4 files
+Result: both files under 350.
 
 ---
 
-## Phase 4: Protocol layer split
+## PRIORITY 2: Split remaining production files >350
 
-### Priority 4.1: `protocol/builder.rs` (564 lines)
+### 2a. `tls/mod.rs` (552 lines, PROD=496, TESTS=56)
 
-**Hypothesis:** Contains `CommandBuilder` and `Commands` trait implementation.
+5 structs, 12 impl blocks. The TLS layer is dense because of rustls trait impls (ServerCertVerifier alone is ~35 lines). Tests at end (line 497).
 
-**Proposed split:**
-- `builder.rs` — `CommandBuilder` struct, constructor, builder methods
-- `builder_impl.rs` — private helpers
-- `builder_tests.rs` — extracted tests
+```
+tls/mod.rs                       (20 lines)   -> module file, re-exports only
+tls/config.rs                    (~200 lines) -> TlsVersion, TlsConfig, ClientCerts, RustlsRootCerts
+tls/connector.rs                 (~220 lines) -> TlsConnector, TlsStream, SkipVerifier, TLS handshake
+tls/tests.rs                     (~56 lines)  -> extracted tests
+```
 
-**Estimated result:** ~200-250 lines each
+Structure of config.rs:
+- TlsVersion enum + impl (from_str, to_supported) - ~50 lines
+- RustlsRootCerts enum + Default + into_config impl - ~80 lines
+- ClientCerts struct + from_pem/from_der + Default impl - ~70 lines
+
+Structure of connector.rs:
+- TlsError enum + Display + Error impl - ~30 lines
+- SkipVerifier struct + rustls::client::danger::ServerCertVerifier impl - ~40 lines
+- TlsConfig struct + Default + into_config - ~60 lines
+- TlsStream struct + inner_mut + inner - ~25 lines
+- Read impl + Write impl for TlsStream - ~20 lines
+- TlsConnector + handshake - ~60 lines
+
+Result: 4 files, all under 250 lines.
+
+### 2b. `client/client.rs` (557 lines, PROD=557, NO tests)
+
+3 structs (TimeoutGuard, InnerClient, RedisClient), 11 impl blocks, 13 fns.
+
+This is the hardest one. No tests embedded. Heavy doc comments.
+
+```
+client/client.rs                 (~220 lines) -> RedisClient struct + core connection methods
+client_timeout.rs                (~140 lines) -> TimeoutGuard + execute_with_timeout + execute_timeout
+client_url.rs                    (~100 lines) -> url_decode helper + connect_url
+client_commands.rs               (~40 lines)  -> 8 domain trait impls + ping + pipeline
+```
+
+Structure of client.rs:
+- imports (lines 1-10) - ~10 lines
+- InnerClient struct + docs - ~10 lines
+- RedisClient struct + docs - ~5 lines
+- impl RedisClient::connect, connect_with_timeout, connect_with_ssrf_protection - ~80 lines
+- impl RedisClient::command_policy, execute (inherent methods) - ~40 lines
+- Empty domain trait impls + closing docs - ~15 lines
+
+Structure of client_timeout.rs:
+- TimeoutGuard struct + docs - ~20 lines
+- TimeoutGuard::new + Drop impl - ~15 lines
+- impl RedisClient::execute_with_timeout - ~80 lines (biggest function, ~80 lines of timeout logic)
+- impl RedisClient::execute_timeout - ~10 lines
+
+Structure of client_url.rs:
+- url_decode helper - ~10 lines
+- impl RedisClient::connect_url - ~90 lines (URL parsing, IPv6, password decode, AUTH)
+
+Structure of client_commands.rs:
+- impl StringsCommands for RedisClient {} - 1 line
+- impl HashesCommands for RedisClient {} - 1 line
+- ... (6 more domain traits)
+- ping method - ~12 lines
+- pipeline method - ~3 lines
+- Closing doc comment - ~5 lines
+
+Result: 4 files x 40-220 lines.
+
+### 2c. `connection/tcp.rs` (477 lines, PROD=377, TESTS=100)
+
+2 structs (SsrfConfig, TcpConnector), 6 impl blocks. Tests at line 378.
+
+```
+connection/tcp.rs                (~277 lines) -> ConnectionError, ssrf_allowed, is_blocked helpers, SsrfConfig, TcpConnector, connect methods
+connection/tcp_tests.rs          (~100 lines) -> extract 100 lines of tests
+```
+
+Structure of tcp.rs:
+- ConnectionError enum + Display + Error impl - ~30 lines
+- SsrfConfig struct + Default impl - ~15 lines
+- ssrf_allowed, is_blocked, is_blocked_v4, is_blocked_v6 - ~120 lines
+- TcpConnector + connect/connect_with_ssrf_check/connect_with_timeout/connect_timeout/connect_url/connect_url_timeout/resolve/connect_addr_with_timeout - ~120 lines
+
+Result: 277 + 100 = both under 350.
+
+### 2d. `connection/connection.rs` (404 lines, PROD=404)
+
+2 structs (Request, Connection), 5 impl blocks (std::fmt, std::error, Drop, Connection). 6 fns.
+
+Heavy doc comments inflate the file. Actual logic is small.
+
+```
+connection/connection.rs         (~280 lines) -> Connection struct + impl + Request struct
+connection_limits.rs             (~120 lines) -> ConnectionLimitError + connect_with_limits + Display/Error impls
+```
+
+Structure of connection.rs:
+- Module doc comment - ~30 lines
+- imports - ~15 lines
+- Request struct + impl - ~40 lines
+- Connection struct + impl (connect, connect_with_ssrf_protection, send, Drop) - ~200 lines
+
+Structure of connection_limits.rs:
+- ConnectionLimitError struct + Display/Error impls - ~20 lines
+- connect_with_limits fn + docs - ~100 lines
+
+Result: 2 files x 120-280 lines.
+
+### 2e. `connection/connection_io.rs` (368 lines, PROD=368)
+
+0 structs, 3 free functions (release_pending, nonblock_read, nonblock_write). Already close to 350. Only 18 lines over the limit.
+
+Minimal benefit from splitting. Options:
+
+```
+Option A: Keep as-is (368 is close to 350, acceptable)
+Option B: Split into io + dispatch:
+  connection_io.rs               (~250 lines) -> nonblock_read + nonblock_write
+  connection_dispatch.rs         (~120 lines) -> release_pending + spawn_connection_loop
+```
+
+Result: Optional. The file is small enough that splitting adds complexity without clear benefit.
 
 ---
 
-### Priority 4.2: `core/from_value.rs` (599 lines)
+## ESTIMATED IMPACT
 
-**Hypothesis:** Contains `FromRedisValue` derive/macro implementations and parsing logic.
+Before: 10,996 lines across 37 files. 8 production files >350 lines.
+After:  10,996 lines across ~50 files. Zero files >350 lines.
 
-**Proposed split:**
-- `from_value.rs` — `FromRedisValue` trait definition
-- `from_value_impl.rs` — implementations per type
-- `from_value_tests.rs` — extracted tests
+### Final file count by module
 
-**Estimated result:** ~200 lines each
+```
+codec/
+  reader.rs              (342 lines)        OK
+  reader_tests.rs        (478 lines)        EXTRACTED
+  writer.rs              (230 lines)        OK
+  roundtrip.rs           (23 lines)         TINY
+  roundtrip_tests.rs     (487 lines)        EXTRACTED
+
+client/
+  mod.rs                 (~46 lines)        OK
+  client.rs              (~220 lines)       SPLIT
+  client_timeout.rs      (~140 lines)       SPLIT
+  client_url.rs          (~100 lines)       SPLIT
+  client_commands.rs     (~40 lines)        SPLIT
+  client_tests.rs        (~180 lines)       EXTRACTED
+  client_integration_tests.rs (~420 lines)  EXTRACTED
+  pipeline.rs            (318 lines)        OK
+  in_memory.rs           (344 lines)        OK
+  in_memory_tests.rs     (410 lines)        EXTRACTED
+
+protocol/
+  mod.rs                 (~32 lines)        OK
+  builder.rs             (293 lines)        OK
+  builder_tests.rs       (271 lines)        EXTRACTED
+  commands/mod.rs        (54 lines)         OK
+  commands/strings.rs    (~217 lines)
+  commands/hashes.rs     (~127 lines)
+  commands/sets.rs       (~130 lines)
+  commands/lists.rs      (~130 lines)
+  commands/sorted_sets.rs (~216 lines)
+  commands/pubsub.rs     (~95 lines)
+  commands/transactions.rs (~50 lines)
+  commands/admin.rs      (~230 lines)
+  commands_tests.rs      -> SPLIT into 8 files
+  fake.rs                (235 lines)        OK
+  fake_tests.rs          (119 lines)        OK
+
+core/
+  mod.rs                 (~42 lines)        OK
+  value.rs               (107 lines)        OK
+  error.rs               (138 lines)        OK
+  error_tests.rs         (220 lines)        OK
+  to_args.rs             (327 lines)        OK
+  from_value.rs          (160 lines)        OK
+  from_value_tests.rs    (439 lines)        EXTRACTED
+
+tls/
+  mod.rs                 (~20 lines)        NEW
+  config.rs              (~200 lines)       NEW
+  connector.rs           (~220 lines)       NEW
+  tests.rs               (~56 lines)        EXTRACTED
+
+connection/
+  mod.rs                 (~61 lines)        OK
+  connection.rs          (~280 lines)       SPLIT
+  connection_limits.rs   (~120 lines)       NEW
+  connection_io.rs       (~250 lines)       SPLIT (optional)
+  connection_dispatch.rs (~120 lines)       NEW (optional)
+  tcp.rs                 (~277 lines)       OK after test extraction
+  tcp_tests.rs           (~100 lines)       EXTRACTED
+  connection_tests.rs    (489 lines)        KEEP (test module only)
+  test_limits.rs         (134 lines)        OK
+
+lib.rs                   (35 lines)         OK
+```
+
+### Biggest wins (by lines removed from single file)
+
+1. codec/roundtrip.rs: 510 -> 23 + 487 (production goes 510 -> 23)
+2. protocol/commands_tests.rs: 875 -> 8 files x ~100 lines
+3. client/client.rs: 557 -> 4 files (220 + 140 + 100 + 40)
+4. tls/mod.rs: 552 -> 4 files (20 + 200 + 220 + 56)
+5. core/from_value.rs: 599 -> 160 + 439
 
 ---
 
-## Phase 5: Client utilities
+## Execution order (suggested)
 
-### Priority 5.1: `client/in_memory.rs` (754 lines)
+1. Priority 0: Extract test-only files (commands_tests, client_tests)
+2. Priority 1: Extract embedded tests (roundtrip, from_value, reader, in_memory, builder)
+3. Priority 2: Split remaining production files (client.rs, tls, tcp, connection, connection_io)
 
-**Hypothesis:** In-memory Redis implementation for testing.
-
-**Proposed split:**
-- `in_memory.rs` — `InMemoryClient` struct
-- `in_memory_impl.rs` — Commands implementation for in-memory backend
-- `in_memory_tests.rs` — extracted tests
-
-**Estimated result:** ~250 lines each
-
----
-
-### Priority 5.2: `connection/tcp.rs` (477 lines)
-
-**Hypothesis:** TCP connector with SSRF protection.
-
-**Proposed split:**
-- `tcp.rs` — `TcpConnector` struct, connection helpers
-- `tcp/ssrf.rs` — SSRF configuration and IP checking
-- `tcp_tests.rs` — extracted tests
-
-**Estimated result:** ~200 lines each
-
----
-
-## Verification Steps (after each phase)
-
-1. `cargo check --lib` — must compile
-2. `cargo test --lib` — all tests must pass
-3. Verify file line count is under 350
-4. Verify no new clippy warnings
-
-## Target State
-
-After all phases complete:
-- Maximum file size: <350 lines
-- Zero 1000+ line files (down from 1)
-- Zero 800+ line files (down from 1)
-- Total files: 34 + ~20 extracted = ~54 files
-- All files under 350 lines
-
-## Progress
-
-### Completed
-
-- [x] Phase 1: Trivial wins (extract tests)
-  - [x] 1.1: `core/error.rs` (360 → 138 lines; `error_tests.rs`: 220 lines)
-  - [x] 1.2: `protocol/fake.rs` (354 → 235 lines; `fake_tests.rs`: 119 lines)
-- [x] Connection module pre-split (done in prior session):
-  - [x] `connection.rs` (1238 → 404 lines) — I/O helpers removed, struct/impl kept
-  - [x] `connection_io.rs` (371 lines) — I/O loop, process_req, decode_responses
-  - [x] `connection_tests.rs` (489 lines) — extracted test module
-
-### Current Status
-
-**Files OVER 350 lines: 10** (down from 14 → 12 → 10)
-**Files under/equal 350 lines: 26** (up from 20 → 24 → 26)
-**Total files: 38** (was 34; +4 new files created)
-
-### Remaining work
-
-- [ ] Phase 2: Module extraction
-  - [ ] 2.1: `codec/reader.rs` (820 lines)
-  - [ ] 2.2: `codec/roundtrip.rs` (510 lines)
-  - [ ] 2.3: `tls/mod.rs` (552 lines)
-- [ ] Phase 3: Client layer
-  - [ ] 3.1: `client/client.rs` (1152 lines)
-- [ ] Phase 4: Protocol layer
-  - [ ] 4.1: `protocol/builder.rs` (564 lines)
-  - [ ] 4.2: `core/from_value.rs` (599 lines)
-- [ ] Phase 5: Client utilities
-  - [ ] 5.1: `client/in_memory.rs` (754 lines)
-  - [ ] 5.2: `connection/tcp.rs` (477 lines)
+Each step verified with `cargo check --lib` and `cargo test --lib`.

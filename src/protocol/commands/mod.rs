@@ -52,3 +52,20 @@ impl SortedSetsCommands for () {}
 impl PubsubCommands for () {}
 impl TransactionsCommands for () {}
 impl AdminCommands for () {}
+
+#[cfg(test)]
+mod admin_tests;
+#[cfg(test)]
+mod hashes_tests;
+#[cfg(test)]
+mod lists_tests;
+#[cfg(test)]
+mod pubsub_tests;
+#[cfg(test)]
+mod sets_tests;
+#[cfg(test)]
+mod sorted_sets_tests;
+#[cfg(test)]
+mod strings_tests;
+#[cfg(test)]
+mod transactions_tests;

@@ -45,7 +45,12 @@ pub mod pipeline;
 
 pub use client::RedisClient;
 #[cfg(test)]
-mod client_tests;
+mod client_tests {
+    #[cfg(test)]
+    mod unit;
+    #[cfg(test)]
+    mod integration;
+}
 pub use pipeline::{FromPipelineResponse, Pipeline};
 
 #[cfg(feature = "test")]

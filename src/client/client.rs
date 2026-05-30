@@ -3,7 +3,7 @@
 // Provides the main user-facing API for connecting to Redis and executing commands.
 
 use crate::connection::{Connection, Request};
-use crate::core::{FromRedisValue, RedisError, RedisValue, ToRedisArgs};
+use crate::core::{FromRedisValue, RedisError, RedisValue};
 use crate::protocol::{builder::CommandBuilder, commands::*};
 use may::sync::spsc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -549,10 +549,9 @@ impl PubsubCommands for RedisClient {}
 impl TransactionsCommands for RedisClient {}
 impl AdminCommands for RedisClient {}
 
-/// Note: `Commands` is impl'd on `RedisClient` only.
-/// `&RedisClient` gets it automatically via auto-deref — no separate impl needed.
-/// The only exception is `ping`: the inherent `ping()` returns `Result<String, RedisError>`
-/// (executes the command), while `Commands::ping()` returns `CommandBuilder` (builds it).
-/// Auto-deref resolves `&RedisClient::ping()` to the *inherent* method, which is the
-/// expected behavior — callers wanting the raw builder use `Commands::ping()`.
-#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+// Note: `Commands` is impl'd on `RedisClient` only.
+// `&RedisClient` gets it automatically via auto-deref — no separate impl needed.
+// The only exception is `ping`: the inherent `ping()` returns `Result<String, RedisError>`
+// (executes the command), while `Commands::ping()` returns `CommandBuilder` (builds it).
+// Auto-deref resolves `&RedisClient::ping()` to the *inherent* method, which is the
+// expected behavior — callers wanting the raw builder use `Commands::ping()`.

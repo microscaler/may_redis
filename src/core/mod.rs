@@ -36,6 +36,9 @@ pub mod from_value;
 pub mod to_args;
 pub mod value;
 
+#[cfg(test)]
+pub mod from_value_tests;
+
 // Re-export public types at the crate root for convenience
 pub use error::{FromRedisValue, RedisError, RedisResult};
 pub use to_args::ToRedisArgs;

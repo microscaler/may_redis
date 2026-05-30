@@ -42,7 +42,7 @@
 #![allow(clippy::io_other_error)]
 #![allow(clippy::ref_as_ptr)]
 
-use bytes::{BufMut, BytesMut};
+use bytes::BytesMut;
 use may::coroutine::JoinHandle;
 use may::io::{WaitIo, WaitIoWaker};
 use may::queue::mpsc::Queue;
@@ -53,7 +53,7 @@ use std::sync::Arc;
 
 use super::connection_io::spawn_connection_loop;
 use super::tcp::{self, ConnectionError, TcpConnector};
-use crate::core::{RedisError, RedisValue};
+use crate::core::RedisValue;
 
 /// A request to be sent to the Redis server.
 ///

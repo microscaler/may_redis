@@ -182,6 +182,21 @@
 - Updated `llmwiki/index.md` — added both pages under Concepts section, bumped total to 14
 - Implemented in Epic 13 Story 3, Issues #8 (SSRF) and #9 (Command Policy)
 
+## [2026-05-30] refactor(file-breakdown) — Priority 0 & 1: test extraction complete
+- Priority 0a: Split protocol/commands_tests.rs (875 lines) into 8 domain sub-modules (~827 lines total): admin_tests (123), hashes_tests (91), lists_tests (91), pubsub_tests (46), sets_tests (108), sorted_sets_tests (155), strings_tests (175), transactions_tests (38)
+- Priority 0a (client): Extracted client/client_tests.rs into client/client_tests/ directory with sub-modules
+- Priority 1a: Extracted codec/roundtrip.rs tests (487 lines) into codec/roundtrip_tests.rs — production down to 23 lines
+- Priority 1b: Extracted core/from_value.rs tests (439 lines) into core/from_value_tests.rs — production down to 160 lines
+- Priority 1c: Extracted codec/reader.rs tests (478 lines) into codec/reader_tests.rs — production down to 342 lines
+- Priority 1d: Extracted client/in_memory.rs tests (410 lines) into client/in_memory_tests.rs — production down to 344 lines
+- Priority 1e: Extracted protocol/builder.rs tests (271 lines) into protocol/builder_tests.rs — production down to 293 lines
+- Updated 4 mod.rs files to declare new test modules under #[cfg(test)]
+- Verification: cargo test --lib = 319 passed, 0 failed, 36 ignored (pre-existing)
+- cargo check --lib: clean, 1 pre-existing unused import warning (unrelated)
+- Files created: 14 new test files, 4 mod.rs updates, 6 source files rewritten (production-only)
+- Files deleted: 2 old monolithic test files (commands_tests.rs, client_tests.rs)
+- 10,996 lines -> ~52 files. Zero files >350 lines in production.
+
 ## [2026-05-29] audit | Module breakdown decision
 - Completed comprehensive file-size audit of all 23 src/ files (10,885 lines total)
 - Updated Cargo.toml: too_many_lines clippy lint set to "warn"
