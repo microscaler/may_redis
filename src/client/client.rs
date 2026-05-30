@@ -148,6 +148,33 @@ impl RedisClient {
         &self.inner.command_policy
     }
 
+    /// Establish a TLS connection to a Redis server.
+    ///
+    /// # Arguments
+    /// * `host` - Server hostname or IP address
+    /// * `port` - Server port (typically 6380 for TLS)
+    /// * `tls_config` - TLS configuration
+    /// * `timeout_secs` - Connection timeout in seconds
+    ///
+    /// # Errors
+    /// Returns [`ConnectionError`] if the TLS connection fails.
+    #[cfg(feature = "tls")]
+    pub fn connect_tls(
+        host: &str,
+        port: u16,
+        tls_config: &crate::tls::TlsConfig,
+        timeout_secs: u32,
+    ) -> Result<Self, crate::connection::ConnectionError> {
+        let connection = Connection::connect_tls(host, port, tls_config, timeout_secs)?;
+        Ok(Self {
+            inner: Arc::new(InnerClient {
+                connection,
+                default_timeout: Duration::from_secs(u64::from(timeout_secs)),
+                command_policy: crate::protocol::builder::CommandPolicy::AllowAll,
+            }),
+        })
+    }
+
     /// Connect to a Redis server given a URL.
     ///
     /// # Supported formats
@@ -175,28 +202,70 @@ impl RedisClient {
     /// command fails after a successful connection.
     pub fn connect_url(url: &str) -> Result<Self, RedisError> {
         // Issue #18: Reject double prefixes
-        let after_scheme = if let Some(rest) = url.strip_prefix("rediss://") {
+        let (is_tls, after_scheme) = if let Some(rest) = url.strip_prefix("rediss://") {
             if rest.starts_with("rediss://") {
                 return Err(RedisError::Parse(
                     "double URL scheme prefix (rediss://rediss://)".into(),
                 ));
             }
-            return Err(RedisError::Parse(
-                "TLS is not yet supported (rediss://)".into(),
-            ));
+            (true, rest)
         } else if let Some(rest) = url.strip_prefix("redis://") {
-            rest
+            (false, rest)
         } else {
             return Err(RedisError::Parse(
-                "must use 'redis://' prefix (no scheme given)".into(),
+                "must use 'redis://' or 'rediss://' prefix".into(),
             ));
         };
 
+        // Split off query parameters
+        let (path_part, query_params) = match after_scheme.split_once('?') {
+            Some((path, query)) => (path, Some(query)),
+            None => (after_scheme, None),
+        };
+
+        // Parse query parameters for TLS config
+        let mut ca_cert_paths: Option<String> = None;
+        let mut client_cert_path: Option<String> = None;
+        let mut client_key_path: Option<String> = None;
+        let mut timeout_secs: u32 = 5;
+        let mut verify_server = true;
+
+        if let Some(query) = query_params {
+            for param in query.split('&') {
+                if let Some((key, value)) = param.split_once('=') {
+                    match key {
+                        "timeout" => {
+                            timeout_secs = value
+                                .parse()
+                                .map_err(|_| RedisError::Parse("invalid timeout value".into()))?;
+                        }
+                        "ca_cert" => {
+                            ca_cert_paths = Some(value.to_string());
+                        }
+                        "client_cert" => {
+                            client_cert_path = Some(value.to_string());
+                        }
+                        "client_key" => {
+                            client_key_path = Some(value.to_string());
+                        }
+                        "verify_server" => {
+                            verify_server = value.parse::<bool>().map_err(|_| {
+                                RedisError::Parse(
+                                    "invalid verify_server value (expected true/false)".into(),
+                                )
+                            })?;
+                        }
+                        _ => {} // Ignore unknown params
+                    }
+                }
+            }
+        }
+
         // Parse user:password@host:port — use rfind('@') to correctly handle
         // passwords containing '@' (RFC 3986 §3.2.1).
-        let (password, host_part) = after_scheme.rfind('@').map_or((None, after_scheme), |idx| {
-            let password = &after_scheme[..idx];
-            let host_part = &after_scheme[idx + 1..];
+        let (password, host_part) = path_part.rfind('@').map_or((None, path_part), |idx| {
+            let password = &path_part[..idx];
+            let host_part = &path_part[idx + 1..];
             if password.is_empty() {
                 (None, host_part)
             } else {
@@ -208,6 +277,12 @@ impl RedisClient {
         let password: Option<String> = password.map(url_decode).transpose()?;
 
         // Parse host:port — handle IPv6 [::1]:6379 and IPv4 127.0.0.1:6379
+        let default_port = if is_tls {
+            default_port(ConnectionScheme::Tls)
+        } else {
+            default_port(ConnectionScheme::Plain)
+        };
+
         let (host, port) = if host_part.starts_with('[') {
             if let Some(close_bracket) = host_part.find(']') {
                 let host = &host_part[1..close_bracket];
@@ -233,25 +308,101 @@ impl RedisClient {
                     Ok::<_, RedisError>((host, port))
                 })
                 .transpose()?
-                .map_or_else(
-                    || (host_part, default_port(ConnectionScheme::Plain)),
-                    |(h, p)| (h, p),
-                )
+                .map_or_else(|| (host_part, default_port), |(h, p)| (h, p))
         };
 
-        // Use configurable default timeout
-        let client = Self::connect(host, port)
+        if is_tls {
+            // Build TLS config
+            #[cfg(not(feature = "tls"))]
+            {
+                let _ = (
+                    ca_cert_paths,
+                    client_cert_path,
+                    client_key_path,
+                    verify_server,
+                );
+                return Err(RedisError::Parse(
+                    "TLS support not enabled — rebuild with `--features tls`".into(),
+                ));
+            }
+
+            #[cfg(feature = "tls")]
+            {
+                // Build root certificates
+                let root_certs = ca_cert_paths.map_or(
+                    crate::tls::config::RustlsRootCerts::WebPkiRoots,
+                    |paths| {
+                        crate::tls::config::RustlsRootCerts::Pem(
+                            paths
+                                .split(',')
+                                .map(|p| std::path::PathBuf::from(p.trim()))
+                                .collect(),
+                        )
+                    },
+                );
+
+                // Build client certs if provided
+                let client_certs = match (client_cert_path, client_key_path) {
+                    (Some(cert_path), Some(key_path)) => {
+                        let cert_data = std::fs::read(&cert_path).map_err(|e| {
+                            RedisError::Parse(format!(
+                                "failed to read client cert {cert_path}: {e}"
+                            ))
+                        })?;
+                        let key_data = std::fs::read(&key_path).map_err(|e| {
+                            RedisError::Parse(format!("failed to read client key {key_path}: {e}"))
+                        })?;
+                        Some(
+                            crate::tls::config::ClientCerts::from_pem(&cert_data, &key_data)
+                                .map_err(|e| {
+                                    RedisError::Parse(format!("failed to parse client certs: {e}"))
+                                })?,
+                        )
+                    }
+                    _ => None,
+                };
+
+                let tls_config = crate::tls::TlsConfig {
+                    root_certificates: root_certs,
+                    client_certs,
+                    server_name: host.to_string(),
+                    min_version: crate::tls::config::TlsVersion::Tls12,
+                    max_version: crate::tls::config::TlsVersion::Tls13,
+                    verify_server,
+                };
+
+                let client = Self::connect_tls(host, port, &tls_config, timeout_secs)
+                    .map_err(|e| RedisError::Parse(format!("TLS connection failed: {e}")))?;
+
+                // Send AUTH if password was provided in URL
+                if let Some(pass) = password {
+                    let auth_cmd = CommandBuilder::new("AUTH").arg(pass);
+                    client
+                        .execute::<String>(auth_cmd)
+                        .map_err(|e| RedisError::Parse(format!("AUTH failed: {e}")))?;
+                }
+
+                Ok(client)
+            }
+        } else {
+            // Plain TCP connection
+            let client = Self::connect_with_timeout(
+                host,
+                port,
+                Duration::from_secs(u64::from(timeout_secs)),
+            )
             .map_err(|e| RedisError::Parse(format!("connection failed: {e}")))?;
 
-        // Send AUTH if password was provided in URL
-        if let Some(pass) = password {
-            let auth_cmd = CommandBuilder::new("AUTH").arg(pass);
-            client
-                .execute::<String>(auth_cmd)
-                .map_err(|e| RedisError::Parse(format!("AUTH failed: {e}")))?;
-        }
+            // Send AUTH if password was provided in URL
+            if let Some(pass) = password {
+                let auth_cmd = CommandBuilder::new("AUTH").arg(pass);
+                client
+                    .execute::<String>(auth_cmd)
+                    .map_err(|e| RedisError::Parse(format!("AUTH failed: {e}")))?;
+            }
 
-        Ok(client)
+            Ok(client)
+        }
     }
 
     /// Execute a command and return the typed result.

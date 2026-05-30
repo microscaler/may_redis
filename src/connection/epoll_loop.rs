@@ -10,8 +10,6 @@
 use bytes::BytesMut;
 use may::coroutine::JoinHandle;
 use may::go;
-use may::io::WaitIo;
-use may::net::TcpStream;
 use may::queue::mpsc::Queue;
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -22,6 +20,7 @@ use super::connection::Request;
 use super::dispatch::{decode_responses, error_dispatch, process_req};
 use super::io_read::nonblock_read;
 use super::io_write::nonblock_write;
+use super::StreamHandle;
 use crate::core::RedisValue;
 
 /// Spawn the epoll-based connection loop as a may coroutine.
@@ -73,7 +72,7 @@ use crate::core::RedisValue;
 /// the failure, and the loop breaks (the coroutine exits, the
 /// `JoinHandle` becomes joinable).
 pub(super) fn spawn_connection_loop(
-    mut stream: TcpStream,
+    mut stream: super::connection_stream::ConnectionStream,
     req_queue: Arc<Queue<Request>>,
     pending_count: Arc<AtomicUsize>,
 ) -> JoinHandle<()> {

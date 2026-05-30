@@ -55,9 +55,41 @@
 //! });
 //! ```
 
+/// Trait for connection loop stream handles.
+///
+/// Abstracts over [`may::net::TcpStream`] and [`tls::TlsStream`] so the
+/// epoll loop can read/write via `io::Read`/`io::Write` and wait on
+/// epoll via `wait_io()`.
+pub(crate) trait StreamHandle: std::io::Read + std::io::Write {
+    /// Return the inner socket for epoll registration.
+    ///
+    /// For plain TCP this returns `&mut TcpStream`.
+    /// For TLS this returns `&mut TcpStream` (the underlying socket).
+    fn inner_mut(&mut self) -> &mut may::net::TcpStream;
+
+    /// Wait for I/O readiness via epoll.
+    fn wait_io(&mut self) -> i32;
+}
+
+/// Blanket impl for anything that already implements `may::io::WaitIo`
+/// and has a `may::net::TcpStream`-compatible `inner_mut()`.
+impl StreamHandle for may::net::TcpStream {
+    fn inner_mut(&mut self) -> &mut may::net::TcpStream {
+        self
+    }
+
+    fn wait_io(&mut self) -> i32 {
+        #[allow(clippy::cast_possible_wrap)]
+        {
+            may::io::WaitIo::wait_io(self) as i32
+        }
+    }
+}
+
 #[allow(clippy::module_inception)]
 pub mod connection;
 pub mod connection_limits;
+mod connection_stream;
 #[cfg(test)]
 mod connection_tests;
 pub mod dispatch;

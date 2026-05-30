@@ -55,6 +55,7 @@ use super::connection_limits::{
 };
 use super::epoll_loop::spawn_connection_loop;
 use super::tcp::{self, ConnectionError, TcpConnector};
+use super::StreamHandle;
 use crate::core::RedisValue;
 
 // ---------------------------------------------------------------------------
@@ -133,7 +134,11 @@ impl Connection {
         let waker = stream.waker();
         let req_queue = Arc::new(Queue::new());
         let pending_count = Arc::new(AtomicUsize::new(0));
-        let io_handle = spawn_connection_loop(stream, req_queue.clone(), pending_count.clone());
+        let io_handle = spawn_connection_loop(
+            super::connection_stream::ConnectionStream::Tcp(stream),
+            req_queue.clone(),
+            pending_count.clone(),
+        );
         Ok(Self {
             io_handle,
             req_queue,
@@ -163,7 +168,11 @@ impl Connection {
         let waker = stream.waker();
         let req_queue = Arc::new(Queue::new());
         let pending_count = Arc::new(AtomicUsize::new(0));
-        let io_handle = spawn_connection_loop(stream, req_queue.clone(), pending_count.clone());
+        let io_handle = spawn_connection_loop(
+            super::connection_stream::ConnectionStream::Tcp(stream),
+            req_queue.clone(),
+            pending_count.clone(),
+        );
         Ok(Self {
             io_handle,
             req_queue,
@@ -193,7 +202,11 @@ impl Connection {
         let waker = stream.waker();
         let req_queue = Arc::new(Queue::new());
         let pending_count = Arc::new(AtomicUsize::new(0));
-        let io_handle = spawn_connection_loop(stream, req_queue.clone(), pending_count.clone());
+        let io_handle = spawn_connection_loop(
+            super::connection_stream::ConnectionStream::Tcp(stream),
+            req_queue.clone(),
+            pending_count.clone(),
+        );
         Ok(Self {
             io_handle,
             req_queue,
@@ -240,5 +253,109 @@ impl Connection {
     #[must_use]
     pub const fn id(&self) -> usize {
         self.id
+    }
+
+    // -----------------------------------------------------------------------
+    // TLS connection constructors
+    // -----------------------------------------------------------------------
+
+    /// Establish a TCP connection and perform TLS handshake.
+    ///
+    /// # Arguments
+    /// * `host` - Server hostname or IP address
+    /// * `port` - Server port (typically 6380 for TLS)
+    /// * `tls_config` - TLS configuration
+    /// * `timeout_secs` - Connection timeout in seconds
+    ///
+    /// # Errors
+    /// Returns [`ConnectionError::Tls`] if the TCP connection or TLS handshake fails.
+    #[cfg(feature = "tls")]
+    pub fn connect_tls(
+        host: &str,
+        port: u16,
+        tls_config: &super::super::tls::TlsConfig,
+        timeout_secs: u32,
+    ) -> Result<Self, ConnectionError> {
+        // 1. TCP connect
+        let stream = TcpConnector::connect_timeout(host, port, timeout_secs)?;
+
+        // 2. TLS handshake
+        let tls_stream = crate::tls::TlsConnector::handshake(
+            stream,
+            tls_config,
+            std::time::Duration::from_secs(u64::from(timeout_secs)),
+        )
+        .map_err(|e| ConnectionError::Tls(format!("TLS handshake failed: {e}")))?;
+
+        // 3. Create connection loop with TLS stream
+        Ok(Self::from_tls_stream(
+            super::connection_stream::ConnectionStream::Tls(Box::new(tls_stream)),
+        ))
+    }
+
+    /// Establish a TCP connection with SSRF protection and perform TLS handshake.
+    ///
+    /// # Arguments
+    /// * `host` - Server hostname or IP address
+    /// * `port` - Server port (typically 6380 for TLS)
+    /// * `tls_config` - TLS configuration
+    /// * `timeout_secs` - Connection timeout in seconds
+    /// * `ssrf_config` - Configuration for which IP ranges to block
+    ///
+    /// # Errors
+    /// Returns [`ConnectionError::Tls`] if the TCP connection, SSRF check, or TLS
+    /// handshake fails.
+    #[cfg(feature = "tls")]
+    pub fn connect_tls_with_ssrf(
+        host: &str,
+        port: u16,
+        tls_config: &super::super::tls::TlsConfig,
+        timeout_secs: u32,
+        ssrf_config: tcp::SsrfConfig,
+    ) -> Result<Self, ConnectionError> {
+        // 1. TCP connect with SSRF protection
+        let stream = TcpConnector::connect_with_ssrf_check(
+            host,
+            port,
+            std::time::Duration::from_secs(u64::from(timeout_secs)),
+            ssrf_config,
+        )?;
+
+        // 2. TLS handshake
+        let tls_stream = crate::tls::TlsConnector::handshake(
+            stream,
+            tls_config,
+            std::time::Duration::from_secs(u64::from(timeout_secs)),
+        )
+        .map_err(|e| ConnectionError::Tls(format!("TLS handshake failed: {e}")))?;
+
+        // 3. Create connection loop with TLS stream
+        Ok(Self::from_tls_stream(
+            super::connection_stream::ConnectionStream::Tls(Box::new(tls_stream)),
+        ))
+    }
+
+    /// Create a Connection from an already-handshaked TLS stream.
+    ///
+    /// The TLS handshake MUST already be complete before calling this.
+    /// The epoll loop will wrap the TLS stream the same way it wraps TCP.
+    fn from_tls_stream(mut tls_stream: super::connection_stream::ConnectionStream) -> Self {
+        let id = tls_stream.inner_mut().as_raw_fd() as usize;
+        let waker = tls_stream.inner_mut().waker();
+        let req_queue = Arc::new(Queue::new());
+        let pending_count = Arc::new(AtomicUsize::new(0));
+        let io_handle = spawn_connection_loop(tls_stream, req_queue.clone(), pending_count.clone());
+
+        Self {
+            io_handle,
+            req_queue,
+            waker,
+            id,
+            tag_counter: Arc::new(AtomicUsize::new(0)),
+            max_queue_depth: DEFAULT_MAX_QUEUE_DEPTH,
+            max_request_size: DEFAULT_MAX_REQUEST_SIZE,
+            pending_count,
+            ssrf_config: None,
+        }
     }
 }

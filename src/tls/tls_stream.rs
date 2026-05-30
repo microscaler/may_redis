@@ -56,3 +56,16 @@ impl io::Write for TlsStream {
         self.conn.writer().flush()
     }
 }
+
+// Re-export for connection module
+use crate::connection::StreamHandle;
+
+impl StreamHandle for TlsStream {
+    fn inner_mut(&mut self) -> &mut may::net::TcpStream {
+        &mut self.stream
+    }
+
+    fn wait_io(&mut self) -> i32 {
+        self.stream.wait_io()
+    }
+}
