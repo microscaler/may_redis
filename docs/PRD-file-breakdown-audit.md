@@ -177,6 +177,21 @@ These are not blocking LLM context issues because:
 
 **Bottom line:** Only 3 files have actionable splits with clear benefit. The rest are fine at current size. All production files are under 350 lines. No files exceed 400 lines (all large files are test-only).
 
+## TLS URL Parsing Implementation (Completed 2026-05-30)
+
+Full TLS URL parsing with query parameter support has been implemented:
+
+- `rediss://` URLs are now accepted and routed to TLS connection constructors
+- Query parameters parsed: `timeout`, `ca_cert`, `client_cert`, `client_key`, `verify_server`
+- Custom CA certs loaded from PEM file paths (comma-separated)
+- mTLS support via `client_cert` + `client_key` (PEM parsing)
+- `RedisClient::connect_tls()` and `connect_tls_with_ssrf()` constructors added
+- `ConnectionStream` enum abstracts over `TcpStream`/`TlsStream` for the connection loop
+- `StreamHandle` trait provides unified I/O for the epoll loop
+- All 319 tests passing, clippy clean
+
+Example: `rediss://:password@redis.example.com:6380?timeout=10&ca_cert=/path/to/ca.pem&verify_server=true`
+
 ## LLM Context Management Assessment
 
 **Before P0-P2:** 8 production files over 350 lines. Worst case: reading one file forced 557 lines of context.
