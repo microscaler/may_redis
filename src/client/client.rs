@@ -184,10 +184,15 @@ impl RedisClient {
     /// * `rediss://host:port` — TLS (port defaults to 6380)
     /// * `rediss://:password@host:port` — TLS + AUTH
     ///
-    /// # TLS support
+    /// # TLS support (rediss://)
     ///
-    /// Currently `rediss://` URLs are rejected with a `Parse` error because
-    /// TLS is not yet implemented.
+    /// TLS URLs use `--features tls` at build time. Query parameters:
+    ///
+    /// * `timeout=N` — connection timeout in seconds (default: 5)
+    /// * `ca_cert=/path/to/ca.pem` — custom CA certificate path(s), comma-separated
+    /// * `client_cert=/path/to/client.pem` — client certificate for mTLS
+    /// * `client_key=/path/to/client-key.pem` — client private key for mTLS
+    /// * `verify_server=true|false` — disable hostname verification (default: true)
     ///
     /// # URL encoding
     ///
