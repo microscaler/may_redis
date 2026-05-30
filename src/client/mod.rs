@@ -44,6 +44,8 @@ pub mod in_memory;
 pub mod pipeline;
 
 pub use client::RedisClient;
+#[cfg(test)]
+mod client_tests;
 pub use pipeline::{FromPipelineResponse, Pipeline};
 
 #[cfg(feature = "test")]

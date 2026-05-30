@@ -30,3 +30,5 @@
 
 pub mod builder;
 pub mod commands;
+#[cfg(test)]
+mod commands_tests;

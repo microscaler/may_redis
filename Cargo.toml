@@ -35,7 +35,12 @@ cast_possible_truncation = "allow"
 cast_sign_loss = "allow"
 module_name_repetitions = "allow"
 struct_excessive_bools = "allow"
-too_many_lines = "warn"
+# Per-function: deny any function exceeding the default 100-line limit
+too_many_lines = "deny"
+# Per-file: deny any single file exceeding 350 lines (project rule).
+# NOTE: Clippy has no built-in lint for file-level line count, so this is
+# enforced via CI (`scripts/check-file-lengths.sh` or equivalent).
+# See docs/PRD-file-breakdown-audit.md for the current file-length audit.
 missing_errors_doc = "deny"
 missing_panics_doc = "deny"
 missing_safety_doc = "deny"
