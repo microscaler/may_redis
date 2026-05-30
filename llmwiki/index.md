@@ -1,7 +1,7 @@
 # Wiki Index
 
 > Content catalog. Every wiki page listed under its type with a one-line summary.
-> Last updated: 2026-05-30 | Total pages: 15
+> Last updated: 2026-06-01 | Total pages: 16
 
 ## Entities
 - [[may-redis]] — Coroutine-native Redis client built on may runtime, single crate
@@ -10,6 +10,7 @@
 ## Concepts
 - [[command-policy]] — Enum-based command-level access control: AllowAll, DenyCommands, AllowCommands with HashSet O(1) lookups
 - [[jsf-compliance]] — JSF-AV rule compliance: AV1, AV3, AV206, AV208, AV119, AV148/209 enforced via clippy
+- [[redis-command-e2e-test-coverage]] — 122 command methods across 8 traits, 100% protocol tests, ~12% real-data coverage, 6-phase implementation plan for 100% coverage
 - [[ssrf-protection]] — SSRF prevention: blocks connections to private, link-local, loopback, reserved IPs after DNS resolution
 
 ## Comparisons
