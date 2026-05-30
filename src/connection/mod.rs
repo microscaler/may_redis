@@ -57,13 +57,16 @@
 
 #[allow(clippy::module_inception)]
 pub mod connection;
-pub mod connection_io;
 pub mod connection_limits;
-#[cfg(test)]
-mod connection_tests;
+pub mod dispatch;
+pub mod epoll_loop;
+pub mod io_read;
+pub mod io_write;
 pub mod tcp;
 #[cfg(test)]
 mod tcp_tests;
+#[cfg(test)]
+mod connection_tests;
 #[cfg(test)]
 mod test_limits;
 

@@ -7,8 +7,8 @@
 use super::connection::Connection;
 use super::connection::PendingRequest;
 use super::connection::Request;
-use super::connection_io::decode_responses;
-use super::connection_io::process_req;
+use super::dispatch::decode_responses;
+use super::dispatch::process_req;
 use crate::core::RedisValue;
 use bytes::Buf;
 use bytes::BytesMut;
