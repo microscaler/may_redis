@@ -1,15 +1,19 @@
-// TLS connection handling — handshake, error types, and TLS stream.
+// TLS handshake connector — builds rustls config and performs handshakes.
 //
-// Provides TlsError, SkipVerifier, TlsConfig, TlsStream, and TlsConnector.
+// Provides `TlsError`, `TlsConfig`, and `TlsConnector` with polling-based
+// handshake using may coroutine yields.
 
 use may::net::TcpStream;
 use rustls::client::WebPkiServerVerifier;
 use rustls::crypto::ring::default_provider;
-use rustls::pki_types::{CertificateDer, Der, PrivateKeyDer, ServerName, UnixTime};
+use rustls::pki_types::{CertificateDer, PrivateKeyDer, ServerName};
 use rustls::{ClientConfig, RootCertStore};
-use std::io::{self, Read, Write};
 use std::sync::Arc;
 use std::time::Duration;
+
+use super::config::TlsConfig as TlsConfigStruct;
+use super::verifier::SkipVerifier;
+use crate::tls::tls_stream::TlsStream;
 
 // ---------------------------------------------------------------------------
 // TlsError
@@ -46,56 +50,6 @@ impl std::fmt::Display for TlsError {
 }
 
 impl std::error::Error for TlsError {}
-
-// ---------------------------------------------------------------------------
-// SkipVerifier — certificate verifier that accepts any certificate
-// ---------------------------------------------------------------------------
-
-/// A certificate verifier that skips verification (for debugging only).
-///
-/// # Security
-///
-/// This verifier accepts **any** server certificate without validation.
-/// NEVER use this in production.
-#[derive(Debug)]
-struct SkipVerifier {
-    inner: Arc<WebPkiServerVerifier>,
-}
-
-impl rustls::client::danger::ServerCertVerifier for SkipVerifier {
-    fn verify_server_cert(
-        &self,
-        _end_entity: &CertificateDer<'_>,
-        _intermediates: &[CertificateDer<'_>],
-        _server_name: &ServerName<'_>,
-        _ocsp_response: &[u8],
-        _now: UnixTime,
-    ) -> Result<rustls::client::danger::ServerCertVerified, rustls::Error> {
-        Ok(rustls::client::danger::ServerCertVerified::assertion())
-    }
-
-    fn verify_tls12_signature(
-        &self,
-        message: &[u8],
-        cert: &CertificateDer<'_>,
-        dss: &rustls::DigitallySignedStruct,
-    ) -> Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
-        self.inner.verify_tls12_signature(message, cert, dss)
-    }
-
-    fn verify_tls13_signature(
-        &self,
-        message: &[u8],
-        cert: &CertificateDer<'_>,
-        dss: &rustls::DigitallySignedStruct,
-    ) -> Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
-        self.inner.verify_tls13_signature(message, cert, dss)
-    }
-
-    fn supported_verify_schemes(&self) -> Vec<rustls::SignatureScheme> {
-        self.inner.supported_verify_schemes()
-    }
-}
 
 // ---------------------------------------------------------------------------
 // TlsConfig
@@ -199,60 +153,6 @@ impl TlsConfig {
         };
 
         Ok(config)
-    }
-}
-
-// ---------------------------------------------------------------------------
-// TlsStream
-// ---------------------------------------------------------------------------
-
-/// Wraps a rustls `ClientConnection` and the underlying TCP socket.
-///
-/// Holds the `ClientConnection` and `TcpStream` as **separate** fields so
-/// that `ClientConnection::complete_io` can borrow them independently —
-/// avoiding the double-mutable-borrow that `StreamOwned` would force.
-///
-/// Implements `Read` / `Write` via the rustls `Reader` / `Writer` helpers,
-/// integrating with the existing `nonblock_read` / `nonblock_write` helpers
-/// in the connection layer.
-pub struct TlsStream {
-    conn: rustls::ClientConnection,
-    stream: may::net::TcpStream,
-}
-
-impl TlsStream {
-    pub fn new(conn: rustls::ClientConnection, stream: may::net::TcpStream) -> Self {
-        Self { conn, stream }
-    }
-
-    /// Return a mutable reference to the underlying `TcpStream`.
-    ///
-    /// Used by the connection loop for `wait_io()` (epoll registration)
-    /// and for feeding raw socket reads/writes into the rustls state machine.
-    pub fn inner_mut(&mut self) -> &mut may::net::TcpStream {
-        &mut self.stream
-    }
-
-    /// Return the raw inner tcp stream.
-    #[must_use]
-    pub fn inner(&self) -> &may::net::TcpStream {
-        &self.stream
-    }
-}
-
-impl Read for TlsStream {
-    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        self.conn.reader().read(buf)
-    }
-}
-
-impl Write for TlsStream {
-    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        self.conn.writer().write(buf)
-    }
-
-    fn flush(&mut self) -> io::Result<()> {
-        self.conn.writer().flush()
     }
 }
 
