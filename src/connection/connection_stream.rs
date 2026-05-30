@@ -14,6 +14,7 @@ pub enum ConnectionStream {
     Tls(Box<crate::tls::TlsStream>),
 }
 
+#[allow(dead_code)]
 impl ConnectionStream {
     #[must_use]
     pub(crate) fn into_tcp(self) -> Option<may::net::TcpStream> {
