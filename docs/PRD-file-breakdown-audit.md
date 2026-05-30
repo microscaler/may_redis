@@ -1,7 +1,7 @@
-# File Breakdown Audit — Updated Post P0/P1/P2
+# File Breakdown Audit — Updated Post P0-P2 + Follow-up Splits
 
 Last updated: 2026-05-30
-Total: 10,996 lines across 57 files (up from 37)
+Total: 11,291 lines across 59 files (up from 57)
 Tests: 319 passed, 0 failed, 36 ignored
 
 ## DONE: Priority 0-2 complete
@@ -35,6 +35,34 @@ All priority-0 through priority-2 tasks from the original plan are **fully imple
 | `connection/tcp.rs` (477 lines) | `tcp.rs` (257) + `tcp_tests.rs` (96) | DONE |
 | `connection/connection.rs` (404 lines) | `connection.rs` (217) + `connection_limits.rs` (33) | DONE |
 | `connection/connection_io.rs` (368 lines) | Kept as-is (PRD said optional) | DONE |
+
+## FOLLOW-UP SPLITS (completed after PRD)
+
+Three files identified as needing further breakdown were split:
+
+### 3a. `client/pipeline.rs` → `pipeline.rs` + `pipeline_response.rs`
+
+| Original | New files | Status |
+|----------|-----------|--------|
+| `client/pipeline.rs` (318 lines) | `pipeline.rs` (~155, Pipeline struct + methods) + `pipeline_response.rs` (~160, FromPipelineResponse trait + impls) | DONE |
+
+The Pipeline struct + execute methods (~155) are distinct from FromPipelineResponse trait + 5 impl blocks (~160). Clean separation: pipeline knows nothing about type conversion, pipeline_response knows nothing about command queuing.
+
+### 3b. `tls/connector.rs` → `connector.rs` + `verifier.rs` + `tls_stream.rs`
+
+| Original | New files | Status |
+|----------|-----------|--------|
+| `tls/connector.rs` (337 lines) | `connector.rs` (~100, TlsConfig + TlsConnector) + `verifier.rs` (~50, SkipVerifier) + `tls_stream.rs` (~50, TlsStream) | DONE |
+
+The SkipVerifier (rustls trait impl), TlsStream (Read/Write impls), and TlsConnector (handshake logic) are fully independent concerns. Config.rs stays as-is (already 149 lines, manageable).
+
+### 3c. `connection/connection_io.rs` → `io_read.rs` + `io_write.rs` + `dispatch.rs` + `epoll_loop.rs`
+
+| Original | New files | Status |
+|----------|-----------|--------|
+| `connection/connection_io.rs` (368 lines) | `io_read.rs` (~60, nonblock_read) + `io_write.rs` (~40, nonblock_write) + `dispatch.rs` (~120, process_req + decode_responses + error_dispatch) + `epoll_loop.rs` (~170, spawn_connection_loop) | DONE |
+
+The epoll loop is the most complex part (90+ lines of code with 90+ lines of doc comments). Separating I/O helpers from dispatch logic from the loop itself makes each piece independently reviewable. The `process_req` function needed `Request` type, so it lives in dispatch.rs alongside `decode_responses` (both operate on `VecDeque<PendingRequest>`).
 
 ## Current State: Production File Inventory
 
