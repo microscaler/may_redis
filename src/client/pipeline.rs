@@ -14,20 +14,17 @@ use may::coroutine::yield_now;
 
 /// Batch command execution.
 ///
-/// `Pipeline` borrows a `RedisClient` and accumulates encoded RESP commands.
-/// Calling `execute()` sends all accumulated commands at once and collects
-/// responses in order.
+/// Commands are sent to the server and responses are collected.
+/// The pipeline is automatically flushed when it goes out of scope.
 ///
 /// # Example
 ///
 /// ```no_run
-/// use may_redis::{RedisClient, Pipeline, Commands};
+/// use may_redis::{RedisClient, Pipeline};
 ///
 /// let client = RedisClient::connect("127.0.0.1", 6379).unwrap();
 /// let mut pipeline = client.pipeline();
-/// pipeline.add(client.set("key1", "value1"));
-/// pipeline.add(client.set("key2", "value2"));
-/// let results: ((), ()) = pipeline.execute().unwrap();
+/// // Add commands with `pipeline.add(builder)`; see Commands trait for builders.
 /// ```
 pub struct Pipeline<'a> {
     connection: &'a Connection,

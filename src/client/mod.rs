@@ -31,11 +31,11 @@
 //! ## Example
 //!
 //! ```no_run
-//! use may_redis::{RedisClient, Commands};
+//! use may_redis::RedisClient;
 //!
 //! let client = RedisClient::connect("127.0.0.1", 6379).unwrap();
-//! let val: Option<String> = client.execute(client.get("mykey")).unwrap();
 //! ```
+//!
 
 pub use client::RedisClient;
 pub use pipeline::Pipeline;
