@@ -9,6 +9,7 @@
 // - connection:  epoll connection loop, TCP, coroutine management
 // - client:      RedisClient, Pipeline, public API
 
+#![deny(warnings)]
 #![allow(clippy::doc_markdown)]
 #![allow(clippy::useless_let_if_seq)]
 #![allow(clippy::transmute_ptr_to_ptr)]

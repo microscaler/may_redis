@@ -14,27 +14,6 @@ pub enum ConnectionStream {
     Tls(Box<crate::tls::TlsStream>),
 }
 
-#[allow(dead_code)]
-impl ConnectionStream {
-    #[must_use]
-    pub(crate) fn into_tcp(self) -> Option<may::net::TcpStream> {
-        match self {
-            Self::Tcp(stream) => Some(stream),
-            #[cfg(feature = "tls")]
-            Self::Tls(_) => None,
-        }
-    }
-
-    #[cfg(feature = "tls")]
-    #[must_use]
-    pub(crate) fn into_tls(self) -> Option<crate::tls::TlsStream> {
-        match self {
-            Self::Tcp(_) => None,
-            Self::Tls(stream) => Some(*stream),
-        }
-    }
-}
-
 impl io::Read for ConnectionStream {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         match self {

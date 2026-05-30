@@ -55,6 +55,7 @@ use super::connection_limits::{
 };
 use super::epoll_loop::spawn_connection_loop;
 use super::tcp::{self, ConnectionError, TcpConnector};
+#[cfg(feature = "tls")]
 use super::StreamHandle;
 use crate::core::RedisValue;
 
@@ -339,6 +340,7 @@ impl Connection {
     ///
     /// The TLS handshake MUST already be complete before calling this.
     /// The epoll loop will wrap the TLS stream the same way it wraps TCP.
+    #[cfg(feature = "tls")]
     fn from_tls_stream(mut tls_stream: super::connection_stream::ConnectionStream) -> Self {
         let id = tls_stream.inner_mut().as_raw_fd() as usize;
         let waker = tls_stream.inner_mut().waker();
