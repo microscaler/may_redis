@@ -51,10 +51,10 @@ use std::os::fd::AsRawFd;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
-use super::epoll_loop::spawn_connection_loop;
 use super::connection_limits::{
     ConnectionLimitError, DEFAULT_MAX_QUEUE_DEPTH, DEFAULT_MAX_REQUEST_SIZE,
 };
+use super::epoll_loop::spawn_connection_loop;
 use super::tcp::{self, ConnectionError, TcpConnector};
 use crate::core::RedisValue;
 

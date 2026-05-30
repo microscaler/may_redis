@@ -26,7 +26,8 @@ pub mod tls;
 
 // Re-export the most common types at the crate root
 pub use client::client::RedisClient;
-pub use client::pipeline::{FromPipelineResponse, Pipeline};
+pub use client::pipeline::Pipeline;
+pub use client::pipeline_response::FromPipelineResponse;
 pub use core::{FromRedisValue, RedisError, RedisValue, ToRedisArgs};
 pub use protocol::builder::{cmd, CommandBuilder, CommandPolicy};
 pub use protocol::commands::Commands;

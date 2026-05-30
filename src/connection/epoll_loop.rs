@@ -18,9 +18,11 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
 use super::connection::PendingRequest;
+use super::connection::Request;
 use super::dispatch::{decode_responses, error_dispatch, process_req};
 use super::io_read::nonblock_read;
 use super::io_write::nonblock_write;
+use crate::core::RedisValue;
 
 /// Spawn the epoll-based connection loop as a may coroutine.
 ///
@@ -93,7 +95,11 @@ pub(super) fn spawn_connection_loop(
             // (2) Best-effort flush of pending bytes to the socket.
             if let Err(e) = nonblock_write(inner, &mut write_buf) {
                 log::error!("write error: {e}");
-                error_dispatch(&mut resp_queue, &pending_count, &format!("Write error: {e}"));
+                error_dispatch(
+                    &mut resp_queue,
+                    &pending_count,
+                    &format!("Write error: {e}"),
+                );
                 break;
             }
 
@@ -108,7 +114,11 @@ pub(super) fn spawn_connection_loop(
                     Ok(blocked) => blocked,
                     Err(e) => {
                         log::error!("read error: {e}");
-                        error_dispatch(&mut resp_queue, &pending_count, &format!("Read error: {e}"));
+                        error_dispatch(
+                            &mut resp_queue,
+                            &pending_count,
+                            &format!("Read error: {e}"),
+                        );
                         break;
                     }
                 }
@@ -150,7 +160,8 @@ pub(super) fn spawn_connection_loop(
 
         // On loop exit (fatal error), drain remaining pending requests.
         while let Some(pending) = resp_queue.pop_front() {
-            let _ = pending.sender
+            let _ = pending
+                .sender
                 .send(RedisValue::Error("Connection loop terminated".into()));
             pending_count.fetch_sub(1, Ordering::SeqCst);
         }
