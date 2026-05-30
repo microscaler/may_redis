@@ -200,6 +200,7 @@ impl RedisClient {
     /// Returns [`RedisError::Parse`] if the URL has an unsupported scheme,
     /// invalid port, unclosed IPv6 bracket, double prefix, or if the AUTH
     /// command fails after a successful connection.
+    #[allow(clippy::too_many_lines)]
     pub fn connect_url(url: &str) -> Result<Self, RedisError> {
         // Issue #18: Reject double prefixes
         let (is_tls, after_scheme) = if let Some(rest) = url.strip_prefix("rediss://") {
