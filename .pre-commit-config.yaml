@@ -16,6 +16,12 @@ repos:
         language: system
         pass_filenames: false
         stages: [pre-commit]
+      - id: doctests
+        name: doctests
+        entry: cargo test --doc --all-features
+        language: system
+        pass_filenames: false
+        stages: [pre-commit]
       - id: file-lengths
         name: file-lengths
         entry: scripts/check-file-lengths.sh

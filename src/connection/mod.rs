@@ -92,6 +92,8 @@ pub mod connection_limits;
 mod connection_stream;
 #[cfg(test)]
 mod connection_tests;
+#[cfg(feature = "tls")]
+mod connection_tls;
 pub mod dispatch;
 pub mod epoll_loop;
 pub mod io_read;
