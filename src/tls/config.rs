@@ -63,7 +63,9 @@ impl RustlsRootCerts {
                     store.roots.push(rustls::pki_types::TrustAnchor {
                         subject: rustls::pki_types::Der::from_slice(ta.subject),
                         subject_public_key_info: rustls::pki_types::Der::from_slice(ta.spki),
-                        name_constraints: ta.name_constraints.map(|nc| rustls::pki_types::Der::from_slice(nc)),
+                        name_constraints: ta
+                            .name_constraints
+                            .map(|nc| rustls::pki_types::Der::from_slice(nc)),
                     });
                 }
             }
@@ -120,17 +122,21 @@ impl ClientCerts {
     /// # Errors
     /// Returns `TlsError::Config` if PEM parsing fails.
     pub fn from_pem(cert_pem: &[u8], key_pem: &[u8]) -> Result<Self, super::TlsError> {
-        let certs: Vec<rustls::pki_types::CertificateDer<'static>> = rustls_pemfile::certs(&mut &cert_pem[..])
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(|e| {
-                super::TlsError::Config(format!("failed to parse client certificate PEM: {e}"))
-            })?;
+        let certs: Vec<rustls::pki_types::CertificateDer<'static>> =
+            rustls_pemfile::certs(&mut &cert_pem[..])
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|e| {
+                    super::TlsError::Config(format!("failed to parse client certificate PEM: {e}"))
+                })?;
 
-        let key: rustls::pki_types::PrivateKeyDer<'static> = rustls_pemfile::private_key(&mut &key_pem[..])
-            .map_err(|e| super::TlsError::Config(format!("failed to parse private key PEM: {e}")))?
-            .ok_or_else(|| {
-                super::TlsError::Config("no private key found in PEM data".to_string())
-            })?;
+        let key: rustls::pki_types::PrivateKeyDer<'static> =
+            rustls_pemfile::private_key(&mut &key_pem[..])
+                .map_err(|e| {
+                    super::TlsError::Config(format!("failed to parse private key PEM: {e}"))
+                })?
+                .ok_or_else(|| {
+                    super::TlsError::Config("no private key found in PEM data".to_string())
+                })?;
 
         Ok(Self {
             certificates: certs.iter().map(|c| c.to_vec()).collect(),

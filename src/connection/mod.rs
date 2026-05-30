@@ -59,11 +59,11 @@
 pub mod connection;
 pub mod connection_io;
 pub mod connection_limits;
+#[cfg(test)]
+mod connection_tests;
 pub mod tcp;
 #[cfg(test)]
 mod tcp_tests;
-#[cfg(test)]
-mod connection_tests;
 #[cfg(test)]
 mod test_limits;
 

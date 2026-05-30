@@ -6,8 +6,8 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use super::client_url::url_decode;
 use super::client_timeout::TimeoutGuard;
+use super::client_url::url_decode;
 use super::pipeline::Pipeline;
 use crate::connection::{Connection, Request, SsrfConfig};
 use crate::core::{FromRedisValue, RedisError, RedisValue};
@@ -225,12 +225,16 @@ impl RedisClient {
                 .map(|colon_idx| {
                     let host = &host_part[..colon_idx];
                     let port_str = &host_part[colon_idx + 1..];
-                    let port: u16 =
-                        port_str.parse().map_err(|e| RedisError::Parse(format!("invalid port: {e}")))?;
+                    let port: u16 = port_str
+                        .parse()
+                        .map_err(|e| RedisError::Parse(format!("invalid port: {e}")))?;
                     Ok::<_, RedisError>((host, port))
                 })
                 .transpose()?
-                .map_or_else(|| (host_part, default_port(ConnectionScheme::Plain)), |(h, p)| (h, p))
+                .map_or_else(
+                    || (host_part, default_port(ConnectionScheme::Plain)),
+                    |(h, p)| (h, p),
+                )
         };
 
         // Use configurable default timeout

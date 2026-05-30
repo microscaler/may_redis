@@ -8,7 +8,6 @@ use super::CommandBuilder;
 
 /// Trait providing Pubsub command methods.
 pub trait PubsubCommands: Sized {
-
     /// PUBLISH channel message — Publish a message to a channel.
     ///
     /// # Warning: pub/sub requires a dedicated connection
@@ -34,7 +33,6 @@ pub trait PubsubCommands: Sized {
         CommandBuilder::new("PUBLISH").arg(channel).arg(message)
     }
 
-
     /// SUBSCRIBE channel [channel ...] — Subscribe to channels
     #[must_use = "call .build() to encode the command"]
     fn subscribe<K: ToRedisArgs>(&self, channels: &[K]) -> CommandBuilder {
@@ -45,13 +43,11 @@ pub trait PubsubCommands: Sized {
         builder
     }
 
-
     /// UNSUBSCRIBE — Unsubscribe from all channels
     #[must_use = "call .build() to encode the command"]
     fn unsubscribe(&self) -> CommandBuilder {
         CommandBuilder::new("UNSUBSCRIBE")
     }
-
 
     /// UNSUBSCRIBE channel [channel ...] — Unsubscribe from specific channels
     #[must_use = "call .build() to encode the command"]
@@ -63,7 +59,6 @@ pub trait PubsubCommands: Sized {
         builder
     }
 
-
     /// PSUBSCRIBE pattern [pattern ...] — Subscribe by pattern
     #[must_use = "call .build() to encode the command"]
     fn psubscribe<K: ToRedisArgs>(&self, patterns: &[K]) -> CommandBuilder {
@@ -74,13 +69,11 @@ pub trait PubsubCommands: Sized {
         builder
     }
 
-
     /// PUNSUBSCRIBE — Unsubscribe from all patterns
     #[must_use = "call .build() to encode the command"]
     fn punsubscribe(&self) -> CommandBuilder {
         CommandBuilder::new("PUNSUBSCRIBE")
     }
-
 
     /// PUNSUBSCRIBE pattern [pattern ...] — Unsubscribe from specific patterns
     #[must_use = "call .build() to encode the command"]
@@ -91,5 +84,4 @@ pub trait PubsubCommands: Sized {
         }
         builder
     }
-
 }

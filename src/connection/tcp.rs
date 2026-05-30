@@ -103,16 +103,34 @@ impl SsrfConfig {
         let second = u32::from(octets[1]);
 
         if self.deny_private {
-            if first == 10 { return true; }
-            if first == 172 && (16..=31).contains(&second) { return true; }
-            if first == 192 && second == 168 { return true; }
+            if first == 10 {
+                return true;
+            }
+            if first == 172 && (16..=31).contains(&second) {
+                return true;
+            }
+            if first == 192 && second == 168 {
+                return true;
+            }
         }
-        if self.deny_link_local && first == 169 && second == 254 { return true; }
-        if self.deny_loopback && first == 127 { return true; }
-        if first == 0 { return true; }
-        if first == 100 && (64..=127).contains(&second) { return true; }
-        if (224..=239).contains(&first) { return true; }
-        if first >= 240 { return true; }
+        if self.deny_link_local && first == 169 && second == 254 {
+            return true;
+        }
+        if self.deny_loopback && first == 127 {
+            return true;
+        }
+        if first == 0 {
+            return true;
+        }
+        if first == 100 && (64..=127).contains(&second) {
+            return true;
+        }
+        if (224..=239).contains(&first) {
+            return true;
+        }
+        if first >= 240 {
+            return true;
+        }
         false
     }
 
@@ -120,9 +138,15 @@ impl SsrfConfig {
         if !self.deny_loopback && !self.deny_link_local && !self.deny_private {
             return addr.is_multicast() || addr.is_unspecified();
         }
-        if self.deny_loopback && addr.is_loopback() { return true; }
-        if self.deny_link_local && addr.is_unicast_link_local() { return true; }
-        if self.deny_private && addr.is_unique_local() { return true; }
+        if self.deny_loopback && addr.is_loopback() {
+            return true;
+        }
+        if self.deny_link_local && addr.is_unicast_link_local() {
+            return true;
+        }
+        if self.deny_private && addr.is_unique_local() {
+            return true;
+        }
         addr.is_multicast() || addr.is_unspecified()
     }
 }

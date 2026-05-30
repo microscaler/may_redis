@@ -1,8 +1,6 @@
 #[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
-
 use super::unit::{run_may, shared_client};
 use crate::protocol::commands::{AdminCommands, PubsubCommands, StringsCommands};
-
 
 #[test]
 #[ignore = "requires live Redis server"]

@@ -44,16 +44,18 @@ mod client_url;
 #[cfg(feature = "test")]
 pub mod in_memory;
 pub mod pipeline;
+pub mod pipeline_response;
 
 pub use client::RedisClient;
 #[cfg(test)]
 mod client_tests {
     #[cfg(test)]
-    mod unit;
-    #[cfg(test)]
     mod integration;
+    #[cfg(test)]
+    mod unit;
 }
-pub use pipeline::{FromPipelineResponse, Pipeline};
+pub use pipeline::Pipeline;
+pub use pipeline_response::FromPipelineResponse;
 
 #[cfg(feature = "test")]
 pub use in_memory::InMemoryClient;

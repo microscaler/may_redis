@@ -153,8 +153,12 @@ impl TlsConfig {
 
         // Determine which protocol versions to allow.
         let versions = match (self.min_version, self.max_version) {
-            (super::config::TlsVersion::Tls13, super::config::TlsVersion::Tls13) => &[&rustls::version::TLS13][..],
-            (super::config::TlsVersion::Tls12, super::config::TlsVersion::Tls12) => &[&rustls::version::TLS12][..],
+            (super::config::TlsVersion::Tls13, super::config::TlsVersion::Tls13) => {
+                &[&rustls::version::TLS13][..]
+            }
+            (super::config::TlsVersion::Tls12, super::config::TlsVersion::Tls12) => {
+                &[&rustls::version::TLS12][..]
+            }
             _ => rustls::DEFAULT_VERSIONS,
         };
 

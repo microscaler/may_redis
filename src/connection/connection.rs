@@ -52,7 +52,9 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
 use super::connection_io::spawn_connection_loop;
-use super::connection_limits::{ConnectionLimitError, DEFAULT_MAX_QUEUE_DEPTH, DEFAULT_MAX_REQUEST_SIZE};
+use super::connection_limits::{
+    ConnectionLimitError, DEFAULT_MAX_QUEUE_DEPTH, DEFAULT_MAX_REQUEST_SIZE,
+};
 use super::tcp::{self, ConnectionError, TcpConnector};
 use crate::core::RedisValue;
 
@@ -131,7 +133,10 @@ impl Connection {
         let pending_count = Arc::new(AtomicUsize::new(0));
         let io_handle = spawn_connection_loop(stream, req_queue.clone(), pending_count.clone());
         Ok(Self {
-            io_handle, req_queue, waker, id,
+            io_handle,
+            req_queue,
+            waker,
+            id,
             tag_counter: Arc::new(AtomicUsize::new(0)),
             max_queue_depth: DEFAULT_MAX_QUEUE_DEPTH,
             max_request_size: DEFAULT_MAX_REQUEST_SIZE,
@@ -154,7 +159,10 @@ impl Connection {
         let pending_count = Arc::new(AtomicUsize::new(0));
         let io_handle = spawn_connection_loop(stream, req_queue.clone(), pending_count.clone());
         Ok(Self {
-            io_handle, req_queue, waker, id,
+            io_handle,
+            req_queue,
+            waker,
+            id,
             tag_counter: Arc::new(AtomicUsize::new(0)),
             max_queue_depth: DEFAULT_MAX_QUEUE_DEPTH,
             max_request_size: DEFAULT_MAX_REQUEST_SIZE,
@@ -178,7 +186,10 @@ impl Connection {
         let pending_count = Arc::new(AtomicUsize::new(0));
         let io_handle = spawn_connection_loop(stream, req_queue.clone(), pending_count.clone());
         Ok(Self {
-            io_handle, req_queue, waker, id,
+            io_handle,
+            req_queue,
+            waker,
+            id,
             tag_counter: Arc::new(AtomicUsize::new(0)),
             max_queue_depth,
             max_request_size,
