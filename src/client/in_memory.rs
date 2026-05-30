@@ -82,9 +82,9 @@ impl InMemoryStore {
         let current = self.data.get(key).map(|(v, _)| v.clone());
         let new_val = match current {
             Some(s) => {
-                let n: i64 = s
-                    .parse()
-                    .map_err(|_| RedisError::Other("ERR value is not an integer".to_string()))?;
+                let n: i64 = s.parse().map_err(|_| {
+                    RedisError::Other("ERR value is not an integer".to_string())
+                })?;
                 n + 1
             }
             None => 1,
@@ -164,7 +164,9 @@ fn glob_match(pattern: &str, text: &str) -> bool {
     let mut text_backtrack = 0usize;
 
     while ti < text_chars.len() {
-        if pi < pat_chars.len() && (pat_chars[pi] == '?' || pat_chars[pi] == text_chars[ti]) {
+        if pi < pat_chars.len()
+            && (pat_chars[pi] == '?' || pat_chars[pi] == text_chars[ti])
+        {
             // Match single char
             pi += 1;
             ti += 1;

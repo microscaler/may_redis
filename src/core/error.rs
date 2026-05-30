@@ -103,7 +103,9 @@ impl FromRedisValue for String {
         match value {
             RedisValue::BulkString(bytes) => std::str::from_utf8(bytes)
                 .map(ToString::to_string)
-                .map_err(|_| RedisError::Parse("BulkString is not valid UTF-8".to_string())),
+                .map_err(|_| {
+                    RedisError::Parse("BulkString is not valid UTF-8".to_string())
+                }),
             RedisValue::SimpleString(s) => Ok(s.clone()),
             RedisValue::Integer(n) => Ok(n.to_string()),
             other => Err(RedisError::Parse(format!(

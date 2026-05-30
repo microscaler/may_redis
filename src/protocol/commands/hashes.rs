@@ -22,7 +22,11 @@ pub trait HashesCommands: Sized {
 
     /// HDEL fields — Delete multiple hash fields (variadic)
     #[must_use = "call .build() to encode the command"]
-    fn hdel_fields<K: ToRedisArgs, F: ToRedisArgs>(&self, key: K, fields: &[F]) -> CommandBuilder {
+    fn hdel_fields<K: ToRedisArgs, F: ToRedisArgs>(
+        &self,
+        key: K,
+        fields: &[F],
+    ) -> CommandBuilder {
         let mut builder = CommandBuilder::new("HDEL");
         builder = builder.arg(key);
         for f in fields {
@@ -51,7 +55,11 @@ pub trait HashesCommands: Sized {
 
     /// HEXISTS key field — Check if a hash field exists
     #[must_use = "call .build() to encode the command"]
-    fn hexists<K: ToRedisArgs, F: ToRedisArgs>(&self, key: K, field: F) -> CommandBuilder {
+    fn hexists<K: ToRedisArgs, F: ToRedisArgs>(
+        &self,
+        key: K,
+        field: F,
+    ) -> CommandBuilder {
         CommandBuilder::new("HEXISTS").arg(key).arg(field)
     }
 
@@ -63,7 +71,12 @@ pub trait HashesCommands: Sized {
 
     /// HSCAN MATCH key cursor pattern — Incrementally iterate hash fields matching a pattern
     #[must_use = "call .build() to encode the command"]
-    fn hscan_match<K: ToRedisArgs>(&self, key: K, cursor: i64, pattern: &str) -> CommandBuilder {
+    fn hscan_match<K: ToRedisArgs>(
+        &self,
+        key: K,
+        cursor: i64,
+        pattern: &str,
+    ) -> CommandBuilder {
         CommandBuilder::new("HSCAN")
             .arg(key)
             .arg(cursor)

@@ -46,7 +46,11 @@ pub trait StringsCommands: Sized {
 
     /// APPEND key value
     #[must_use = "call .build() to encode the command"]
-    fn append<K: ToRedisArgs, V: ToRedisArgs>(&self, key: K, value: V) -> CommandBuilder {
+    fn append<K: ToRedisArgs, V: ToRedisArgs>(
+        &self,
+        key: K,
+        value: V,
+    ) -> CommandBuilder {
         CommandBuilder::new("APPEND").arg(key).arg(value)
     }
 
@@ -64,7 +68,11 @@ pub trait StringsCommands: Sized {
 
     /// SETNX key value — Set key to value only if key does not exist
     #[must_use = "call .build() to encode the command"]
-    fn setnx<K: ToRedisArgs, V: ToRedisArgs>(&self, key: K, value: V) -> CommandBuilder {
+    fn setnx<K: ToRedisArgs, V: ToRedisArgs>(
+        &self,
+        key: K,
+        value: V,
+    ) -> CommandBuilder {
         CommandBuilder::new("SETNX").arg(key).arg(value)
     }
 
@@ -90,7 +98,10 @@ pub trait StringsCommands: Sized {
 
     /// MSETNX key value [key value ...] — Set multiple keys to multiple values, only if none of the keys exist
     #[must_use = "call .build() to encode the command"]
-    fn msetnx<K: ToRedisArgs, V: ToRedisArgs>(&self, pairs: &[(K, V)]) -> CommandBuilder {
+    fn msetnx<K: ToRedisArgs, V: ToRedisArgs>(
+        &self,
+        pairs: &[(K, V)],
+    ) -> CommandBuilder {
         let mut builder = CommandBuilder::new("MSETNX");
         for (key, value) in pairs {
             builder = builder.arg(key).arg(value);
@@ -112,7 +123,12 @@ pub trait StringsCommands: Sized {
 
     /// SETBIT key offset value — Sets or clears the bit at offset in the string value stored at key
     #[must_use = "call .build() to encode the command"]
-    fn setbit<K: ToRedisArgs>(&self, key: K, offset: i64, value: i64) -> CommandBuilder {
+    fn setbit<K: ToRedisArgs>(
+        &self,
+        key: K,
+        offset: i64,
+        value: i64,
+    ) -> CommandBuilder {
         CommandBuilder::new("SETBIT")
             .arg(key)
             .arg(offset)
@@ -133,7 +149,12 @@ pub trait StringsCommands: Sized {
 
     /// BITCOUNT key start end — Count set bits in a string with byte range
     #[must_use = "call .build() to encode the command"]
-    fn bitcount_range<K: ToRedisArgs>(&self, key: K, start: i64, end: i64) -> CommandBuilder {
+    fn bitcount_range<K: ToRedisArgs>(
+        &self,
+        key: K,
+        start: i64,
+        end: i64,
+    ) -> CommandBuilder {
         CommandBuilder::new("BITCOUNT").arg(key).arg(start).arg(end)
     }
 

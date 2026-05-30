@@ -70,7 +70,9 @@ impl<'a> Pipeline<'a> {
     ///
     /// # Errors
     /// Returns [`crate::core::RedisError::Parse`] if the response channel is closed.
-    pub fn execute_raw(&mut self) -> Result<Vec<crate::core::RedisValue>, crate::core::RedisError> {
+    pub fn execute_raw(
+        &mut self,
+    ) -> Result<Vec<crate::core::RedisValue>, crate::core::RedisError> {
         // Push all commands to the connection's request queue at once
         // using the senders we stored during `add()`
         for (data, tx) in std::mem::take(&mut self.commands)
@@ -90,9 +92,9 @@ impl<'a> Pipeline<'a> {
         // Collect responses from the receivers we stored during `add()`
         let mut responses = Vec::with_capacity(self.receivers.len());
         for rx in std::mem::take(&mut self.receivers) {
-            let response = rx
-                .recv()
-                .map_err(|_| crate::core::RedisError::Parse("response channel closed".into()))?;
+            let response = rx.recv().map_err(|_| {
+                crate::core::RedisError::Parse("response channel closed".into())
+            })?;
             responses.push(response);
         }
 

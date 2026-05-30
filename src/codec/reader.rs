@@ -263,7 +263,9 @@ impl RESPReader {
         let line = self.read_line()?;
         self.expect_crlf()?;
         let len = std::str::from_utf8(&line)
-            .map_err(|_| RedisError::Parse("bulk string length is not valid UTF-8".into()))?
+            .map_err(|_| {
+                RedisError::Parse("bulk string length is not valid UTF-8".into())
+            })?
             .parse::<isize>()
             .map_err(|_| {
                 RedisError::Parse(format!(

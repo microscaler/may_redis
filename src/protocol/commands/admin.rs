@@ -76,7 +76,12 @@ pub trait AdminCommands: Sized {
 
     /// SORT key LIMIT offset count — Sort with pagination
     #[must_use = "call .build() to encode the command"]
-    fn sort_limit<K: ToRedisArgs>(&self, key: K, offset: i64, count: i64) -> CommandBuilder {
+    fn sort_limit<K: ToRedisArgs>(
+        &self,
+        key: K,
+        offset: i64,
+        count: i64,
+    ) -> CommandBuilder {
         CommandBuilder::new("SORT")
             .arg(key)
             .arg("LIMIT")

@@ -107,7 +107,8 @@ fn from_tls_stream(mut tls_stream: ConnectionStream) -> super::connection::Conne
     let waker = tls_stream.inner_mut().waker();
     let req_queue = Arc::new(Queue::new());
     let pending_count = Arc::new(AtomicUsize::new(0));
-    let io_handle = spawn_connection_loop(tls_stream, req_queue.clone(), pending_count.clone());
+    let io_handle =
+        spawn_connection_loop(tls_stream, req_queue.clone(), pending_count.clone());
 
     super::connection::Connection {
         io_handle,

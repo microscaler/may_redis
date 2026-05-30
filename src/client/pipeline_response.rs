@@ -73,8 +73,12 @@ impl<T1: FromRedisValue, T2: FromRedisValue, T3: FromRedisValue> FromPipelineRes
     }
 }
 
-impl<T1: FromRedisValue, T2: FromRedisValue, T3: FromRedisValue, T4: FromRedisValue>
-    FromPipelineResponse for (T1, T2, T3, T4)
+impl<
+        T1: FromRedisValue,
+        T2: FromRedisValue,
+        T3: FromRedisValue,
+        T4: FromRedisValue,
+    > FromPipelineResponse for (T1, T2, T3, T4)
 {
     fn from_responses(responses: Vec<RedisValue>) -> Result<Self, RedisError> {
         if responses.len() != 4 {
@@ -123,7 +127,8 @@ mod tests {
             RedisValue::Integer(1),
             RedisValue::BulkString(b"hello".to_vec()),
         ];
-        let result: Result<(bool, String), _> = FromPipelineResponse::from_responses(responses);
+        let result: Result<(bool, String), _> =
+            FromPipelineResponse::from_responses(responses);
         assert_eq!(result.unwrap(), (true, "hello".to_string()));
     }
 
@@ -134,7 +139,8 @@ mod tests {
             RedisValue::Integer(2),
             RedisValue::Integer(3),
         ];
-        let result: Result<(bool, i64, i64), _> = FromPipelineResponse::from_responses(responses);
+        let result: Result<(bool, i64, i64), _> =
+            FromPipelineResponse::from_responses(responses);
         assert_eq!(result.unwrap(), (true, 2, 3));
     }
 
@@ -145,7 +151,8 @@ mod tests {
             RedisValue::BulkString(b"b".to_vec()),
             RedisValue::BulkString(b"c".to_vec()),
         ];
-        let result: Result<Vec<String>, _> = FromPipelineResponse::from_responses(responses);
+        let result: Result<Vec<String>, _> =
+            FromPipelineResponse::from_responses(responses);
         assert_eq!(
             result.unwrap(),
             vec!["a".to_string(), "b".to_string(), "c".to_string()]
@@ -155,7 +162,8 @@ mod tests {
     #[test]
     fn test_from_pipeline_response_wrong_count() {
         let responses = vec![RedisValue::Integer(1)];
-        let result: Result<(i64, i64), _> = FromPipelineResponse::from_responses(responses);
+        let result: Result<(i64, i64), _> =
+            FromPipelineResponse::from_responses(responses);
         assert!(result.is_err());
     }
 }

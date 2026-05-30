@@ -54,7 +54,8 @@ mod tests {
 
     #[test]
     fn test_connect_url_timeout_parses() {
-        let result = TcpConnector::connect_url_timeout("redis://nonexistent.invalid:6379", 1);
+        let result =
+            TcpConnector::connect_url_timeout("redis://nonexistent.invalid:6379", 1);
         assert!(result.is_err());
     }
 

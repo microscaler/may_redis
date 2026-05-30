@@ -29,7 +29,11 @@ pub trait PubsubCommands: Sized {
     /// connection state — it just sends a command and returns the number
     /// of subscribers.
     #[must_use = "call .build() to encode the command"]
-    fn publish<K: ToRedisArgs, M: ToRedisArgs>(&self, channel: K, message: M) -> CommandBuilder {
+    fn publish<K: ToRedisArgs, M: ToRedisArgs>(
+        &self,
+        channel: K,
+        message: M,
+    ) -> CommandBuilder {
         CommandBuilder::new("PUBLISH").arg(channel).arg(message)
     }
 

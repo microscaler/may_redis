@@ -10,7 +10,11 @@ use super::CommandBuilder;
 pub trait ListsCommands: Sized {
     /// LPUSH key values — Prepend one or multiple values to a list
     #[must_use = "call .build() to encode the command"]
-    fn lpush<K: ToRedisArgs, V: ToRedisArgs>(&self, key: K, values: &[V]) -> CommandBuilder {
+    fn lpush<K: ToRedisArgs, V: ToRedisArgs>(
+        &self,
+        key: K,
+        values: &[V],
+    ) -> CommandBuilder {
         let mut builder = CommandBuilder::new("LPUSH");
         builder = builder.arg(key);
         for v in values {
@@ -21,7 +25,11 @@ pub trait ListsCommands: Sized {
 
     /// RPUSH key values — Append one or multiple values to a list
     #[must_use = "call .build() to encode the command"]
-    fn rpush<K: ToRedisArgs, V: ToRedisArgs>(&self, key: K, values: &[V]) -> CommandBuilder {
+    fn rpush<K: ToRedisArgs, V: ToRedisArgs>(
+        &self,
+        key: K,
+        values: &[V],
+    ) -> CommandBuilder {
         let mut builder = CommandBuilder::new("RPUSH");
         builder = builder.arg(key);
         for v in values {
@@ -62,13 +70,23 @@ pub trait ListsCommands: Sized {
 
     /// LSET key index value — Set the value of an element in a list by its index
     #[must_use = "call .build() to encode the command"]
-    fn lset<K: ToRedisArgs, V: ToRedisArgs>(&self, key: K, index: i64, value: V) -> CommandBuilder {
+    fn lset<K: ToRedisArgs, V: ToRedisArgs>(
+        &self,
+        key: K,
+        index: i64,
+        value: V,
+    ) -> CommandBuilder {
         CommandBuilder::new("LSET").arg(key).arg(index).arg(value)
     }
 
     /// LREM key count value — Remove elements matching a value from a list
     #[must_use = "call .build() to encode the command"]
-    fn lrem<K: ToRedisArgs, V: ToRedisArgs>(&self, key: K, count: i64, value: V) -> CommandBuilder {
+    fn lrem<K: ToRedisArgs, V: ToRedisArgs>(
+        &self,
+        key: K,
+        count: i64,
+        value: V,
+    ) -> CommandBuilder {
         CommandBuilder::new("LREM").arg(key).arg(count).arg(value)
     }
 

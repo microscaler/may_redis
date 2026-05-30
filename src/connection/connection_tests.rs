@@ -31,7 +31,8 @@ fn init_may_runtime() {
 /// Test that Request creates correctly
 #[test]
 fn test_request_new() {
-    let (tx, _rx): (spsc::Sender<RedisValue>, spsc::Receiver<RedisValue>) = spsc::channel();
+    let (tx, _rx): (spsc::Sender<RedisValue>, spsc::Receiver<RedisValue>) =
+        spsc::channel();
     let req = Request::new(vec![1, 2, 3], tx);
     assert_eq!(req.data, vec![1, 2, 3]);
 }
@@ -82,7 +83,8 @@ fn test_process_req_multiple() {
 #[test]
 fn test_decode_responses_integer() {
     let mut read_buf: BytesMut = b":42\r\n".as_slice().into();
-    let (tx, _rx): (spsc::Sender<RedisValue>, spsc::Receiver<RedisValue>) = spsc::channel();
+    let (tx, _rx): (spsc::Sender<RedisValue>, spsc::Receiver<RedisValue>) =
+        spsc::channel();
     let mut resp_queue = VecDeque::new();
     resp_queue.push_back(PendingRequest { sender: tx });
 
@@ -95,7 +97,8 @@ fn test_decode_responses_integer() {
 #[test]
 fn test_decode_responses_bulk_string() {
     let mut read_buf: BytesMut = b"$5\r\nhello\r\n".as_slice().into();
-    let (tx, _rx): (spsc::Sender<RedisValue>, spsc::Receiver<RedisValue>) = spsc::channel();
+    let (tx, _rx): (spsc::Sender<RedisValue>, spsc::Receiver<RedisValue>) =
+        spsc::channel();
     let mut resp_queue = VecDeque::new();
     resp_queue.push_back(PendingRequest { sender: tx });
 
@@ -108,7 +111,8 @@ fn test_decode_responses_bulk_string() {
 #[test]
 fn test_decode_responses_error() {
     let mut read_buf: BytesMut = b"-ERR something bad\r\n".as_slice().into();
-    let (tx, _rx): (spsc::Sender<RedisValue>, spsc::Receiver<RedisValue>) = spsc::channel();
+    let (tx, _rx): (spsc::Sender<RedisValue>, spsc::Receiver<RedisValue>) =
+        spsc::channel();
     let mut resp_queue = VecDeque::new();
     resp_queue.push_back(PendingRequest { sender: tx });
 
@@ -121,7 +125,8 @@ fn test_decode_responses_error() {
 #[test]
 fn test_decode_responses_incomplete() {
     let mut read_buf: BytesMut = b"$5\r\nhel".as_slice().into();
-    let (tx, _rx): (spsc::Sender<RedisValue>, spsc::Receiver<RedisValue>) = spsc::channel();
+    let (tx, _rx): (spsc::Sender<RedisValue>, spsc::Receiver<RedisValue>) =
+        spsc::channel();
     let mut resp_queue = VecDeque::new();
     resp_queue.push_back(PendingRequest { sender: tx });
 
@@ -151,7 +156,8 @@ fn test_decode_responses_unexpected() {
 #[test]
 fn test_decode_responses_multiple_in_one_buffer() {
     // 4 responses: +OK\r\n +OK\r\n +OK\r\n $5\r\nhello\r\n
-    let mut read_buf: BytesMut = b"+OK\r\n+OK\r\n+OK\r\n$5\r\nhello\r\n".as_slice().into();
+    let mut read_buf: BytesMut =
+        b"+OK\r\n+OK\r\n+OK\r\n$5\r\nhello\r\n".as_slice().into();
 
     let mut resp_queue = VecDeque::<PendingRequest>::new();
     let mut receivers: Vec<spsc::Receiver<RedisValue>> = Vec::new();
@@ -305,8 +311,10 @@ fn test_connection_drop_during_request() {
                 let conn = Arc::clone(&conn);
                 let results = Arc::clone(&results);
                 go!(move || {
-                    let (tx, rx): (spsc::Sender<RedisValue>, spsc::Receiver<RedisValue>) =
-                        spsc::channel();
+                    let (tx, rx): (
+                        spsc::Sender<RedisValue>,
+                        spsc::Receiver<RedisValue>,
+                    ) = spsc::channel();
                     let ping = Request::new(b"*1\r\n$4\r\nPING\r\n".to_vec(), tx);
                     // Enqueue the request.
                     let _ = conn.send(ping);
@@ -327,14 +335,18 @@ fn test_connection_drop_during_request() {
                                 break;
                             }
                             Err(_) => {
-                                may::coroutine::sleep(std::time::Duration::from_millis(50));
+                                may::coroutine::sleep(
+                                    std::time::Duration::from_millis(50),
+                                );
                             }
                         }
                     }
                     if got_error {
                         results.fetch_add(1, Ordering::SeqCst);
                     } else {
-                        log::warn!("coroutine {i}: did not receive an error (possible hang)");
+                        log::warn!(
+                            "coroutine {i}: did not receive an error (possible hang)"
+                        );
                     }
                 })
             })
@@ -463,7 +475,8 @@ fn test_connection_drop_no_panic() {
     // Scenario 1: Send then drop.
     {
         let conn = Connection::connect("127.0.0.1", 6379).expect("connect");
-        let (tx, rx): (spsc::Sender<RedisValue>, spsc::Receiver<RedisValue>) = spsc::channel();
+        let (tx, rx): (spsc::Sender<RedisValue>, spsc::Receiver<RedisValue>) =
+            spsc::channel();
         let _ = conn.send(Request::new(b"*1\r\n$4\r\nPING\r\n".to_vec(), tx));
         drop(conn);
         // Give loop time to drain.
@@ -482,7 +495,8 @@ fn test_connection_drop_no_panic() {
         // A send into a cancelled/moved queue should not panic.
         // The Queue is Arc-moved, so push should not panic.
         let queue = Arc::new(Queue::<Request>::new());
-        let (tx, _rx): (spsc::Sender<RedisValue>, spsc::Receiver<RedisValue>) = spsc::channel();
+        let (tx, _rx): (spsc::Sender<RedisValue>, spsc::Receiver<RedisValue>) =
+            spsc::channel();
         queue.push(Request::new(b"*1\r\n$4\r\nPING\r\n".to_vec(), tx));
         // The fact we reached here without panicking is the assertion.
     }

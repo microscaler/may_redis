@@ -190,7 +190,10 @@ impl CommandBuilder {
     /// # Errors
     /// Returns [`RedisError::Security`] if the command is blocked
     /// by the given policy.
-    pub fn validate_policy(&self, policy: &CommandPolicy) -> Result<(), crate::core::RedisError> {
+    pub fn validate_policy(
+        &self,
+        policy: &CommandPolicy,
+    ) -> Result<(), crate::core::RedisError> {
         if let Some(name) = self.command_name() {
             if !policy.is_allowed(name) {
                 return Err(crate::core::RedisError::Security(format!(

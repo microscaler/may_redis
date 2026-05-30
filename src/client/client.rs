@@ -13,8 +13,8 @@ use crate::connection::{Connection, SsrfConfig};
 use crate::core::{FromRedisValue, RedisError};
 use crate::protocol::builder::CommandBuilder;
 use crate::protocol::commands::{
-    AdminCommands, HashesCommands, ListsCommands, PubsubCommands, SetsCommands, SortedSetsCommands,
-    StringsCommands, TransactionsCommands,
+    AdminCommands, HashesCommands, ListsCommands, PubsubCommands, SetsCommands,
+    SortedSetsCommands, StringsCommands, TransactionsCommands,
 };
 
 /// Default timeout for `execute()` — 5 seconds.
@@ -65,7 +65,10 @@ impl RedisClient {
     ///
     /// # Errors
     /// Returns the connection layer error type if TCP fails.
-    pub fn connect(host: &str, port: u16) -> Result<Self, crate::connection::ConnectionError> {
+    pub fn connect(
+        host: &str,
+        port: u16,
+    ) -> Result<Self, crate::connection::ConnectionError> {
         Self::connect_with_timeout(host, port, DEFAULT_EXECUTE_TIMEOUT)
     }
 
@@ -206,7 +209,10 @@ impl RedisClient {
     /// response channel is closed, or the timeout expires before a response
     /// is received. Returns [`RedisError::Parse`] if the response cannot be
     /// converted to the requested type.
-    pub fn execute<T: FromRedisValue>(&self, cmd: CommandBuilder) -> Result<T, RedisError> {
+    pub fn execute<T: FromRedisValue>(
+        &self,
+        cmd: CommandBuilder,
+    ) -> Result<T, RedisError> {
         self.execute_with_timeout(cmd, self.inner.default_timeout)
     }
 

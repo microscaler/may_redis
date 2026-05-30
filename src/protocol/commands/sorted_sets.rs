@@ -10,7 +10,11 @@ use super::CommandBuilder;
 pub trait SortedSetsCommands: Sized {
     /// ZREM key member — Remove a member from a sorted set
     #[must_use = "call .build() to encode the command"]
-    fn zrem<K: ToRedisArgs, M: ToRedisArgs>(&self, key: K, member: M) -> CommandBuilder {
+    fn zrem<K: ToRedisArgs, M: ToRedisArgs>(
+        &self,
+        key: K,
+        member: M,
+    ) -> CommandBuilder {
         CommandBuilder::new("ZREM").arg(key).arg(member)
     }
 
@@ -22,7 +26,12 @@ pub trait SortedSetsCommands: Sized {
 
     /// ZRANGE key start stop WITHSCORES — Return a range with scores
     #[must_use = "call .build() to encode the command"]
-    fn zrange_withscores<K: ToRedisArgs>(&self, key: K, start: i64, stop: i64) -> CommandBuilder {
+    fn zrange_withscores<K: ToRedisArgs>(
+        &self,
+        key: K,
+        start: i64,
+        stop: i64,
+    ) -> CommandBuilder {
         CommandBuilder::new("ZRANGE")
             .arg(key)
             .arg(start)
@@ -32,13 +41,21 @@ pub trait SortedSetsCommands: Sized {
 
     /// ZRANK key member — Return the rank of a member in a sorted set
     #[must_use = "call .build() to encode the command"]
-    fn zrank<K: ToRedisArgs, M: ToRedisArgs>(&self, key: K, member: M) -> CommandBuilder {
+    fn zrank<K: ToRedisArgs, M: ToRedisArgs>(
+        &self,
+        key: K,
+        member: M,
+    ) -> CommandBuilder {
         CommandBuilder::new("ZRANK").arg(key).arg(member)
     }
 
     /// ZSCORE key member — Return the score of a member in a sorted set
     #[must_use = "call .build() to encode the command"]
-    fn zscore<K: ToRedisArgs, M: ToRedisArgs>(&self, key: K, member: M) -> CommandBuilder {
+    fn zscore<K: ToRedisArgs, M: ToRedisArgs>(
+        &self,
+        key: K,
+        member: M,
+    ) -> CommandBuilder {
         CommandBuilder::new("ZSCORE").arg(key).arg(member)
     }
 
@@ -86,7 +103,12 @@ pub trait SortedSetsCommands: Sized {
 
     /// ZSCAN MATCH key cursor pattern — Incrementally iterate with pattern matching
     #[must_use = "call .build() to encode the command"]
-    fn zscan_match<K: ToRedisArgs>(&self, key: K, cursor: i64, pattern: &str) -> CommandBuilder {
+    fn zscan_match<K: ToRedisArgs>(
+        &self,
+        key: K,
+        cursor: i64,
+        pattern: &str,
+    ) -> CommandBuilder {
         CommandBuilder::new("ZSCAN")
             .arg(key)
             .arg(cursor)
@@ -96,7 +118,12 @@ pub trait SortedSetsCommands: Sized {
 
     /// ZRANGEBYSCORE key min max — Return members by score range
     #[must_use = "call .build() to encode the command"]
-    fn zrangebyscore<K: ToRedisArgs>(&self, key: K, min: f64, max: f64) -> CommandBuilder {
+    fn zrangebyscore<K: ToRedisArgs>(
+        &self,
+        key: K,
+        min: f64,
+        max: f64,
+    ) -> CommandBuilder {
         CommandBuilder::new("ZRANGEBYSCORE")
             .arg(key)
             .arg(min)

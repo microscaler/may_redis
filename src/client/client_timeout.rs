@@ -85,9 +85,9 @@ impl super::client::RedisClient {
         // Step 1: Build the command into RESP bytes
         // AC-3.11: build() returns None if the command is blocked by the
         // CommandPolicy, so we return a Protocol error here.
-        let data = cmd
-            .build()
-            .ok_or_else(|| RedisError::Protocol("command blocked by command policy".into()))?;
+        let data = cmd.build().ok_or_else(|| {
+            RedisError::Protocol("command blocked by command policy".into())
+        })?;
 
         // Step 2: Create a channel for this request's response
         let (tx, rx) = spsc::channel();
@@ -128,7 +128,9 @@ impl super::client::RedisClient {
                 break resp;
             }
             if timeout_rx.try_recv().is_ok() {
-                break RedisValue::Error(format!("command execution timed out after {timeout:?}"));
+                break RedisValue::Error(format!(
+                    "command execution timed out after {timeout:?}"
+                ));
             }
             may::coroutine::yield_now();
         };

@@ -10,7 +10,9 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use may::go;
-use may_redis::protocol::commands::{AdminCommands, HashesCommands, SetsCommands, StringsCommands};
+use may_redis::protocol::commands::{
+    AdminCommands, HashesCommands, SetsCommands, StringsCommands,
+};
 use may_redis::RedisClient;
 use std::fmt::Write;
 
@@ -62,18 +64,25 @@ fn test_scenario_population_2000_users() {
         ));
         let _ = client.execute::<()>(client.hset(&refresh_key, "sub", &uid));
         let _ = client.execute::<()>(client.hset(&refresh_key, "sid", &sid));
-        let _ = client.execute::<()>(client.hset(&refresh_key, "family_id", &family_id));
+        let _ =
+            client.execute::<()>(client.hset(&refresh_key, "family_id", &family_id));
         let _ = client.execute::<()>(client.hset(&refresh_key, "iat", i.to_string()));
-        let _ = client.execute::<()>(client.hset(&refresh_key, "exp", (i + 3600).to_string()));
+        let _ = client.execute::<()>(client.hset(
+            &refresh_key,
+            "exp",
+            (i + 3600).to_string(),
+        ));
         let _ = client.execute::<()>(client.hset(&refresh_key, "client_id", "web-app"));
         let _ = client.execute::<()>(client.hset(&refresh_key, "scopes", "read write"));
 
         // SADD family:{family_id} {jti}
-        let _ = client
-            .execute::<usize>(client.sadd(&family_key, refresh_key.split(':').nth(1).unwrap()));
+        let _ = client.execute::<usize>(
+            client.sadd(&family_key, refresh_key.split(':').nth(1).unwrap()),
+        );
 
         // SETEX session:{sid} 2592000 session_json
-        let _ = client.execute::<()>(client.setex(&session_key, 2_592_000, &session_json));
+        let _ =
+            client.execute::<()>(client.setex(&session_key, 2_592_000, &session_json));
     }
 
     let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
@@ -120,16 +129,39 @@ fn test_scenario_concurrent_population() {
                 let _ = client.execute::<()>(client.hset(&refresh_key, "jti", &jti));
                 let _ = client.execute::<()>(client.hset(&refresh_key, "sub", &uid));
                 let _ = client.execute::<()>(client.hset(&refresh_key, "sid", &sid));
-                let _ = client.execute::<()>(client.hset(&refresh_key, "family_id", &family_id));
-                let _ = client.execute::<()>(client.hset(&refresh_key, "iat", i.to_string()));
-                let _ =
-                    client.execute::<()>(client.hset(&refresh_key, "exp", (i + 3600).to_string()));
-                let _ = client.execute::<()>(client.hset(&refresh_key, "client_id", "web-app"));
-                let _ = client.execute::<()>(client.hset(&refresh_key, "scopes", "read write"));
+                let _ = client.execute::<()>(client.hset(
+                    &refresh_key,
+                    "family_id",
+                    &family_id,
+                ));
+                let _ = client.execute::<()>(client.hset(
+                    &refresh_key,
+                    "iat",
+                    i.to_string(),
+                ));
+                let _ = client.execute::<()>(client.hset(
+                    &refresh_key,
+                    "exp",
+                    (i + 3600).to_string(),
+                ));
+                let _ = client.execute::<()>(client.hset(
+                    &refresh_key,
+                    "client_id",
+                    "web-app",
+                ));
+                let _ = client.execute::<()>(client.hset(
+                    &refresh_key,
+                    "scopes",
+                    "read write",
+                ));
 
                 let _ = client.execute::<usize>(client.sadd(&family_key, &jti));
 
-                let _ = client.execute::<()>(client.setex(&session_key, 2_592_000, &session_json));
+                let _ = client.execute::<()>(client.setex(
+                    &session_key,
+                    2_592_000,
+                    &session_json,
+                ));
                 keys += 10;
             }
             keys
@@ -172,7 +204,8 @@ fn test_scenario_login_burst() {
 
         let _ = client.execute::<()>(client.hset(&refresh_key, "sub", &uid));
         let _ = client.execute::<()>(client.hset(&refresh_key, "sid", &sid));
-        let _ = client.execute::<()>(client.hset(&refresh_key, "family_id", &family_id));
+        let _ =
+            client.execute::<()>(client.hset(&refresh_key, "family_id", &family_id));
         let _ = client.execute::<usize>(client.sadd(&family_key, &jti));
         let _ = client.execute::<()>(client.setex(&session_key, 2_592_000, &jti));
     }
@@ -208,7 +241,8 @@ fn test_scenario_token_refresh_storm() {
         let session_key = format!("session:{sid}");
 
         let _ = client.execute::<()>(client.hset(&refresh_key, "sub", &uid));
-        let _ = client.execute::<()>(client.hset(&refresh_key, "family_id", &family_id));
+        let _ =
+            client.execute::<()>(client.hset(&refresh_key, "family_id", &family_id));
         let _ = client.execute::<usize>(client.sadd(&family_key, &jti));
         let _ = client.execute::<()>(client.setex(&session_key, 2_592_000, &jti));
     }
@@ -242,7 +276,8 @@ fn test_scenario_token_refresh_storm() {
         let _: Result<usize, _> = client.execute::<usize>(client.del(&refresh_key));
 
         // Step 5: SREM
-        let _: Result<usize, _> = client.execute::<usize>(client.srem(&family_key, &jti));
+        let _: Result<usize, _> =
+            client.execute::<usize>(client.srem(&family_key, &jti));
 
         // Step 6: SADD new member
         let _ = client.execute::<usize>(client.sadd(&family_key, &new_jti));
@@ -285,8 +320,9 @@ fn test_scenario_authz_load_10k_requests() {
     for i in 0..request_count {
         if i % 100 == 0 {
             // Miss
-            let result: Result<Option<String>, _> =
-                client.execute::<Option<String>>(client.get(format!("denylist:jti-missing-{i}")));
+            let result: Result<Option<String>, _> = client.execute::<Option<String>>(
+                client.get(format!("denylist:jti-missing-{i}")),
+            );
             if result.is_err() {
                 hits += 1;
             }
@@ -331,11 +367,13 @@ fn test_scenario_authz_latency_profile() {
         let op_start = std::time::Instant::now();
 
         if i % 10 == 0 {
-            let _: Result<Option<String>, _> =
-                client.execute::<Option<String>>(client.get(format!("denylist:jti-missing-{i}")));
+            let _: Result<Option<String>, _> = client.execute::<Option<String>>(
+                client.get(format!("denylist:jti-missing-{i}")),
+            );
         } else {
             let jti = format!("jti-latency-{}", i % 200);
-            let _: Result<Option<String>, _> = client.execute::<Option<String>>(client.get(&jti));
+            let _: Result<Option<String>, _> =
+                client.execute::<Option<String>>(client.get(&jti));
         }
 
         latencies.push(op_start.elapsed().as_micros() as u64);
@@ -376,7 +414,8 @@ fn test_scenario_mixed_workload() {
             }
             // 30% token refresh (simplified)
             10..=13 => {
-                let _ = client.execute::<Option<String>>(client.hget(&refresh_key, "sub"));
+                let _ =
+                    client.execute::<Option<String>>(client.hget(&refresh_key, "sub"));
                 let _ = client.execute::<usize>(client.sadd(&family_key, &jti));
             }
             // 15% login

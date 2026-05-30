@@ -162,7 +162,8 @@ impl Connection {
         timeout: std::time::Duration,
         ssrf_config: tcp::SsrfConfig,
     ) -> Result<Self, ConnectionError> {
-        let stream = TcpConnector::connect_with_ssrf_check(host, port, timeout, ssrf_config)?;
+        let stream =
+            TcpConnector::connect_with_ssrf_check(host, port, timeout, ssrf_config)?;
         let id = stream.as_raw_fd() as usize;
         let waker = stream.waker();
         let req_queue = Arc::new(Queue::new());

@@ -10,19 +10,31 @@ use super::CommandBuilder;
 pub trait SetsCommands: Sized {
     /// SADD key member [member ...]
     #[must_use = "call .build() to encode the command"]
-    fn sadd<K: ToRedisArgs, M: ToRedisArgs>(&self, key: K, member: M) -> CommandBuilder {
+    fn sadd<K: ToRedisArgs, M: ToRedisArgs>(
+        &self,
+        key: K,
+        member: M,
+    ) -> CommandBuilder {
         CommandBuilder::new("SADD").arg(key).arg(member)
     }
 
     /// SISMEMBER key member
     #[must_use = "call .build() to encode the command"]
-    fn sismember<K: ToRedisArgs, M: ToRedisArgs>(&self, key: K, member: M) -> CommandBuilder {
+    fn sismember<K: ToRedisArgs, M: ToRedisArgs>(
+        &self,
+        key: K,
+        member: M,
+    ) -> CommandBuilder {
         CommandBuilder::new("SISMEMBER").arg(key).arg(member)
     }
 
     /// SREM key member [member ...]
     #[must_use = "call .build() to encode the command"]
-    fn srem<K: ToRedisArgs, M: ToRedisArgs>(&self, key: K, member: M) -> CommandBuilder {
+    fn srem<K: ToRedisArgs, M: ToRedisArgs>(
+        &self,
+        key: K,
+        member: M,
+    ) -> CommandBuilder {
         CommandBuilder::new("SREM").arg(key).arg(member)
     }
 
@@ -90,7 +102,12 @@ pub trait SetsCommands: Sized {
 
     /// SSCAN MATCH key cursor pattern — Incrementally iterate set members matching a pattern
     #[must_use = "call .build() to encode the command"]
-    fn sscan_match<K: ToRedisArgs>(&self, key: K, cursor: i64, pattern: &str) -> CommandBuilder {
+    fn sscan_match<K: ToRedisArgs>(
+        &self,
+        key: K,
+        cursor: i64,
+        pattern: &str,
+    ) -> CommandBuilder {
         CommandBuilder::new("SSCAN")
             .arg(key)
             .arg(cursor)

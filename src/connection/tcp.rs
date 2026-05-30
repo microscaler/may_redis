@@ -199,8 +199,9 @@ impl TcpConnector {
             }
         }
 
-        Err(last_error
-            .unwrap_or_else(|| ConnectionError::Connect("resolved 0 addresses".to_string())))
+        Err(last_error.unwrap_or_else(|| {
+            ConnectionError::Connect("resolved 0 addresses".to_string())
+        }))
     }
 
     /// Establish a TCP connection with a configurable timeout.
@@ -224,8 +225,9 @@ impl TcpConnector {
             }
         }
 
-        Err(last_error
-            .unwrap_or_else(|| ConnectionError::Connect("resolved 0 addresses".to_string())))
+        Err(last_error.unwrap_or_else(|| {
+            ConnectionError::Connect("resolved 0 addresses".to_string())
+        }))
     }
 
     /// Establish a TCP connection with timeout in seconds.
@@ -248,9 +250,9 @@ impl TcpConnector {
     /// Returns [`ConnectionError`] if the URL is invalid or connection fails.
     pub fn connect_url(url: &str) -> Result<TcpStream, ConnectionError> {
         let url = url.strip_prefix("redis://").unwrap_or(url);
-        let (host, port) = url
-            .rsplit_once(':')
-            .ok_or_else(|| ConnectionError::Connect("invalid URL format".to_string()))?;
+        let (host, port) = url.rsplit_once(':').ok_or_else(|| {
+            ConnectionError::Connect("invalid URL format".to_string())
+        })?;
         let port: u16 = port
             .parse()
             .map_err(|e| ConnectionError::Connect(format!("invalid port: {e}")))?;
@@ -262,11 +264,14 @@ impl TcpConnector {
     ///
     /// # Errors
     /// Returns [`ConnectionError`] if the URL is invalid or connection fails.
-    pub fn connect_url_timeout(url: &str, seconds: u32) -> Result<TcpStream, ConnectionError> {
+    pub fn connect_url_timeout(
+        url: &str,
+        seconds: u32,
+    ) -> Result<TcpStream, ConnectionError> {
         let url = url.strip_prefix("redis://").unwrap_or(url);
-        let (host, port) = url
-            .rsplit_once(':')
-            .ok_or_else(|| ConnectionError::Connect("invalid URL format".to_string()))?;
+        let (host, port) = url.rsplit_once(':').ok_or_else(|| {
+            ConnectionError::Connect("invalid URL format".to_string())
+        })?;
         let port: u16 = port
             .parse()
             .map_err(|e| ConnectionError::Connect(format!("invalid port: {e}")))?;

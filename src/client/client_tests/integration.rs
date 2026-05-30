@@ -378,13 +378,15 @@ fn test_integration_null_response_handling() {
         let client = shared_client();
         client.execute::<()>(client.flushdb()).ok();
 
-        let result: Result<Option<String>, _> = client.execute(client.get("missing_key"));
+        let result: Result<Option<String>, _> =
+            client.execute(client.get("missing_key"));
         assert_eq!(result.unwrap(), None, "GET missing key should return None");
 
         client
             .execute::<()>(client.set("null_test:exists", "val"))
             .unwrap();
-        let result: Result<Option<String>, _> = client.execute(client.get("null_test:exists"));
+        let result: Result<Option<String>, _> =
+            client.execute(client.get("null_test:exists"));
         assert_eq!(result.unwrap(), Some("val".to_string()));
 
         client.execute::<()>(client.flushdb()).ok();

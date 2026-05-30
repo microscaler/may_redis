@@ -66,7 +66,9 @@ impl RustlsRootCerts {
                 for ta in webpki_roots::TLS_SERVER_ROOTS {
                     store.roots.push(rustls::pki_types::TrustAnchor {
                         subject: rustls::pki_types::Der::from_slice(ta.subject),
-                        subject_public_key_info: rustls::pki_types::Der::from_slice(ta.spki),
+                        subject_public_key_info: rustls::pki_types::Der::from_slice(
+                            ta.spki,
+                        ),
                         name_constraints: ta
                             .name_constraints
                             .map(rustls::pki_types::Der::from_slice),
@@ -96,9 +98,9 @@ impl RustlsRootCerts {
             }
             Self::Der(certs) => {
                 for cert in certs {
-                    store.add_parsable_certificates(vec![rustls::pki_types::CertificateDer::from(
-                        cert.as_slice(),
-                    )]);
+                    store.add_parsable_certificates(vec![
+                        rustls::pki_types::CertificateDer::from(cert.as_slice()),
+                    ]);
                 }
             }
         }
@@ -130,16 +132,22 @@ impl ClientCerts {
             rustls_pemfile::certs(&mut &cert_pem[..])
                 .collect::<Result<Vec<_>, _>>()
                 .map_err(|e| {
-                    super::TlsError::Config(format!("failed to parse client certificate PEM: {e}"))
+                    super::TlsError::Config(format!(
+                        "failed to parse client certificate PEM: {e}"
+                    ))
                 })?;
 
         let key: rustls::pki_types::PrivateKeyDer<'static> =
             rustls_pemfile::private_key(&mut &key_pem[..])
                 .map_err(|e| {
-                    super::TlsError::Config(format!("failed to parse private key PEM: {e}"))
+                    super::TlsError::Config(format!(
+                        "failed to parse private key PEM: {e}"
+                    ))
                 })?
                 .ok_or_else(|| {
-                    super::TlsError::Config("no private key found in PEM data".to_string())
+                    super::TlsError::Config(
+                        "no private key found in PEM data".to_string(),
+                    )
                 })?;
 
         Ok(Self {

@@ -150,9 +150,10 @@ fn test_command_mset_encoding() {
 }
 #[test]
 fn test_command_msetnx_encoding() {
-    let buf = <() as StringsCommands>::msetnx(&(), &[("key1", "val1"), ("key2", "val2")])
-        .build()
-        .unwrap();
+    let buf =
+        <() as StringsCommands>::msetnx(&(), &[("key1", "val1"), ("key2", "val2")])
+            .build()
+            .unwrap();
     assert_eq!(
         buf.as_ref(),
         b"*5\r\n$6\r\nMSETNX\r\n$4\r\nkey1\r\n$4\r\nval1\r\n$4\r\nkey2\r\n$4\r\nval2\r\n"

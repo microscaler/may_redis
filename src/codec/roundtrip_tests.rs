@@ -20,7 +20,9 @@ mod simple_string {
     fn test_roundtrip_simple_with_spaces() {
         let input = RedisValue::SimpleString("OK with spaces".into());
         let output = roundtrip(&input);
-        assert!(matches!(output, RedisValue::SimpleString(ref s) if s == "OK with spaces"));
+        assert!(
+            matches!(output, RedisValue::SimpleString(ref s) if s == "OK with spaces")
+        );
     }
 
     #[test]
@@ -244,9 +246,9 @@ mod array_value {
 
     #[test]
     fn test_roundtrip_nested_array() {
-        let input = RedisValue::Array(vec![RedisValue::Array(vec![RedisValue::Array(vec![
-            RedisValue::Integer(42),
-        ])])]);
+        let input = RedisValue::Array(vec![RedisValue::Array(vec![
+            RedisValue::Array(vec![RedisValue::Integer(42)]),
+        ])]);
         let output = roundtrip(&input);
         if let RedisValue::Array(a) = output {
             assert_eq!(a.len(), 1);
@@ -336,7 +338,8 @@ mod array_value {
 
     #[test]
     fn test_roundtrip_array_empty_nested() {
-        let input = RedisValue::Array(vec![RedisValue::Array(vec![]), RedisValue::Integer(0)]);
+        let input =
+            RedisValue::Array(vec![RedisValue::Array(vec![]), RedisValue::Integer(0)]);
         let output = roundtrip(&input);
         if let RedisValue::Array(a) = output {
             assert_eq!(a.len(), 2);
@@ -360,7 +363,9 @@ mod array_value {
             if let RedisValue::Array(inner) = &a[0] {
                 assert_eq!(inner.len(), 3);
                 assert!(matches!(inner[0], RedisValue::Integer(1)));
-                assert!(matches!(inner[1], RedisValue::BulkString(ref b) if b == b"nested"));
+                assert!(
+                    matches!(inner[1], RedisValue::BulkString(ref b) if b == b"nested")
+                );
                 assert!(
                     matches!(inner[2], RedisValue::Array(ref c) if c.len() == 1 && matches!(c[0], RedisValue::Null))
                 );
@@ -414,14 +419,16 @@ mod boundary_cases {
     #[test]
     fn test_roundtrip_array_of_arrays_of_arrays() {
         // Triple-nested single-element arrays
-        let input = RedisValue::Array(vec![RedisValue::Array(vec![RedisValue::Array(vec![
-            RedisValue::BulkString(b"deep".to_vec()),
-        ])])]);
+        let input = RedisValue::Array(vec![RedisValue::Array(vec![
+            RedisValue::Array(vec![RedisValue::BulkString(b"deep".to_vec())]),
+        ])]);
         let output = roundtrip(&input);
         if let RedisValue::Array(a) = output {
             if let RedisValue::Array(b) = &a[0] {
                 if let RedisValue::Array(c) = &b[0] {
-                    assert!(matches!(c[0], RedisValue::BulkString(ref v) if v == b"deep"));
+                    assert!(
+                        matches!(c[0], RedisValue::BulkString(ref v) if v == b"deep")
+                    );
                 } else {
                     panic!("expected triple-nested Array");
                 }
@@ -435,7 +442,8 @@ mod boundary_cases {
 
     #[test]
     fn test_roundtrip_large_array_of_integers() {
-        let input: RedisValue = RedisValue::Array((0..500).map(RedisValue::Integer).collect());
+        let input: RedisValue =
+            RedisValue::Array((0..500).map(RedisValue::Integer).collect());
         let output = roundtrip(&input);
         if let RedisValue::Array(a) = output {
             assert_eq!(a.len(), 500);

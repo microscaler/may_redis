@@ -49,7 +49,9 @@ pub fn url_decode(s: &str) -> Result<String, RedisError> {
                 RedisError::Parse("incomplete percent-encoding at end of string".into())
             })?;
             let lo = chars.next().ok_or_else(|| {
-                RedisError::Parse("incomplete percent-encoding (missing second hex digit)".into())
+                RedisError::Parse(
+                    "incomplete percent-encoding (missing second hex digit)".into(),
+                )
             })?;
 
             let byte = u8::from_str_radix(&format!("{hi}{lo}"), 16).map_err(|_| {
@@ -137,9 +139,9 @@ pub fn connect_url(url: &str) -> Result<super::client::RedisClient, RedisError> 
             if let Some((key, value)) = param.split_once('=') {
                 match key {
                     "timeout" => {
-                        timeout_secs = value
-                            .parse()
-                            .map_err(|_| RedisError::Parse("invalid timeout value".into()))?;
+                        timeout_secs = value.parse().map_err(|_| {
+                            RedisError::Parse("invalid timeout value".into())
+                        })?;
                     }
                     "ca_cert" => {
                         ca_cert_paths = Some(value.to_string());
@@ -153,7 +155,8 @@ pub fn connect_url(url: &str) -> Result<super::client::RedisClient, RedisError> 
                     "verify_server" => {
                         verify_server = value.parse::<bool>().map_err(|_| {
                             RedisError::Parse(
-                                "invalid verify_server value (expected true/false)".into(),
+                                "invalid verify_server value (expected true/false)"
+                                    .into(),
                             )
                         })?;
                     }
@@ -191,7 +194,9 @@ pub fn connect_url(url: &str) -> Result<super::client::RedisClient, RedisError> 
             let port_part = &host_part[close_bracket + 1..];
             let port: u16 = port_part
                 .strip_prefix(':')
-                .ok_or_else(|| RedisError::Parse("missing port for IPv6 address".into()))?
+                .ok_or_else(|| {
+                    RedisError::Parse("missing port for IPv6 address".into())
+                })?
                 .parse()
                 .map_err(|e| RedisError::Parse(format!("invalid port: {e}")))?;
             (host, port)
@@ -231,29 +236,40 @@ pub fn connect_url(url: &str) -> Result<super::client::RedisClient, RedisError> 
         #[cfg(feature = "tls")]
         {
             // Build root certificates
-            let root_certs =
-                ca_cert_paths.map_or(crate::tls::config::RustlsRootCerts::WebPkiRoots, |paths| {
+            let root_certs = ca_cert_paths.map_or(
+                crate::tls::config::RustlsRootCerts::WebPkiRoots,
+                |paths| {
                     crate::tls::config::RustlsRootCerts::Pem(
                         paths
                             .split(',')
                             .map(|p| std::path::PathBuf::from(p.trim()))
                             .collect(),
                     )
-                });
+                },
+            );
 
             // Build client certs if provided
             let client_certs = match (client_cert_path, client_key_path) {
                 (Some(cert_path), Some(key_path)) => {
                     let cert_data = std::fs::read(&cert_path).map_err(|e| {
-                        RedisError::Parse(format!("failed to read client cert {cert_path}: {e}"))
+                        RedisError::Parse(format!(
+                            "failed to read client cert {cert_path}: {e}"
+                        ))
                     })?;
                     let key_data = std::fs::read(&key_path).map_err(|e| {
-                        RedisError::Parse(format!("failed to read client key {key_path}: {e}"))
+                        RedisError::Parse(format!(
+                            "failed to read client key {key_path}: {e}"
+                        ))
                     })?;
                     Some(
-                        crate::tls::config::ClientCerts::from_pem(&cert_data, &key_data).map_err(
-                            |e| RedisError::Parse(format!("failed to parse client certs: {e}")),
-                        )?,
+                        crate::tls::config::ClientCerts::from_pem(
+                            &cert_data, &key_data,
+                        )
+                        .map_err(|e| {
+                            RedisError::Parse(format!(
+                                "failed to parse client certs: {e}"
+                            ))
+                        })?,
                     )
                 }
                 _ => None,
@@ -268,9 +284,13 @@ pub fn connect_url(url: &str) -> Result<super::client::RedisClient, RedisError> 
                 verify_server,
             };
 
-            let client =
-                super::client::RedisClient::connect_tls(host, port, &tls_config, timeout_secs)
-                    .map_err(|e| RedisError::Parse(format!("TLS connection failed: {e}")))?;
+            let client = super::client::RedisClient::connect_tls(
+                host,
+                port,
+                &tls_config,
+                timeout_secs,
+            )
+            .map_err(|e| RedisError::Parse(format!("TLS connection failed: {e}")))?;
 
             // Send AUTH if password was provided in URL
             if let Some(pass) = password {

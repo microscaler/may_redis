@@ -42,9 +42,13 @@ impl std::fmt::Display for TlsError {
             Self::Config(msg) => write!(f, "TLS config error: {msg}"),
             Self::HandshakeTimeout => write!(f, "TLS handshake timed out"),
             Self::Handshake(msg) => write!(f, "TLS handshake error: {msg}"),
-            Self::Verification(msg) => write!(f, "Certificate verification failed: {msg}"),
+            Self::Verification(msg) => {
+                write!(f, "Certificate verification failed: {msg}")
+            }
             Self::InvalidTlsVersion(msg) => write!(f, "Invalid TLS version: {msg}"),
-            Self::ClientCertRequired(msg) => write!(f, "Client certificate required: {msg}"),
+            Self::ClientCertRequired(msg) => {
+                write!(f, "Client certificate required: {msg}")
+            }
         }
     }
 }
@@ -102,7 +106,9 @@ impl TlsConfig {
         // Install the ring crypto provider if not already installed.
         let provider = default_provider();
         provider.clone().install_default().map_err(|_| {
-            TlsError::Config("failed to install crypto provider (already installed?)".to_string())
+            TlsError::Config(
+                "failed to install crypto provider (already installed?)".to_string(),
+            )
         })?;
 
         // Determine which protocol versions to allow.
@@ -129,10 +135,14 @@ impl TlsConfig {
         } else {
             let verifier = WebPkiServerVerifier::builder(Arc::new(root_store))
                 .build()
-                .map_err(|e| TlsError::Config(format!("failed to build verifier: {e}")))?;
+                .map_err(|e| {
+                    TlsError::Config(format!("failed to build verifier: {e}"))
+                })?;
             builder
                 .dangerous()
-                .with_custom_certificate_verifier(Arc::new(SkipVerifier { inner: verifier }))
+                .with_custom_certificate_verifier(Arc::new(SkipVerifier {
+                    inner: verifier,
+                }))
         };
 
         // Apply client certs for mTLS.
@@ -144,10 +154,13 @@ impl TlsConfig {
                         .into_iter()
                         .map(CertificateDer::from)
                         .collect(),
-                    PrivateKeyDer::try_from(client_certs.private_key)
-                        .map_err(|e| TlsError::Config(format!("invalid private key: {e}")))?,
+                    PrivateKeyDer::try_from(client_certs.private_key).map_err(|e| {
+                        TlsError::Config(format!("invalid private key: {e}"))
+                    })?,
                 )
-                .map_err(|e| TlsError::Config(format!("failed to set client certs: {e}")))?
+                .map_err(|e| {
+                    TlsError::Config(format!("failed to set client certs: {e}"))
+                })?
         } else {
             builder.with_no_client_auth()
         };
@@ -191,13 +204,16 @@ impl TlsConnector {
         };
 
         // Convert to ServerName<'static> BEFORE calling into_config().
-        let server_name = ServerName::try_from(server_name_raw)
-            .map_err(|e| TlsError::Config(format!("invalid server name for SNI: {e}")))?;
+        let server_name = ServerName::try_from(server_name_raw).map_err(|e| {
+            TlsError::Config(format!("invalid server name for SNI: {e}"))
+        })?;
 
         let tls_config = config.clone().into_config()?;
 
         let conn = rustls::ClientConnection::new(Arc::new(tls_config), server_name)
-            .map_err(|e| TlsError::Config(format!("failed to create TLS connection: {e}")))?;
+            .map_err(|e| {
+                TlsError::Config(format!("failed to create TLS connection: {e}"))
+            })?;
 
         let mut tls_stream = TlsStream::new(conn, stream);
 
@@ -213,7 +229,9 @@ impl TlsConnector {
             let (read_done, write_done) = tls_stream
                 .conn
                 .complete_io(&mut tls_stream.stream)
-                .map_err(|e| TlsError::Handshake(format!("I/O error during handshake: {e}")))?;
+                .map_err(|e| {
+                    TlsError::Handshake(format!("I/O error during handshake: {e}"))
+                })?;
 
             // If handshake is done, we're done.
             if !tls_stream.conn.is_handshaking() {
