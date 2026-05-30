@@ -6,13 +6,15 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use super::client_timeout::TimeoutGuard;
 use super::client_url::url_decode;
 use super::pipeline::Pipeline;
-use crate::connection::{Connection, Request, SsrfConfig};
-use crate::core::{FromRedisValue, RedisError, RedisValue};
+use crate::connection::{Connection, SsrfConfig};
+use crate::core::{FromRedisValue, RedisError};
 use crate::protocol::builder::CommandBuilder;
-use crate::protocol::commands::*;
+use crate::protocol::commands::{
+    AdminCommands, HashesCommands, ListsCommands, PubsubCommands, SetsCommands, SortedSetsCommands,
+    StringsCommands, TransactionsCommands,
+};
 
 // ---------------------------------------------------------------------------
 // Connection scheme & helpers
@@ -273,6 +275,9 @@ impl RedisClient {
     }
 
     /// Send a PING command and return the response.
+    ///
+    /// # Errors
+    /// Returns [`RedisError`] if the server does not respond with "PONG".
     pub fn ping(&self) -> Result<String, RedisError> {
         let cmd = CommandBuilder::new("PING");
         let response = self.execute::<String>(cmd)?;

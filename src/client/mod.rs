@@ -37,16 +37,23 @@
 //! let val: Option<String> = client.execute(client.get("mykey")).unwrap();
 //! ```
 
+pub use client::RedisClient;
+pub use pipeline::Pipeline;
+pub use pipeline_response::FromPipelineResponse;
+
+#[cfg(feature = "test")]
+pub use in_memory::InMemoryClient;
+
+#[cfg(feature = "test")]
+pub mod in_memory;
+
 #[allow(clippy::module_inception)]
 pub mod client;
 mod client_timeout;
 mod client_url;
-#[cfg(feature = "test")]
-pub mod in_memory;
 pub mod pipeline;
 pub mod pipeline_response;
 
-pub use client::RedisClient;
 #[cfg(test)]
 mod client_tests {
     #[cfg(test)]
@@ -54,8 +61,3 @@ mod client_tests {
     #[cfg(test)]
     mod unit;
 }
-pub use pipeline::Pipeline;
-pub use pipeline_response::FromPipelineResponse;
-
-#[cfg(feature = "test")]
-pub use in_memory::InMemoryClient;

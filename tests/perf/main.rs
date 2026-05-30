@@ -10,7 +10,8 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use may::go;
-use may_redis::{Commands, RedisClient};
+use may_redis::protocol::commands::{AdminCommands, HashesCommands, SetsCommands, StringsCommands};
+use may_redis::RedisClient;
 use std::fmt::Write;
 
 fn shared_client() -> RedisClient {

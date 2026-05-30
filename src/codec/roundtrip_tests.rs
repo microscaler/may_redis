@@ -1,8 +1,7 @@
 // Roundtrip invariant tests for all RedisValue variants
 
 use super::roundtrip::roundtrip;
-use crate::codec::reader::RESPReader;
-use crate::codec::writer::RESPWriter;
+
 use crate::core::RedisValue;
 
 #[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]

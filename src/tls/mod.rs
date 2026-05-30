@@ -8,5 +8,8 @@
 
 pub mod config;
 pub mod connector;
+pub mod tls_stream;
+pub mod verifier;
 
-pub use connector::{TlsConfig, TlsConnector, TlsError, TlsStream};
+pub use connector::{TlsConfig, TlsConnector, TlsError};
+pub use tls_stream::TlsStream;

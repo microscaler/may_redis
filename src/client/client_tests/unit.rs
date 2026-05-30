@@ -1,4 +1,9 @@
-#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::used_underscore_items
+)]
 use crate::RedisClient;
 
 use may::config;

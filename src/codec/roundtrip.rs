@@ -11,6 +11,13 @@ use crate::codec::writer::RESPWriter;
 use crate::core::RedisValue;
 
 /// Helper: encode a value then decode it, asserting equality.
+/// Roundtrip a `RedisValue` through the codec.
+///
+/// # Panics
+///
+/// Panics if the encoded bytes cannot be decoded back to the original value.
+/// This is a test-only utility and a panic indicates a bug in the codec.
+#[must_use]
 pub fn roundtrip(value: &RedisValue) -> RedisValue {
     let mut w = RESPWriter::new();
     w.write_value(value);

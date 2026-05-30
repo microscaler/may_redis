@@ -1,8 +1,5 @@
-#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
-use crate::protocol::commands::{
-    AdminCommands, HashesCommands, ListsCommands, PubsubCommands, SetsCommands, SortedSetsCommands,
-    StringsCommands, TransactionsCommands,
-};
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+use crate::protocol::commands::{AdminCommands, PubsubCommands, StringsCommands};
 
 #[test]
 fn test_command_get_encoding() {

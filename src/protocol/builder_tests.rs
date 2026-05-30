@@ -2,12 +2,10 @@
 // Covers: basic build tests, command_name(), CommandPolicy enum,
 // policy deny/allow modes, validate_policy().
 
-use super::builder::{cmd, CommandBuilder, CommandPolicy};
-
-#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use super::super::builder::{cmd, CommandPolicy};
 
     #[test]
     fn test_cmd_set_key_value() {

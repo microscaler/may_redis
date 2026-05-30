@@ -7,13 +7,13 @@ use may::net::TcpStream;
 use rustls::client::WebPkiServerVerifier;
 use rustls::crypto::ring::default_provider;
 use rustls::pki_types::{CertificateDer, PrivateKeyDer, ServerName};
-use rustls::{ClientConfig, RootCertStore};
+use rustls::ClientConfig;
+
 use std::sync::Arc;
 use std::time::Duration;
 
-use super::config::TlsConfig as TlsConfigStruct;
+use super::tls_stream::TlsStream;
 use super::verifier::SkipVerifier;
-use crate::tls::tls_stream::TlsStream;
 
 // ---------------------------------------------------------------------------
 // TlsError

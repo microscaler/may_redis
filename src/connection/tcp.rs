@@ -134,7 +134,7 @@ impl SsrfConfig {
         false
     }
 
-    fn is_blocked_v6(self, addr: &std::net::Ipv6Addr) -> bool {
+    const fn is_blocked_v6(self, addr: &std::net::Ipv6Addr) -> bool {
         if !self.deny_loopback && !self.deny_link_local && !self.deny_private {
             return addr.is_multicast() || addr.is_unspecified();
         }
@@ -160,11 +160,20 @@ pub struct TcpConnector;
 
 impl TcpConnector {
     /// Establish a TCP connection to the given host and port.
+    /// Connect to a Redis server.
+    ///
+    /// # Errors
+    /// Returns [`ConnectionError`] if the TCP connection fails.
     pub fn connect(host: &str, port: u16) -> Result<TcpStream, ConnectionError> {
         Self::connect_with_timeout(host, port, Duration::from_secs(5))
     }
 
     /// Establish a TCP connection with SSRF protection enabled.
+    /// Connect to a Redis server with SSRF protection.
+    ///
+    /// # Errors
+    /// Returns [`ConnectionError`] if DNS resolution, TCP connect, or SSRF
+    /// check fails.
     pub fn connect_with_ssrf_check(
         host: &str,
         port: u16,
@@ -195,6 +204,10 @@ impl TcpConnector {
     }
 
     /// Establish a TCP connection with a configurable timeout.
+    /// Connect to a Redis server with a timeout.
+    ///
+    /// # Errors
+    /// Returns [`ConnectionError`] if the TCP connection fails or times out.
     pub fn connect_with_timeout(
         host: &str,
         port: u16,
@@ -216,6 +229,10 @@ impl TcpConnector {
     }
 
     /// Establish a TCP connection with timeout in seconds.
+    /// Connect to a Redis server with a timeout specified in seconds.
+    ///
+    /// # Errors
+    /// Returns [`ConnectionError`] if the TCP connection fails or times out.
     pub fn connect_timeout(
         host: &str,
         port: u16,
@@ -225,6 +242,10 @@ impl TcpConnector {
     }
 
     /// Parse a redis:// URL and connect with a 5-second default timeout.
+    /// Connect to a Redis server given a URL.
+    ///
+    /// # Errors
+    /// Returns [`ConnectionError`] if the URL is invalid or connection fails.
     pub fn connect_url(url: &str) -> Result<TcpStream, ConnectionError> {
         let url = url.strip_prefix("redis://").unwrap_or(url);
         let (host, port) = url
@@ -237,6 +258,10 @@ impl TcpConnector {
     }
 
     /// Parse a redis:// URL and connect with a configurable timeout.
+    /// Connect to a Redis server given a URL with timeout.
+    ///
+    /// # Errors
+    /// Returns [`ConnectionError`] if the URL is invalid or connection fails.
     pub fn connect_url_timeout(url: &str, seconds: u32) -> Result<TcpStream, ConnectionError> {
         let url = url.strip_prefix("redis://").unwrap_or(url);
         let (host, port) = url

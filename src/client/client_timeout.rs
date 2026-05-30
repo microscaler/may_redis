@@ -2,8 +2,6 @@
 //
 // Provides TimeoutGuard and execute_with_timeout / execute_timeout methods.
 
-use super::client::InnerClient;
-use super::client::RedisClient;
 use crate::connection::Request;
 use crate::core::{FromRedisValue, RedisError, RedisValue};
 use crate::protocol::builder::CommandBuilder;

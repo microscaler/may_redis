@@ -13,7 +13,7 @@ use crate::core::RedisValue;
 use bytes::Buf;
 use bytes::BytesMut;
 use may::config;
-use may::coroutine::JoinHandle;
+
 use may::go;
 use may::queue::mpsc::Queue;
 use may::sync::spsc;

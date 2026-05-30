@@ -27,7 +27,11 @@ impl TlsVersion {
     ///
     /// # Errors
     /// Returns [`super::TlsError::InvalidTlsVersion`] if the string is not "1.2" or "1.3".
-    pub fn from_str(s: &str) -> Result<Self, super::TlsError> {
+    /// Parse from a string ("1.2" or "1.3").
+    ///
+    /// # Errors
+    /// Returns [`TlsError::InvalidTlsVersion`] if the string is not "1.2" or "1.3".
+    pub fn parse(s: &str) -> Result<Self, super::TlsError> {
         match s.trim() {
             "1.2" => Ok(Self::Tls12),
             "1.3" => Ok(Self::Tls13),
@@ -65,7 +69,7 @@ impl RustlsRootCerts {
                         subject_public_key_info: rustls::pki_types::Der::from_slice(ta.spki),
                         name_constraints: ta
                             .name_constraints
-                            .map(|nc| rustls::pki_types::Der::from_slice(nc)),
+                            .map(rustls::pki_types::Der::from_slice),
                     });
                 }
             }
@@ -146,7 +150,7 @@ impl ClientCerts {
 
     /// Create from DER-encoded certificate chain and private key directly.
     #[must_use]
-    pub fn from_der(certificates: Vec<Vec<u8>>, private_key: Vec<u8>) -> Self {
+    pub const fn from_der(certificates: Vec<Vec<u8>>, private_key: Vec<u8>) -> Self {
         Self {
             certificates,
             private_key,

@@ -17,12 +17,12 @@ use std::io;
 /// integrating with the existing `nonblock_read` / `nonblock_write` helpers
 /// in the connection layer.
 pub struct TlsStream {
-    conn: rustls::ClientConnection,
-    stream: TcpStream,
+    pub(crate) conn: rustls::ClientConnection,
+    pub(crate) stream: TcpStream,
 }
 
 impl TlsStream {
-    pub fn new(conn: rustls::ClientConnection, stream: TcpStream) -> Self {
+    pub const fn new(conn: rustls::ClientConnection, stream: TcpStream) -> Self {
         Self { conn, stream }
     }
 
@@ -30,13 +30,13 @@ impl TlsStream {
     ///
     /// Used by the connection loop for `wait_io()` (epoll registration)
     /// and for feeding raw socket reads/writes into the rustls state machine.
-    pub fn inner_mut(&mut self) -> &mut TcpStream {
+    pub const fn inner_mut(&mut self) -> &mut TcpStream {
         &mut self.stream
     }
 
     /// Return the raw inner tcp stream.
     #[must_use]
-    pub fn inner(&self) -> &TcpStream {
+    pub const fn inner(&self) -> &TcpStream {
         &self.stream
     }
 }

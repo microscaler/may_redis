@@ -4,10 +4,6 @@
 // accepts **any** server certificate without validation (debugging only).
 
 use rustls::pki_types::{CertificateDer, ServerName, UnixTime};
-use rustls::crypto::CryptoProvider;
-use std::sync::Arc;
-
-use crate::tls::connector::TlsError;
 
 /// A certificate verifier that skips verification (for debugging only).
 ///
@@ -16,8 +12,8 @@ use crate::tls::connector::TlsError;
 /// This verifier accepts **any** server certificate without validation.
 /// NEVER use this in production.
 #[derive(Debug)]
-pub(crate) struct SkipVerifier {
-    inner: std::sync::Arc<rustls::client::WebPkiServerVerifier>,
+pub(super) struct SkipVerifier {
+    pub(super) inner: std::sync::Arc<rustls::client::WebPkiServerVerifier>,
 }
 
 impl rustls::client::danger::ServerCertVerifier for SkipVerifier {

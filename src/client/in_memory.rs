@@ -340,7 +340,3 @@ impl Clone for InMemoryClient {
         }
     }
 }
-
-#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
-#[cfg(test)]
-mod in_memory_tests;

@@ -1,3 +1,4 @@
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 use crate::protocol::builder::CommandPolicy;
 
 /// Helper for encoding tests of commands that the default CommandPolicy

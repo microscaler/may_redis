@@ -42,7 +42,6 @@
 #![allow(clippy::io_other_error)]
 #![allow(clippy::ref_as_ptr)]
 
-use bytes::BytesMut;
 use may::coroutine::JoinHandle;
 use may::io::{WaitIo, WaitIoWaker};
 use may::queue::mpsc::Queue;
@@ -125,6 +124,9 @@ impl Drop for Connection {
 impl Connection {
     /// Establish a TCP connection to the Redis server and spawn the
     /// background connection loop coroutine.
+    ///
+    /// # Errors
+    /// Returns [`ConnectionError`] if the TCP connection fails.
     pub fn connect(host: &str, port: u16) -> Result<Self, ConnectionError> {
         let stream = TcpConnector::connect(host, port)?;
         let id = stream.as_raw_fd() as usize;
@@ -146,6 +148,10 @@ impl Connection {
     }
 
     /// Establish a TCP connection with SSRF protection enabled.
+    ///
+    /// # Errors
+    /// Returns [`ConnectionError`] if DNS resolution, TCP connect, or SSRF
+    /// check fails.
     pub fn connect_with_ssrf_protection(
         host: &str,
         port: u16,
@@ -172,6 +178,9 @@ impl Connection {
     }
 
     /// Establish a TCP connection with configurable resource limits.
+    ///
+    /// # Errors
+    /// Returns [`ConnectionError`] if the TCP connection fails.
     pub fn connect_with_limits(
         host: &str,
         port: u16,
@@ -203,7 +212,14 @@ impl Connection {
         self.ssrf_config.as_ref()
     }
 
-    #[must_use]
+    /// Send a request to the Redis server.
+    ///
+    /// # Errors
+    /// Returns [`ConnectionLimitError::QueueFull`] if the pending request
+    /// count exceeds [`Self::max_queue_depth`]. Returns
+    /// [`ConnectionLimitError::RequestTooLarge`] if the request exceeds
+    /// [`Self::max_request_size`].
+    #[must_use = "the tag identifies the request for response matching"]
     pub fn send(&self, request: Request) -> Result<usize, ConnectionLimitError> {
         if self.pending_count.load(Ordering::SeqCst) >= self.max_queue_depth {
             return Err(ConnectionLimitError::QueueFull(self.max_queue_depth));

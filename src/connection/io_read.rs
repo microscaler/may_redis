@@ -3,7 +3,7 @@
 //! Reads raw bytes from the underlying socket into a `BytesMut` buffer,
 //! returning whether the read was blocked or the buffer was filled.
 
-use bytes::{Buf, BufMut, BytesMut};
+use bytes::{BufMut, BytesMut};
 use std::io;
 
 /// Read from the inner raw socket into a `BytesMut` buffer.
