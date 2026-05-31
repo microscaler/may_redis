@@ -7,6 +7,8 @@ pub mod cluster_client;
 /// This module provides the hash function (`crc16`) and slot computation
 /// (`compute_slot`) as pure, no-std-compatible functions.
 pub mod crc16;
+/// MOVED/ASK redirect parsing and retry logic.
+pub mod redirect;
 /// Slot-to-node mapping for Redis Cluster.
 ///
 /// Each Redis Cluster deployment has exactly 16384 hash slots. This module
@@ -18,4 +20,5 @@ pub mod topology;
 
 pub use cluster_client::{RefreshPolicy, SeedNode};
 pub use crc16::{compute_slot, crc16};
+pub use redirect::{parse_ask_redirect, parse_moved_redirect, Redirect, RedirectKind};
 pub use slot_map::{NodeId, NodeInfo, NodeRole, NodeState, SlotMap};

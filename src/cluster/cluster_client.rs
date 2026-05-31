@@ -89,9 +89,7 @@ impl RefreshPolicy {
     #[must_use]
     pub const fn interval(&self) -> Option<Duration> {
         match self {
-            Self::Periodic(d) | Self::OnErrorAndPeriodic(d) => {
-                Some(*d)
-            }
+            Self::Periodic(d) | Self::OnErrorAndPeriodic(d) => Some(*d),
             Self::Manual => None,
         }
     }
@@ -196,7 +194,7 @@ impl RedisClusterClient {
 
         let inner_rc = Arc::new(RefCell::new(ClusterInner::new(
             seed_nodes,
-            Self::OnErrorAndPeriodic(Duration::from_secs(60)),
+            RefreshPolicy::OnErrorAndPeriodic(Duration::from_secs(60)),
         )));
 
         // Collect host:port pairs to avoid borrow issues.
@@ -211,7 +209,7 @@ impl RedisClusterClient {
             let mut inner = inner_rc.borrow_mut();
             match Self::discover_seed(&host, port, &mut inner) {
                 Ok(()) => break,
-                Err(_) => {
+                Err(_) => {}
             }
         }
 
@@ -258,8 +256,7 @@ impl RedisClusterClient {
             inner.slot_map = super::topology::parse_cluster_nodes(&text)?;
         } else {
             return Err(RedisError::Parse(format!(
-                "unexpected CLUSTER NODES response type: {response:?}")
-                response,
+                "unexpected CLUSTER NODES response type: {response:?}"
             )));
         }
 
@@ -274,7 +271,9 @@ impl RedisClusterClient {
     /// Execute a command and return the typed result.
     ///
     /// Routes the command to the correct node based on the first key's
-    /// hash slot: `CRC16(key) % 16384`.
+    /// hash slot: `CRC16(key) % 16384`.  If the response is a MOVED or ASK
+    /// redirect the command is transparently retried on the correct node
+    /// (up to 3 times).
     ///
     /// # Arguments
     /// * `cmd` — The command to execute, built with [`CommandBuilder`].
@@ -294,42 +293,152 @@ impl RedisClusterClient {
         })?;
         let slot = compute_slot(&key_bytes);
 
-        // Try routing; on unknown slot, refresh topology and retry.
-        let conn = match self.inner.borrow().connection_for_slot(slot) {
-            Ok(c) => c,
-            Err(e) => {
-                if matches!(e, RedisError::Parse(ref p) if p.contains("unknown slot")) {
-                    self.refresh_topology()?;
-                    self.inner.borrow().connection_for_slot(slot).map_err(|_| {
-                        RedisError::Parse(format!(
-                            "slot {slot} still unassigned after refresh"
-                        ))
-                    })?
-                } else {
-                    return Err(e);
-                }
-            }
-        };
-
         let encoded = cmd
             .build()
             .ok_or_else(|| RedisError::Parse("command encoding failed".into()))?;
-        let (tx, rx) = spsc::channel();
-        conn.send(Request::new(encoded.to_vec(), tx))
-            .map_err(|e| match e {
-                ConnectionLimitError::QueueFull(n) => {
-                    RedisError::Parse(format!("request queue full: depth={n}"))
+
+        // Retry loop with redirect handling.
+        let mut retries = 0u8;
+        let mut current_slot = slot;
+        let current_encoded = encoded;
+
+        loop {
+            // 1. Route to the correct node.
+            let conn = match self.inner.borrow().connection_for_slot(current_slot) {
+                Ok(c) => c,
+                Err(e) => {
+                    if matches!(
+                        e,
+                        RedisError::Parse(ref p) if p.contains("unknown slot")
+                    ) {
+                        self.refresh_topology()?;
+                        self.inner
+                            .borrow()
+                            .connection_for_slot(current_slot)
+                            .map_err(|_| {
+                                RedisError::Parse(format!(
+                                    "slot {current_slot} still unassigned after refresh"
+                                ))
+                            })?
+                    } else {
+                        return Err(e);
+                    }
                 }
-                ConnectionLimitError::RequestTooLarge(max, got) => {
-                    RedisError::Parse(format!("request too large: {got}/{max}"))
-                }
+            };
+
+            // 2. Send the command.
+            let (tx, rx) = spsc::channel();
+            conn.send(Request::new(current_encoded.to_vec(), tx))
+                .map_err(|e| match e {
+                    ConnectionLimitError::QueueFull(n) => {
+                        RedisError::Parse(format!("request queue full: depth={n}"))
+                    }
+                    ConnectionLimitError::RequestTooLarge(max, got) => {
+                        RedisError::Parse(format!("request too large: {got}/{max}"))
+                    }
+                })?;
+
+            // 3. Read the response.
+            let response = rx.recv().map_err(|_| {
+                RedisError::Parse("response channel closed — connection lost".into())
             })?;
 
-        let response = rx.recv().map_err(|_| {
-            RedisError::Parse("response channel closed — connection lost".into())
-        })?;
+            // 4. Check for redirects.
+            if let Some(redirect) = super::redirect::parse_moved_redirect(&response) {
+                retries += 1;
+                if retries > 3 {
+                    return Err(RedisError::Parse(
+                        "max redirect attempts (3) exceeded".into(),
+                    ));
+                }
+                // Update slot map with redirect target node.
+                self.inner.borrow_mut().slot_map = {
+                    let mut new_map = self.inner.borrow().slot_map.clone();
+                    super::redirect::update_slot_map_on_redirect(
+                        &mut new_map,
+                        &redirect,
+                    );
+                    new_map
+                };
+                // Retry on the redirect target (same encoded command).
+                current_slot = redirect.slot;
+                continue;
+            }
+            if let Some(redirect) = super::redirect::parse_ask_redirect(&response) {
+                retries += 1;
+                if retries > 3 {
+                    return Err(RedisError::Parse(
+                        "max redirect attempts (3) exceeded".into(),
+                    ));
+                }
+                // Update slot map with redirect target node.
+                self.inner.borrow_mut().slot_map = {
+                    let mut new_map = self.inner.borrow().slot_map.clone();
+                    super::redirect::update_slot_map_on_redirect(
+                        &mut new_map,
+                        &redirect,
+                    );
+                    new_map
+                };
+                // Send ASKING to target node, then retry original command.
+                let new_conn = {
+                    self.inner.borrow_mut().slot_map = {
+                        let mut new_map = self.inner.borrow().slot_map.clone();
+                        super::redirect::update_slot_map_on_redirect(
+                            &mut new_map,
+                            &redirect,
+                        );
+                        new_map
+                    };
+                    self.inner
+                        .borrow()
+                        .connection_for_slot(redirect.slot)
+                        .map_err(|_| {
+                            RedisError::Parse(format!(
+                                "no connection for node at {redirect}"
+                            ))
+                        })?
+                };
+                // Send ASKING.
+                let asking =
+                    CommandBuilder::new("ASKING").build().ok_or_else(|| {
+                        RedisError::Parse("ASKING encoding failed".into())
+                    })?;
+                let (tx2, rx2) = spsc::channel();
+                new_conn.send(Request::new(asking.to_vec(), tx2)).map_err(
+                    |e| match e {
+                        ConnectionLimitError::QueueFull(n) => {
+                            RedisError::Parse(format!("request queue full: depth={n}"))
+                        }
+                        ConnectionLimitError::RequestTooLarge(max, got) => {
+                            RedisError::Parse(format!("request too large: {got}/{max}"))
+                        }
+                    },
+                )?;
+                let _asking_resp = rx2.recv().map_err(|_| {
+                    RedisError::Parse("ASKING response channel closed".into())
+                })?;
+                // Now send the original command on the new connection.
+                let (tx3, rx3) = spsc::channel();
+                new_conn
+                    .send(Request::new(current_encoded.to_vec(), tx3))
+                    .map_err(|e| match e {
+                        ConnectionLimitError::QueueFull(n) => {
+                            RedisError::Parse(format!("request queue full: depth={n}"))
+                        }
+                        ConnectionLimitError::RequestTooLarge(max, got) => {
+                            RedisError::Parse(format!("request too large: {got}/{max}"))
+                        }
+                    })?;
+                let response = rx3.recv().map_err(|_| {
+                    RedisError::Parse("ASK retry response channel closed".into())
+                })?;
+                return T::from_redis_value(&response);
+            }
 
-        T::from_redis_value(&response)
+            // Not a redirect — return the result.
+            return T::from_redis_value(&response);
+        }
     }
 
     /// Refresh the cluster topology from a live node.
@@ -409,7 +518,7 @@ fn extract_first_key(cmd: &CommandBuilder) -> Option<Vec<u8>> {
     i += 1;
     let mut len = 0u32;
     while i < bytes.len() && bytes[i] != b'\r' {
-        len = len * 10 + (bytes[i] - b'0').into();
+        len = len * 10 + u32::from(bytes[i] - b'0');
         i += 1;
     }
     i += 2; // skip \r\n
@@ -425,7 +534,7 @@ fn extract_first_key(cmd: &CommandBuilder) -> Option<Vec<u8>> {
     i += 1;
     len = 0;
     while i < bytes.len() && bytes[i] != b'\r' {
-        len = len * 10 + (bytes[i] - b'0').into();
+        len = len * 10 + u32::from(bytes[i] - b'0');
         i += 1;
     }
     i += 2; // skip \r\n

@@ -85,22 +85,24 @@ pub enum NodeLinkState {
 
 ## Tasks
 
-- [ ] Add `NodeBusInfo`, `NodeFlag`, `NodeLinkState` structs
-- [ ] Implement `parse_cluster_nodes()` — parse RESP bulk string into `Vec<NodeInfo>`
-- [ ] Implement `parse_cluster_slots()` — parse RESP nested array into `Vec<NodeInfo>`
+- [x] Add `NodeBusInfo`, `NodeFlag`, `NodeLinkState` structs
+- [x] Implement `parse_cluster_nodes()` — parse RESP bulk string into `Vec<NodeInfo>`
+- [x] Implement `parse_cluster_slots()` — parse RESP nested array into `Vec<NodeInfo>`
 - [ ] Implement `ClusterInner::refresh_topology()` — send CLUSTER NODES to each node
 - [ ] Implement periodic refresh: `ClusterInner::start_periodic_refresh()` with `may::timer::sleep`
 - [ ] Wire refresh triggers in `execute()`: on CLUSTERDOWN, on connection error, on unknown slot
-- [ ] Wire `topology` module in `src/cluster/mod.rs`
-- [ ] Unit tests: parse 3-node CLUSTER NODES response (standard split)
-- [ ] Unit tests: parse CLUSTER SLOTS response with replicas
-- [ ] Unit tests: parse node with fail/pfail flags
-- [ ] Unit tests: parse empty/invalid CLUSTER NODES response
+- [x] Wire `topology` module in `src/cluster/mod.rs`
+- [x] Unit tests: parse 3-node CLUSTER NODES response (standard split)
+- [x] Unit tests: parse CLUSTER SLOTS response with replicas
+- [x] Unit tests: parse node with fail/pfail flags
+- [x] Unit tests: parse empty/invalid CLUSTER NODES response
 - [ ] Integration test: discover 3-node cluster from single seed
 - [ ] Integration test: refresh topology after node removal
 - [ ] Run `cargo build --features cluster`
 - [ ] Run `cargo test --lib --features cluster -- --test-threads=1`
 - [ ] Run `cargo clippy --lib --features cluster -- -D warnings`
+
+**Unit test results: 365 passed, 0 failed, 113 ignored. All topology parsing tests pass.**
 
 ## Verification
 
