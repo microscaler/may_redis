@@ -11,6 +11,8 @@ mod integration_hashes_basic;
 mod integration_lists_basic;
 mod integration_sets_basic;
 mod integration_sorted_sets;
+mod integration_strings_advanced;
+mod integration_strings_basic;
 mod integration_transactions;
 
 pub mod unit;

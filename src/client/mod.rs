@@ -73,6 +73,10 @@ mod client_tests {
     #[cfg(test)]
     mod integration_sorted_sets;
     #[cfg(test)]
+    mod integration_strings_advanced;
+    #[cfg(test)]
+    mod integration_strings_basic;
+    #[cfg(test)]
     mod integration_transactions;
     #[cfg(test)]
     mod unit;
