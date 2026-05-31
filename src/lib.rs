@@ -18,6 +18,7 @@
 #![allow(clippy::ref_as_ptr)]
 
 pub mod client;
+pub mod cluster;
 pub mod codec;
 pub mod connection;
 pub mod core;

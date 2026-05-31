@@ -243,3 +243,16 @@
 - Decision: split protocol/commands.rs (1,988 lines, 167 methods) into 8 domain sub-modules
 - Plan: extract all #[cfg(test)] blocks into separate _tests.rs files
 - Target: 23 files -> ~36, avg 605 lines -> 260 lines per production file
+
+## [2026-06-01] docs(epic15) — Redis Cluster Support: PRD analysis + story creation
+- Analyzed `docs/PRD-redis-cluster.md` — full PRD for Redis Cluster support
+- Created Epic 15 with 6 stories:
+  - Story_0: Epic overview, architecture diagrams, implementation order, dependency graph
+  - Story_1: Phase 2 — ClusterClient connect + basic slot-based routing (most foundational)
+  - Story_2: Phase 3 — MOVED/ASK redirect handling (redirect parsing + retry)
+  - Story_3: Phase 4 — Topology discovery (CLUSTER NODES/SLOTS parsing, periodic refresh)
+  - Story_4: Phase 5 — Multi-key fan-out (DEL/MSET/MGET across slots)
+  - Story_5: Phase 6 — Pipeline across nodes (concurrent per-node execution)
+- Phase 1 (CRC16 + SlotMap) already implemented in src/cluster/crc16.rs and slot_map.rs
+- All stories behind `cluster` feature flag, zero new dependencies
+- Each story has: FRs with method signatures, code anchors, struct definitions, tasks, verification
