@@ -15,6 +15,19 @@
 - Pre-existing state: 319 tests pass, clippy clean, fmt clean, all files under 350 lines
 - Coverage progression: ~12% → ~22% real-data integration coverage (25 → ~37 distinct commands with real-Redis tests)
 
+## [2026-06-01] feat(test) — Phase 2 (P1) Admin & Transactions integration tests
+- Created `src/client/client_tests/integration_admin_basic.rs` — 13 tests (305 lines)
+  - TYPE, MOVE, RENAME, RENAMENX, TOUCH, PTTL, PEXPIRE, PEXPIREAT, PERSIST
+  - SELECT, SCAN (basic + MATCH), INFO, CONFIG_GET, concurrent key ops
+- Created `src/client/client_tests/integration_admin_advanced.rs` — 8 tests (214 lines)
+  - FLUSHALL, SORT, SORT_LIMIT
+- Created `src/client/client_tests/integration_transactions.rs` — 5 tests (191 lines)
+  - MULTI/EXEC, MULTI/DISCARD, WATCH (no conflict), WATCH (conflict), UNWATCH
+- Total new integration tests: 26 across Admin & Transactions families
+- All tests follow established patterns: #[ignore] for live Redis, flushdb before/after, may::run + may::go!
+- Pre-existing state: 319 tests pass, clippy clean, fmt clean, all files under 350 lines
+- Coverage progression: ~22% → ~35% real-data integration coverage (37 → ~43 distinct commands)
+
 ## [2026-05-28] audit | Full codebase code review
 - Created `docs/code-review-2026-05-28.md` — expert review of main branch
 - Created `llmwiki/topics/code-review-2026-05-28.md` — wiki summary page

@@ -36,6 +36,12 @@ Hash (14 tests), Lists (11 tests), Sets (11 tests), SortedSets (12 tests) — 48
 
 Coverage progression: ~12% → ~22% real-data integration coverage.
 
+### Phase 2 (P1) — COMPLETED
+
+Admin (21 tests), Transactions (5 tests) — 26 integration tests added.
+
+Coverage progression: ~22% → ~35% real-data integration coverage.
+
 ### What IS tested end-to-end
 - Basic key-value: SET, GET, DEL, EXISTS
 - Atomic increment: INCR
