@@ -1,3 +1,17 @@
+
+## [2026-06-01] fix(test) — Phase 1/2 integration tests compilation and clippy compliance
+- Fixed compilation: all test modules now compile cleanly
+- Added #[allow(clippy::unwrap_used, ...)] to all new test modules
+- Fixed trait method signatures (zadd: score before member arg)
+- Added FromRedisValue impls: Option<String>, Vec<String>, Vec<i64>,
+  Vec<Option<String>>, Vec<(String, String)>, Vec<(String, f64)>,
+  (i64, Vec<String>), (i64, Vec<(String, f64)>)
+- Fixed transaction test type annotations (multi/exec/discard return types)
+- Fixed sinter/sunion to use slice args instead of variadic
+- Fixed clippy format! macro warnings (uninlined-format-args)
+- Total integration tests discovered: 81 (34 P0 + 21 P1 + 26 pre-existing)
+- All 319 unit tests pass, 91 ignored (live Redis required)
+- Coverage progression: ~12% → ~22% P0, ~22% → ~35% P1
 # Wiki Log
 
 > Chronological record of all wiki actions. Append-only.
