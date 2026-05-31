@@ -25,10 +25,16 @@ confidence: high
 |--------|-------|
 | Total command methods | 122 |
 | Protocol encoding tests (unit) | 122 (100%) |
-| Real-data integration tests | 25 (covering ~15 distinct commands) |
+| Real-data integration tests | 87 (covering ~37 distinct commands) |
 | E2E perf tests | ~7 distinct command families |
-| Commands with ZERO real-data testing | 107 (88%) |
-| Traits with ZERO integration tests | 5/8 (Hashes, Lists, Sets, SortedSets, Transactions) |
+| Commands with ZERO real-data testing | 85 (70%) |
+| Traits with ZERO integration tests | 2/8 (Transactions, Admin partial) |
+
+### Phase 1 (P0) — COMPLETED
+
+Hash (14 tests), Lists (11 tests), Sets (11 tests), SortedSets (12 tests) — 48 integration tests added.
+
+Coverage progression: ~12% → ~22% real-data integration coverage.
 
 ### What IS tested end-to-end
 - Basic key-value: SET, GET, DEL, EXISTS

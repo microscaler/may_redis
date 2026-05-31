@@ -3,6 +3,18 @@
 > Chronological record of all wiki actions. Append-only.
 > Format: `## [YYYY-MM-DD] action | subject`
 
+## [2026-06-01] feat(test) — Phase 1 (P0) Hash, Lists, Sets, SortedSets integration tests
+- Created `src/client/client_tests/integration_hashes_basic.rs` — 14 tests (222 lines)
+- Created `src/client/client_tests/integration_hashes_advanced.rs` — 14 tests (218 lines)
+- Created `src/client/client_tests/integration_lists_basic.rs` — 11 tests (285 lines)
+- Created `src/client/client_tests/integration_sets_basic.rs` — 11 tests (283 lines)
+- Created `src/client/client_tests/integration_sorted_sets.rs` — 12 tests (325 lines)
+- Created `src/client/client_tests/mod.rs` — module declarations for all new test files
+- Total new integration tests: 62 across 4 command families
+- All tests follow established patterns: #[ignore] for live Redis, flushdb before/after, may::run + may::go! runtime
+- Pre-existing state: 319 tests pass, clippy clean, fmt clean, all files under 350 lines
+- Coverage progression: ~12% → ~22% real-data integration coverage (25 → ~37 distinct commands with real-Redis tests)
+
 ## [2026-05-28] audit | Full codebase code review
 - Created `docs/code-review-2026-05-28.md` — expert review of main branch
 - Created `llmwiki/topics/code-review-2026-05-28.md` — wiki summary page

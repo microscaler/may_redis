@@ -34,15 +34,21 @@ Redis has ~200 commands organized by data type. may-redis v1 targets RESP2 wire 
 - 100% coverage — every command has RESP2 wire-format tests
 - Tests verify `cmd().arg().build()` produces correct RESP bytes
 
-### Integration Tests (Real Redis)
-- ~12% coverage — only basic StringsCommands tested against live server
-- Integration tests in `src/client/client_tests/integration.rs`
+### Integration Tests (Real Redis) — Updated after Phase 1 (P0)
+- ~22% coverage — Hash, Lists, Sets, SortedSets added
+- Integration tests in `src/client/client_tests/` directory
 - Uses `may::run` + `may::go!` pattern with `redis:7-alpine` container
 
-### Commands with ZERO integration tests
-- All 58 Hash/List/Set/SortedSet methods (5 traits)
-- Multi-key string ops, bit/range ops, transaction primitives
-- Admin commands: TYPE, MOVE, RENAME, CONFIG, INFO, SAVE, BGSAVE, etc.
+#### Phase 1 (P0) — 48 tests added
+- **Hash (28 tests):** HSET, HGET, HGETALL, HDEL (single/multi), HKEYS, HVALS, HLEN, HEXISTS, HINCRBY, HSCAN, HSCAN_MATCH, empty key, 1000-field, type mismatch, pipeline, concurrent
+- **Lists (11 tests):** LPUSH, RPUSH, LPOP, RPOP, LRANGE, LINDEX, LLEN, LSET, LREM, LTRIM, empty key, concurrent
+- **Sets (11 tests):** SADD, SMEMBERS, SISMEMBER, SREM, SCARD, SPOP, SRANDMEMBER, SINTER, SUNION, SSCAN, empty key
+- **SortedSets (12 tests):** ZADD, ZREM, ZCARD, ZRANK, ZSCORE, ZCOUNT, ZINCRBY, ZPOPMAX, ZPOPMIN, ZRANGE, ZRANGEBYSCORE, ZSCAN, empty key
+
+#### Still missing real-data tests
+- **AdminCommands:** TYPE, MOVE, RENAME, RENAMENX, TOUCH, PTTL, PEXPIRE, PEXPIREAT, PERSIST, SELECT, SORT, SCAN, SAVE, BGSAVE, FLUSHALL, SHUTDOWN, INFO, CONFIG
+- **TransactionsCommands:** MULTI, EXEC, DISCARD, WATCH, UNWATCH
+- **Multi-key strings:** MGET, MSET, MSETNX, SETNX, SETEX, SETBIT, GETBIT, BITCOUNT, GETRANGE, SETRANGE, APPEND, STRLEN, INCRBY, DECR, DECRBY
 
 ## Layer 3: Sesame-IDAM Usage
 
@@ -57,12 +63,10 @@ Sesame-IDAM uses 11 canonical Redis commands across 5 modules:
 
 ## Gap Analysis
 
-The ~111 methods not tested against live Redis represent:
-1. **Data structure operations** — Hash/List/Set/SortedSet (58 commands)
-2. **Advanced string ops** — MGET, MSET, MSETNX, SETNX, APPEND, BITCOUNT, etc. (18 commands)
-3. **Admin/monitoring** — CONFIG, INFO, SAVE, BGSAVE, PTTL, etc. (17 commands)
-4. **Transactions** — MULTI, EXEC, DISCARD, WATCH, UNWATCH (5 commands)
-5. **Pubsub** — SUBSCRIBE, etc. (documented as UNSUPPORTED by client)
+The ~85 methods not tested against live Redis represent:
+1. **Admin/monitoring** — TYPE, MOVE, RENAME, RENAMENX, TOUCH, PTTL, PEXPIRE, PEXPIREAT, PERSIST, SELECT, SORT, SCAN, SAVE, BGSAVE, FLUSHALL, SHUTDOWN, INFO, CONFIG (18 commands)
+2. **Transactions** — MULTI, EXEC, DISCARD, WATCH, UNWATCH (5 commands)
+3. **Multi-key string ops** — MGET, MSET, MSETNX, SETNX, SETEX, SETBIT, GETBIT, BITCOUNT, GETRANGE, SETRANGE, APPEND, STRLEN, INCRBY, DECR, DECRBY (15 commands)
 
 ## Test Strategy
 
