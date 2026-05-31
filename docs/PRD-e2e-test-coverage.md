@@ -487,6 +487,19 @@ enum InMemoryValue {
 | Commands with encoding tests | 122 (100%) |
 | Commands with integration tests | 115 (~94%)* |
 | Traits with zero integration tests | 1/8 (Pubsub) |
+
+### Current State After Phase 1 & 2
+
+| Metric | Value |
+|--------|-------|
+| Total lib tests | 410 |
+| Passing unit tests | 319 |
+| Integration tests (ignored, live Redis) | 91 |
+| P0 tests — Hash/Lists/Sets/SortedSets | 34 |
+| P1 tests — Admin/Transactions | 21 |
+| Pre-existing integration tests | 26 |
+| Traits with zero integration tests | 3/8 (Strings extension, Pubsub, Lists partial) |
+| Approximate real-data coverage | ~35% (up from ~12%) |
 | Total integration tests | ~130+ |
 
 *Pubsub commands (SUBSCRIBE, etc.) intentionally excluded — PUBLISH (1/7 pubsub methods) is tested.
