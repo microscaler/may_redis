@@ -1,7 +1,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use super::unit::{run_may, shared_client};
-use crate::protocol::commands::{AdminCommands, TransactionsCommands};
+use crate::protocol::commands::{AdminCommands, StringsCommands, TransactionsCommands};
 
 // ---------------------------------------------------------------------------
 // MULTI/EXEC — Basic transaction
@@ -15,15 +15,11 @@ fn test_integration_transaction_multi_exec() {
         client.execute::<()>(client.flushdb()).ok();
 
         // Start transaction
-        let _: () = client.execute(client.multi()).unwrap();
+        let _: String = client.execute(client.multi()).unwrap();
 
         // Queue commands (they return QUEUED)
-        let _: String = client
-            .execute(client.set("tx_key", "from_tx"))
-            .unwrap();
-        let _: String = client
-            .execute(client.set("tx_key2", "from_tx2"))
-            .unwrap();
+        let _: String = client.execute(client.set("tx_key", "from_tx")).unwrap();
+        let _: String = client.execute(client.set("tx_key2", "from_tx2")).unwrap();
 
         // Execute the transaction
         let results: Vec<String> = client.execute(client.exec()).unwrap();
@@ -50,10 +46,12 @@ fn test_integration_transaction_discard() {
         let client = shared_client();
         client.execute::<()>(client.flushdb()).ok();
 
-        client.execute(client.set("discard_key", "original")).ok();
+        client
+            .execute::<()>(client.set("discard_key", "original"))
+            .ok();
 
         // Start transaction
-        let _: () = client.execute(client.multi()).unwrap();
+        let _: String = client.execute(client.multi()).unwrap();
 
         // Queue a SET that would overwrite the key
         let _: String = client
@@ -63,7 +61,10 @@ fn test_integration_transaction_discard() {
         // DISCARD the transaction
         let _: String = client.execute(client.discard()).unwrap();
         assert_eq!(
-            client.execute(client.get("discard_key")).unwrap().unwrap(),
+            client
+                .execute::<Option<String>>(client.get("discard_key"))
+                .unwrap()
+                .unwrap(),
             "original"
         );
 
@@ -82,14 +83,16 @@ fn test_integration_transaction_watch() {
         let client = shared_client();
         client.execute::<()>(client.flushdb()).ok();
 
-        client.execute(client.set("watch_key", "base_value")).ok();
+        client
+            .execute::<()>(client.set("watch_key", "base_value"))
+            .ok();
 
         // WATCH the key
         let keys: Vec<&str> = vec!["watch_key"];
         let _: String = client.execute(client.watch(&keys)).unwrap();
 
         // Start transaction
-        let _: () = client.execute(client.multi()).unwrap();
+        let _: String = client.execute(client.multi()).unwrap();
 
         // Queue a SET
         let _: String = client
@@ -116,15 +119,15 @@ fn test_integration_transaction_watch_conflict() {
         let client = shared_client();
         client.execute::<()>(client.flushdb()).ok();
 
-        client.execute(client.set("conflict_key", "original")).ok();
+        client
+            .execute::<()>(client.set("conflict_key", "original"))
+            .ok();
 
         // First client watches and starts transaction
         let c1 = client.clone();
         let _: String = c1.execute(client.watch(&["conflict_key"])).unwrap();
-        let _: () = c1.execute(c1.multi()).unwrap();
-        let _: String = c1
-            .execute(c1.set("conflict_key", "from_c1"))
-            .unwrap();
+        let _: String = c1.execute(c1.multi()).unwrap();
+        let _: String = c1.execute(c1.set("conflict_key", "from_c1")).unwrap();
 
         // Second client changes the watched key
         let _: () = client
@@ -140,7 +143,8 @@ fn test_integration_transaction_watch_conflict() {
         // Redis returns nil (null) when watch conflict occurs
         let exec_result = result.unwrap();
         assert!(
-            exec_result.is_none() || exec_result.iter().any(|r| r == "nil" || r.is_empty()),
+            exec_result.is_none()
+                || exec_result.iter().any(|r| r == "nil" || r.is_empty()),
             "EXEC should return nil on watch conflict"
         );
 
@@ -163,7 +167,7 @@ fn test_integration_transaction_unwatch() {
         let client = shared_client();
         client.execute::<()>(client.flushdb()).ok();
 
-        client.execute(client.set("unwatch_key", "base")).ok();
+        client.execute::<()>(client.set("unwatch_key", "base")).ok();
 
         // WATCH the key
         let keys: Vec<&str> = vec!["unwatch_key"];
@@ -177,7 +181,7 @@ fn test_integration_transaction_unwatch() {
             .execute(client.set("unwatch_key", "changed"))
             .unwrap();
 
-        let _: () = client.execute(client.multi()).unwrap();
+        let _: String = client.execute(client.multi()).unwrap();
         let _: String = client
             .execute(client.set("unwatch_key", "exec_value"))
             .unwrap();

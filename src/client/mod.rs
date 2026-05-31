@@ -59,5 +59,21 @@ mod client_tests {
     #[cfg(test)]
     mod integration;
     #[cfg(test)]
+    mod integration_admin_advanced;
+    #[cfg(test)]
+    mod integration_admin_basic;
+    #[cfg(test)]
+    mod integration_hashes_advanced;
+    #[cfg(test)]
+    mod integration_hashes_basic;
+    #[cfg(test)]
+    mod integration_lists_basic;
+    #[cfg(test)]
+    mod integration_sets_basic;
+    #[cfg(test)]
+    mod integration_sorted_sets;
+    #[cfg(test)]
+    mod integration_transactions;
+    #[cfg(test)]
     mod unit;
 }
