@@ -108,7 +108,7 @@ jobs:
       # Run ONLY the test_integration_* family. They share Redis state
       # and FLUSHDB between assertions, so --test-threads=1 is mandatory.
       - name: Run integration tests
-        run: cargo test --features test --lib test_integration_ -- --test-threads=1
+        run: cargo test --features test --lib test_integration_ -- --test-threads=1 --include-ignored
 
   # ── Doc tests (run after integration, sequential chain) ──
   doc-tests:
