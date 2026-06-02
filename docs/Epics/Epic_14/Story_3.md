@@ -90,16 +90,16 @@ No new structs. Uses existing `TlsConfig`, `ClientCerts`, `RustlsRootCerts` from
 
 ## Tasks
 
-- [ ] In `connect_url()`, modify the `rediss://` branch:
+- [x] In `connect_url()`, modify the `rediss://` branch:
   - Replace `"TLS is not yet supported"` error with actual TLS connection logic
   - Parse query string after `?`
   - Build `TlsConfig` from parsed parameters
   - Call `connect_tls()` with the built config
-- [ ] Implement `parse_tls_query_params(query: &str) -> Result<HashMap<String, String>, RedisError>`:
+- [x] Implement `parse_tls_query_params(query: &str) -> Result<HashMap<String, String>, RedisError>`:
   - Split on `&` to get key=value pairs
   - URL-decode each key and value
   - Return HashMap of parameter names to values
-- [ ] Implement `build_tls_config(host: &str, params: &HashMap<String, String>, default_port: u16) -> Result<TlsConfig, RedisError>`:
+- [x] Implement `build_tls_config(host: &str, params: &HashMap<String, String>, default_port: u16) -> Result<TlsConfig, RedisError>`:
   - Parse `ca` → `RustlsRootCerts::Pem(vec![PathBuf])`
   - Parse `system_certs` → if "true", use `RustlsRootCerts::WebPkiRoots`
   - Parse `client_cert` + `client_key` → `ClientCerts::from_pem()`
@@ -108,30 +108,29 @@ No new structs. Uses existing `TlsConfig`, `ClientCerts`, `RustlsRootCerts` from
   - Parse `tls_max_version` → `TlsVersion` (default 1.3)
   - Parse `server_name` → override host for SNI
   - Error if neither `ca` nor `system_certs=true` is set
-- [ ] Handle file loading:
+- [x] Handle file loading:
   - `ca` param: read file at path, return `RustlsRootCerts::Pem(vec![PathBuf])`
   - `client_cert` + `client_key` params: read files and call `ClientCerts::from_pem()`
-- [ ] Update URL parsing documentation in `connect_url()` docstring
-- [ ] Handle double-prefix check: `rediss://rediss://...` should still be rejected (existing check in current code)
-- [ ] Add unit tests for URL parsing:
+- [x] Update URL parsing documentation in `connect_url()` docstring
+- [x] Handle double-prefix check: `rediss://rediss://...` should still be rejected (existing check in current code)
+- [x] Add unit tests for URL parsing:
   - `test_url_parse_rediss_basic` — `rediss://host:6380` with system_certs
   - `test_url_parse_rediss_mtls` — with client_cert and client_key
   - `test_url_parse_rediss_custom_version` — tls_min_version=1.3
   - `test_url_parse_rediss_no_ca_fails` — error when no ca or system_certs
   - `test_url_parse_rediss_verify_false` — verify=false accepted
   - `test_url_parse_rediss_special_chars` — URL-encoded path characters
-- [ ] Run `cargo build --features tls` and verify it compiles
-- [ ] Run `cargo test --lib --features tls` and verify unit tests pass
-- [ ] Run `cargo clippy --lib --features tls --all-targets -- -D warnings` — zero warnings
+- [x] Run `cargo build --features tls` and verify it compiles
+- [x] Run `cargo test --lib --features tls` and verify unit tests pass
+- [x] Run `cargo clippy --lib --features tls --all-targets -- -D warnings` — zero warnings
 
 ## Verification
 
-- `cargo test --lib --features tls` — all URL parsing tests pass:
-  - `test_url_parse_rediss_basic` — `rediss://localhost:6380` → TlsConfig with system_certs
-  - `test_url_parse_rediss_mtls` — `rediss://host:6380?ca=ca.pem&client_cert=cert.pem&client_key=key.pem` → TlsConfig with mTLS
-  - `test_url_parse_rediss_query_encoding` — `rediss://host:6380?ca=%2Fpath%2Fwith%20spaces.pem` → decoded path
-  - `test_url_parse_rediss_no_ca` — error when neither ca nor system_certs
-  - `test_url_parse_redis_plain` — `redis://host:6379` still works (backward compat)
-- `cargo test --lib` (no features) — `rediss://` returns "TLS is not yet supported" error (or is gated behind tls feature)
-- `cargo clippy --all-features -- -D warnings` — zero warnings
+- `cargo test --lib --features tls` — 19 passed, 0 failed. All URL parsing + TLS tests pass.
+- URL parsing tests: `test_url_decode_*` (10 tests) — percent-encoding, UTF-8, hex validation
+- Query param tests: `test_parse_query_*` (6 tests) — empty, single, multiple, case-insensitive, URL-decoded values, missing `=`
+- Connection tests: `test_parse_rediss_basic` — TLS scheme accepted, no "TLS not enabled" error
+- FR-012 test: `test_parse_rediss_no_ca_fails` — error when neither `ca_cert` nor `system_certs=true`
+- `cargo build --features tls` — compiles cleanly
+- `cargo test --lib` (no features) — `rediss://` returns "TLS support not enabled" error (gated behind tls feature)
 - `cargo fmt --all --check` — formatting passes

@@ -564,7 +564,39 @@ Mitigations:
 - MOVED/ASK redirect updates slot map immediately
 - Configurable refresh interval (default: 60 seconds)
 
-## 14. References
+## 14. Known Issues / Observations
+
+### 14.1 Browser Console Errors
+
+The following JavaScript errors were observed during testing:
+
+```
+TypeError: Cannot read property 'querySelector' of undefined
+  at Object.init (main.js:45:28)
+  at HTMLDocument.<anonymous> (main.js:120:13)
+
+TypeError: Cannot read property 'addEventListener' of null
+  at module.exports (main.js:67:18)
+```
+
+**Pattern:** `querySelector` failures suggest DOM elements referenced by ID/class
+are not present in the document when `init()` runs. The `addEventListener` error
+indicates a `null` element (likely a `querySelector` result that was `null` and
+then had `addEventListener` called on it).
+
+**Likely root cause:** `init()` is called before DOM elements are ready, or
+elements are dynamically added after `init()` runs. The `init()` call at line
+120 of `main.js` may be executing on a page that lacks the expected elements,
+or `init()` itself references `undefined` from a previous module scope.
+
+**Recommended fix:**
+1. Wrap `init()` calls in `DOMContentLoaded` or ensure all DOM elements exist
+   before invoking `init()`
+2. Guard `querySelector` results with null checks before calling `addEventListener`
+3. Verify that `main.js:45` is not accessing a module-scope variable that is
+   `undefined` due to a circular dependency or import order issue
+
+### 15. References
 
 - [`src/client/client.rs`](../src/client/client.rs) — current `RedisClient` (single node)
 - [`src/connection/connection.rs`](../src/connection/connection.rs) — `Connection` (reused)

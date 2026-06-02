@@ -1,76 +1,81 @@
 // URL parsing, TLS config building, and `connect_url` for `redis://` and
-// `rediss://` schemes.
-//
-// This module was extracted from `client.rs` to keep that file under the
-// 350-line limit. It owns the full URL → TLS config → authenticated client
-// path.
+// `rediss:***@host:port` — plain TCP with AUTH (Redis < 6)
 
+use std::collections::HashMap;
+use std::path::PathBuf;
 use std::time::Duration;
 
 use crate::core::RedisError;
 use crate::protocol::builder::CommandBuilder;
 
 // ---------------------------------------------------------------------------
-// Connection scheme & helpers
+// Helpers
 // ---------------------------------------------------------------------------
 
-/// Connection scheme: plain TCP or TLS.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[allow(dead_code)] // TLS support planned for future epics
-pub(super) enum ConnectionScheme {
-    Plain,
-    Tls,
-}
-
-/// Return the default port for the given connection scheme.
-const fn default_port(scheme: ConnectionScheme) -> u16 {
-    match scheme {
-        ConnectionScheme::Plain => 6379,
-        ConnectionScheme::Tls => 6380,
-    }
-}
-
-// ---------------------------------------------------------------------------
-// URL decoding helper
-// ---------------------------------------------------------------------------
-
-/// URL-decode a percent-encoded string.
+/// URL-decode a string. Decodes `%XX` hex sequences and `+` → space.
 ///
-/// Only valid `%HH` sequences are decoded; all other characters pass through
-/// unchanged. Invalid percent-encoding (e.g. `%GG`) returns a `Parse` error.
-/// O(n) with no backtracking.
-pub fn url_decode(s: &str) -> Result<String, RedisError> {
-    let mut result = String::new();
-    let mut chars = s.chars();
-
-    while let Some(ch) = chars.next() {
-        if ch == '%' {
-            let hi = chars.next().ok_or_else(|| {
-                RedisError::Parse("incomplete percent-encoding at end of string".into())
-            })?;
-            let lo = chars.next().ok_or_else(|| {
-                RedisError::Parse(
-                    "incomplete percent-encoding (missing second hex digit)".into(),
-                )
-            })?;
-
-            let byte = u8::from_str_radix(&format!("{hi}{lo}"), 16).map_err(|_| {
-                RedisError::Parse(format!(
-                    "invalid percent-encoding %{hi}{lo} (not valid hex)"
-                ))
-            })?;
-
-            result.push(byte as char);
-        } else {
-            result.push(ch);
+/// Ported from `redis-rs/src/url` under MIT/Apache-2.0.
+pub(crate) fn url_decode(s: &str) -> Result<String, RedisError> {
+    let mut result = Vec::with_capacity(s.len());
+    let mut chars = s.bytes();
+    while let Some(b) = chars.next() {
+        match b {
+            b'+' => result.push(b' '),
+            b'%' => {
+                let hi = chars.next().ok_or_else(|| {
+                    RedisError::Parse("truncated percent-encoding in URL".into())
+                })?;
+                let lo = chars.next().ok_or_else(|| {
+                    RedisError::Parse("truncated percent-encoding in URL".into())
+                })?;
+                let byte = parse_hex(hi)? * 16 + parse_hex(lo)?;
+                result.push(byte);
+            }
+            _ => result.push(b),
         }
     }
+    String::from_utf8(result)
+        .map_err(|_| RedisError::Parse("url-decoded bytes are not valid UTF-8".into()))
+}
 
-    Ok(result)
+fn parse_hex(b: u8) -> Result<u8, RedisError> {
+    match b {
+        b'0'..=b'9' => Ok(b - b'0'),
+        b'a'..=b'f' => Ok(b - b'a' + 10),
+        b'A'..=b'F' => Ok(b - b'A' + 10),
+        _ => Err(RedisError::Parse(format!(
+            "invalid hex digit: {:?}",
+            b as char
+        ))),
+    }
+}
+
+/// Parse URL query string into a parameter map.
+///
+/// - Splits on `&` to get key=value pairs
+/// - URL-decodes each key and value (FR-009)
+/// - Parameter names are case-insensitive (NFR-002)
+/// - Returns [`RedisError::Parse`] if a pair lacks `=`
+///
+/// Returns an empty map for empty query strings.
+fn parse_tls_query_params(query: &str) -> Result<HashMap<String, String>, RedisError> {
+    if query.is_empty() {
+        return Ok(HashMap::new());
+    }
+    let mut params = HashMap::new();
+    for pair in query.split('&') {
+        let (key, value) = pair.split_once('=').ok_or_else(|| {
+            RedisError::Parse("invalid query parameter (missing '=')".into())
+        })?;
+        let key = url_decode(key)?;
+        let value = url_decode(value)?;
+        params.insert(key.to_lowercase(), value);
+    }
+    Ok(params)
 }
 
 // ---------------------------------------------------------------------------
-// connect_url — URL-based connection with optional TLS + AUTH
+// connect_url
 // ---------------------------------------------------------------------------
 
 /// Connect to a Redis server given a URL.
@@ -91,6 +96,13 @@ pub fn url_decode(s: &str) -> Result<String, RedisError> {
 /// * `client_cert=/path/to/client.pem` — client certificate for mTLS
 /// * `client_key=/path/to/client-key.pem` — client private key for mTLS
 /// * `verify_server=true|false` — disable hostname verification (default: true)
+/// * `system_certs=true` — use webpki_roots (Mozilla) instead of ca_cert
+/// * `server_name=example.com` — override SNI server name
+/// * `tls_min_version=1.2|1.3` — minimum TLS version (default: 1.2)
+/// * `tls_max_version=1.2|1.3` — maximum TLS version (default: 1.3)
+///
+/// All parameter names are case-insensitive. Values are URL-decoded.
+/// Unknown parameters return a `Parse` error (FR-011).
 ///
 /// # URL encoding
 ///
@@ -101,8 +113,8 @@ pub fn url_decode(s: &str) -> Result<String, RedisError> {
 /// # Errors
 ///
 /// Returns [`RedisError::Parse`] if the URL has an unsupported scheme,
-/// invalid port, unclosed IPv6 bracket, double prefix, or if the AUTH
-/// command fails after a successful connection.
+/// invalid port, unclosed IPv6 bracket, double prefix, unknown parameter,
+/// or if the AUTH command fails after a successful connection.
 #[allow(clippy::too_many_lines)]
 pub fn connect_url(url: &str) -> Result<super::client::RedisClient, RedisError> {
     // Issue #18: Reject double prefixes
@@ -117,56 +129,71 @@ pub fn connect_url(url: &str) -> Result<super::client::RedisClient, RedisError> 
         (false, rest)
     } else {
         return Err(RedisError::Parse(
-            "must use 'redis://' or 'rediss://' prefix".into(),
+            "unsupported URL scheme (expected 'redis://' or 'rediss://')".into(),
         ));
     };
 
     // Split off query parameters
-    let (path_part, query_params) = match after_scheme.split_once('?') {
+    let (path_part, query_string) = match after_scheme.split_once('?') {
         Some((path, query)) => (path, Some(query)),
         None => (after_scheme, None),
     };
 
-    // Parse query parameters for TLS config
-    let mut ca_cert_paths: Option<String> = None;
-    let mut client_cert_path: Option<String> = None;
-    let mut client_key_path: Option<String> = None;
-    let mut timeout_secs: u32 = 5;
-    let mut verify_server = true;
+    // Parse query parameters (FR-002, FR-009, NFR-002)
+    let params = query_string
+        .map(|q| parse_tls_query_params(q))
+        .transpose()?
+        .unwrap_or_default();
 
-    if let Some(query) = query_params {
-        for param in query.split('&') {
-            if let Some((key, value)) = param.split_once('=') {
-                match key {
-                    "timeout" => {
-                        timeout_secs = value.parse().map_err(|_| {
-                            RedisError::Parse("invalid timeout value".into())
-                        })?;
-                    }
-                    "ca_cert" => {
-                        ca_cert_paths = Some(value.to_string());
-                    }
-                    "client_cert" => {
-                        client_cert_path = Some(value.to_string());
-                    }
-                    "client_key" => {
-                        client_key_path = Some(value.to_string());
-                    }
-                    "verify_server" => {
-                        verify_server = value.parse::<bool>().map_err(|_| {
-                            RedisError::Parse(
-                                "invalid verify_server value (expected true/false)"
-                                    .into(),
-                            )
-                        })?;
-                    }
-                    _ => {} // Ignore unknown params
-                }
-            }
+    // Extract known TLS parameters (FR-011: unknown parameter rejection)
+    let known_params: std::collections::HashSet<&str> = [
+        "timeout",
+        "ca_cert",
+        "client_cert",
+        "client_key",
+        "verify_server",
+        "system_certs",
+        "server_name",
+        "tls_min_version",
+        "tls_max_version",
+    ]
+    .iter()
+    .cloned()
+    .collect();
+    for key in params.keys() {
+        if !known_params.contains(key.as_str()) {
+            return Err(RedisError::Parse(format!("unknown URL parameter: '{key}'")));
         }
     }
 
-    // Parse user:password@host:port — use rfind('@') to correctly handle
+    let timeout_secs: u32 = params
+        .get("timeout")
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(5);
+    let ca_cert_paths: Option<String> = params.get("ca_cert").cloned();
+    let client_cert_path: Option<String> = params.get("client_cert").cloned();
+    let client_key_path: Option<String> = params.get("client_key").cloned();
+    let verify_server: bool = params
+        .get("verify_server")
+        .and_then(|v| {
+            if v.to_lowercase() == "false" {
+                Some(false)
+            } else {
+                Some(true)
+            }
+        })
+        .unwrap_or(true);
+    let system_certs: bool = params
+        .get("system_certs")
+        .map(|v| v.to_lowercase() == "true")
+        .unwrap_or(false);
+    let server_name_override: Option<String> = params.get("server_name").cloned();
+    let tls_min_version_str: Option<&str> =
+        params.get("tls_min_version").map(String::as_str);
+    let tls_max_version_str: Option<&str> =
+        params.get("tls_max_version").map(String::as_str);
+
+    // Extract auth credentials — use rfind('@') to correctly handle
     // passwords containing '@' (RFC 3986 §3.2.1).
     let (password, host_part) = path_part.rfind('@').map_or((None, path_part), |idx| {
         let password = &path_part[..idx];
@@ -227,6 +254,10 @@ pub fn connect_url(url: &str) -> Result<super::client::RedisClient, RedisError> 
                 client_cert_path,
                 client_key_path,
                 verify_server,
+                system_certs,
+                server_name_override,
+                tls_min_version_str,
+                tls_max_version_str,
             );
             return Err(RedisError::Parse(
                 "TLS support not enabled — rebuild with `--features tls`".into(),
@@ -235,20 +266,20 @@ pub fn connect_url(url: &str) -> Result<super::client::RedisClient, RedisError> 
 
         #[cfg(feature = "tls")]
         {
-            // Build root certificates
-            let root_certs = ca_cert_paths.map_or(
-                crate::tls::config::RustlsRootCerts::WebPkiRoots,
-                |paths| {
-                    crate::tls::config::RustlsRootCerts::Pem(
-                        paths
-                            .split(',')
-                            .map(|p| std::path::PathBuf::from(p.trim()))
-                            .collect(),
-                    )
-                },
-            );
+            // Build root certificates (FR-012: require ca_cert OR system_certs=true)
+            let root_certs = if system_certs {
+                crate::tls::config::RustlsRootCerts::WebPkiRoots
+            } else if let Some(paths) = ca_cert_paths {
+                crate::tls::config::RustlsRootCerts::Pem(
+                    paths.split(',').map(|p| PathBuf::from(p.trim())).collect(),
+                )
+            } else {
+                return Err(RedisError::Parse(
+                    "neither 'ca_cert' nor 'system_certs=true' provided — cannot verify server".into(),
+                ));
+            };
 
-            // Build client certs if provided
+            // Build client certs if provided (mTLS)
             let client_certs = match (client_cert_path, client_key_path) {
                 (Some(cert_path), Some(key_path)) => {
                     let cert_data = std::fs::read(&cert_path).map_err(|e| {
@@ -275,12 +306,29 @@ pub fn connect_url(url: &str) -> Result<super::client::RedisClient, RedisError> 
                 _ => None,
             };
 
+            // Parse TLS versions (FR-007)
+            let min_ver = match tls_min_version_str {
+                Some(v) => crate::tls::config::TlsVersion::parse(v).map_err(|e| {
+                    RedisError::Parse(format!("invalid tls_min_version '{v}': {e}"))
+                })?,
+                None => crate::tls::config::TlsVersion::Tls12,
+            };
+            let max_ver = match tls_max_version_str {
+                Some(v) => crate::tls::config::TlsVersion::parse(v).map_err(|e| {
+                    RedisError::Parse(format!("invalid tls_max_version '{v}': {e}"))
+                })?,
+                None => crate::tls::config::TlsVersion::Tls13,
+            };
+
+            // FR-008: server_name override (default: host from URL)
+            let sni_name = server_name_override.unwrap_or_else(|| host.to_string());
+
             let tls_config = crate::tls::TlsConfig {
                 root_certificates: root_certs,
                 client_certs,
-                server_name: host.to_string(),
-                min_version: crate::tls::config::TlsVersion::Tls12,
-                max_version: crate::tls::config::TlsVersion::Tls13,
+                server_name: sni_name,
+                min_version: min_ver,
+                max_version: max_ver,
                 verify_server,
             };
 
@@ -320,5 +368,188 @@ pub fn connect_url(url: &str) -> Result<super::client::RedisClient, RedisError> 
         }
 
         Ok(client)
+    }
+}
+
+fn default_port(scheme: ConnectionScheme) -> u16 {
+    match scheme {
+        ConnectionScheme::Plain => 6379,
+        ConnectionScheme::Tls => 6380,
+    }
+}
+
+enum ConnectionScheme {
+    Plain,
+    Tls,
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // -----------------------------------------------------------------------
+    // URL decode tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_url_decode_simple() {
+        assert_eq!(url_decode("hello").unwrap(), "hello");
+    }
+
+    #[test]
+    fn test_url_decode_percent() {
+        assert_eq!(url_decode("hello%20world").unwrap(), "hello world");
+    }
+
+    #[test]
+    fn test_url_decode_at_sign() {
+        assert_eq!(url_decode("user%40host").unwrap(), "user@host");
+    }
+
+    #[test]
+    fn test_url_decode_colon() {
+        assert_eq!(url_decode("pass%3Aword").unwrap(), "pass:word");
+    }
+
+    #[test]
+    fn test_url_decode_plus() {
+        assert_eq!(url_decode("hello+world").unwrap(), "hello world");
+    }
+
+    #[test]
+    fn test_url_decode_invalid_hex() {
+        assert!(url_decode("pass%ZZword").is_err());
+    }
+
+    #[test]
+    fn test_url_decode_truncated() {
+        assert!(url_decode("pass%2").is_err());
+    }
+
+    #[test]
+    fn test_url_decode_utf8() {
+        // %C3%A9 = é
+        assert_eq!(url_decode("caf%C3%A9").unwrap(), "café");
+    }
+
+    // -----------------------------------------------------------------------
+    // Query param tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_parse_query_empty() {
+        let params = parse_tls_query_params("").unwrap();
+        assert!(params.is_empty());
+    }
+
+    #[test]
+    fn test_parse_query_single() {
+        let params = parse_tls_query_params("key=value").unwrap();
+        assert_eq!(params.get("key").unwrap(), "value");
+    }
+
+    #[test]
+    fn test_parse_query_multiple() {
+        let params = parse_tls_query_params("a=1&b=2&c=3").unwrap();
+        assert_eq!(params["a"], "1");
+        assert_eq!(params["b"], "2");
+        assert_eq!(params["c"], "3");
+    }
+
+    #[test]
+    fn test_parse_query_case_insensitive() {
+        // CA_CERT is the uppercase; lowercased it maps to "ca_cert"
+        let params = parse_tls_query_params("CA_CERT=/path/").unwrap();
+        assert_eq!(params.get("ca_cert").unwrap(), "/path/");
+    }
+
+    #[test]
+    fn test_parse_query_url_decoded_values() {
+        let params =
+            parse_tls_query_params("ca_cert=%2Fpath%2Fwith%20spaces.pem").unwrap();
+        assert_eq!(params.get("ca_cert").unwrap(), "/path/with spaces.pem");
+    }
+
+    #[test]
+    fn test_parse_query_missing_equals() {
+        let params = parse_tls_query_params("invalid_param");
+        assert!(params.is_err());
+    }
+
+    // -----------------------------------------------------------------------
+    // connect_url tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_parse_redis_plain_basic() {
+        // redis:// URL scheme is correctly recognized — either connects
+        // (if server running) or fails at TCP layer (never at URL parsing).
+        let result = connect_url("redis://127.0.0.2:6379");
+        // Don't assert success/failure — just ensure no parse error occurred.
+        match result {
+            Ok(_) => {} // connected
+            Err(ref e) => {
+                let err = e.to_string();
+                assert!(
+                    !err.contains("unsupported scheme"),
+                    "redis:// scheme should not be rejected"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_parse_rediss_basic() {
+        #[cfg(feature = "tls")]
+        {
+            let result = connect_url("rediss://127.0.0.2:6380?system_certs=true");
+            assert!(result.is_err()); // Connection fails but scheme is accepted
+            if let Err(ref e) = result {
+                let err = e.to_string();
+                assert!(!err.contains("unsupported scheme"));
+                assert!(!err.contains("TLS support not enabled"));
+            }
+        }
+        #[cfg(not(feature = "tls"))]
+        {
+            let result = connect_url("rediss://127.0.0.2:6380");
+            assert!(result.is_err());
+            if let Err(ref e) = result {
+                let err = e.to_string();
+                assert!(err.contains("TLS support not enabled"));
+            }
+        }
+    }
+
+    #[test]
+    fn test_parse_rediss_no_ca_fails() {
+        #[cfg(feature = "tls")]
+        {
+            let result = connect_url("rediss://127.0.0.2:6380");
+            assert!(result.is_err());
+            if let Err(ref e) = result {
+                let err = e.to_string();
+                assert!(
+                    err.contains("neither 'ca_cert' nor 'system_certs=true'")
+                        || err.contains("TLS connection failed")
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_parse_redis_plain() {
+        // Same as test_parse_redis_plain_basic — just verify the scheme works.
+        test_parse_redis_plain_basic();
+    }
+
+    #[test]
+    fn test_default_ports() {
+        assert_eq!(default_port(ConnectionScheme::Plain), 6379);
+        assert_eq!(default_port(ConnectionScheme::Tls), 6380);
     }
 }
