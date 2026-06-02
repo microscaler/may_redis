@@ -31,6 +31,12 @@ mod tests {
     }
 
     #[test]
+    fn test_tls_version_from_str_whitespace() {
+        assert_eq!(TlsVersion::parse(" 1.2 ").unwrap(), TlsVersion::Tls12);
+        assert_eq!(TlsVersion::parse("1.3  ").unwrap(), TlsVersion::Tls13);
+    }
+
+    #[test]
     fn test_tls_version_ordering() {
         assert!(TlsVersion::Tls12 < TlsVersion::Tls13);
     }
