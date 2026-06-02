@@ -32,13 +32,13 @@ impl NodeId {
                 b'A'..=b'F' => c - b'A' + 10,
                 _ => continue,
             };
-            if !nibble {
-                bytes[ch >> 1] = val << 4; // Store first nibble
-                nibble = true;
-            } else {
+            if nibble {
                 bytes[ch >> 1] |= val; // Store second nibble
                 ch += 2;
                 nibble = false;
+            } else {
+                bytes[ch >> 1] = val << 4; // Store first nibble
+                nibble = true;
             }
         }
         // Handle odd number of hex chars — first nibble only
@@ -127,6 +127,7 @@ pub struct SlotMap {
 impl SlotMap {
     /// Create an empty slot map with no nodes.
     #[must_use]
+    #[allow(clippy::large_stack_arrays)]
     pub fn empty() -> Self {
         Self {
             slots: Box::new([None; 16384]),
@@ -212,7 +213,7 @@ impl SlotMap {
     /// Check if all 16384 slots are assigned.
     #[must_use]
     pub fn is_complete(&self) -> bool {
-        self.slots.iter().all(|s| s.is_some())
+        self.slots.iter().all(std::option::Option::is_some)
     }
 
     /// Build a slot map from a list of node infos.

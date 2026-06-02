@@ -2,8 +2,10 @@
 // `rediss:***@host:port` — plain TCP with AUTH (Redis < 6)
 
 use std::collections::HashMap;
+#[cfg(feature = "tls")]
 use std::path::PathBuf;
 
+#[cfg(feature = "tls")]
 use crate::connection::SsrfConfig;
 use std::time::Duration;
 
@@ -17,7 +19,7 @@ use crate::protocol::builder::CommandBuilder;
 /// URL-decode a string. Decodes `%XX` hex sequences and `+` → space.
 ///
 /// Ported from `redis-rs/src/url` under MIT/Apache-2.0.
-pub(crate) fn url_decode(s: &str) -> Result<String, RedisError> {
+pub fn url_decode(s: &str) -> Result<String, RedisError> {
     let mut result = Vec::with_capacity(s.len());
     let mut chars = s.bytes();
     while let Some(b) = chars.next() {
@@ -144,7 +146,7 @@ pub fn connect_url(url: &str) -> Result<super::client::RedisClient, RedisError> 
 
     // Parse query parameters (FR-002, FR-009, NFR-002)
     let params = query_string
-        .map(|q| parse_tls_query_params(q))
+        .map(parse_tls_query_params)
         .transpose()?
         .unwrap_or_default();
 
@@ -161,7 +163,7 @@ pub fn connect_url(url: &str) -> Result<super::client::RedisClient, RedisError> 
         "tls_max_version",
     ]
     .iter()
-    .cloned()
+    .copied()
     .collect();
     for key in params.keys() {
         if !known_params.contains(key.as_str()) {
@@ -178,18 +180,10 @@ pub fn connect_url(url: &str) -> Result<super::client::RedisClient, RedisError> 
     let client_key_path: Option<String> = params.get("client_key").cloned();
     let verify_server: bool = params
         .get("verify_server")
-        .and_then(|v| {
-            if v.to_lowercase() == "false" {
-                Some(false)
-            } else {
-                Some(true)
-            }
-        })
-        .unwrap_or(true);
+        .is_none_or(|v| v.to_lowercase() != "false");
     let system_certs: bool = params
         .get("system_certs")
-        .map(|v| v.to_lowercase() == "true")
-        .unwrap_or(false);
+        .is_some_and(|v| v.to_lowercase() == "true");
     let server_name_override: Option<String> = params.get("server_name").cloned();
     let tls_min_version_str: Option<&str> =
         params.get("tls_min_version").map(String::as_str);
@@ -213,9 +207,9 @@ pub fn connect_url(url: &str) -> Result<super::client::RedisClient, RedisError> 
 
     // Parse host:port — handle IPv6 [::1]:6379 and IPv4 127.0.0.1:6379
     let default_port = if is_tls {
-        default_port(ConnectionScheme::Tls)
+        default_port(&ConnectionScheme::Tls)
     } else {
-        default_port(ConnectionScheme::Plain)
+        default_port(&ConnectionScheme::Plain)
     };
 
     let (host, port) = if host_part.starts_with('[') {
@@ -335,7 +329,7 @@ pub fn connect_url(url: &str) -> Result<super::client::RedisClient, RedisError> 
                 verify_server,
             };
 
-            let ssrf_enabled = params.get("ssrf").map(|v| v == "true").unwrap_or(true);
+            let ssrf_enabled = params.get("ssrf").is_some_and(|v| v == "true");
 
             let client = if ssrf_enabled {
                 let ssrf_config = SsrfConfig::default();
@@ -390,7 +384,7 @@ pub fn connect_url(url: &str) -> Result<super::client::RedisClient, RedisError> 
     }
 }
 
-fn default_port(scheme: ConnectionScheme) -> u16 {
+const fn default_port(scheme: &ConnectionScheme) -> u16 {
     match scheme {
         ConnectionScheme::Plain => 6379,
         ConnectionScheme::Tls => 6380,
@@ -408,6 +402,7 @@ enum ConnectionScheme {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
 
     // -----------------------------------------------------------------------
@@ -568,7 +563,7 @@ mod tests {
 
     #[test]
     fn test_default_ports() {
-        assert_eq!(default_port(ConnectionScheme::Plain), 6379);
-        assert_eq!(default_port(ConnectionScheme::Tls), 6380);
+        assert_eq!(default_port(&ConnectionScheme::Plain), 6379);
+        assert_eq!(default_port(&ConnectionScheme::Tls), 6380);
     }
 }

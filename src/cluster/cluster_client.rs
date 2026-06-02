@@ -166,7 +166,7 @@ impl ClusterInner {
 /// hash-slot-based routing to the correct node for every command.
 #[derive(Clone)]
 pub struct RedisClusterClient {
-    pub(crate) inner: Arc<RefCell<ClusterInner>>,
+    pub(crate) inner: std::rc::Rc<RefCell<ClusterInner>>,
 }
 
 impl RedisClusterClient {
@@ -192,9 +192,9 @@ impl RedisClusterClient {
             .map(|s| SeedNode::parse(s))
             .collect::<Result<Vec<_>, _>>()?;
 
-        let inner_rc = Arc::new(RefCell::new(ClusterInner::new(
+        let inner_rc = std::rc::Rc::new(RefCell::new(ClusterInner::new(
             seed_nodes,
-            RefreshPolicy::OnErrorAndPeriodic(Duration::from_secs(60)),
+            RefreshPolicy::OnErrorAndPeriodic(Duration::new(60, 0)),
         )));
 
         // Collect host:port pairs to avoid borrow issues.
@@ -207,9 +207,8 @@ impl RedisClusterClient {
 
         for (host, port) in seeds_to_try {
             let mut inner = inner_rc.borrow_mut();
-            match Self::discover_seed(&host, port, &mut inner) {
-                Ok(()) => break,
-                Err(_) => {}
+            if Self::discover_seed(&host, port, &mut inner) == Ok(()) {
+                break;
             }
         }
 
@@ -284,6 +283,7 @@ impl RedisClusterClient {
     /// # Errors
     /// Returns [`RedisError::Connection`] if the connection fails,
     /// [`RedisError::Parse`] if the response cannot be decoded.
+    #[allow(clippy::too_many_lines)]
     pub fn execute<T: FromRedisValue>(
         &self,
         cmd: CommandBuilder,
@@ -446,10 +446,13 @@ impl RedisClusterClient {
     /// Queries `CLUSTER NODES` on the first available node and updates
     /// the slot map. Used for on-demand refresh after redirects or errors.
     ///
+    /// # Errors
+    /// Returns [`RedisError`] if no connections are available or parsing fails.
+    ///
     /// # May runtime requirement
     /// Requires the may coroutine runtime.
     pub fn refresh_topology(&self) -> Result<(), RedisError> {
-        let inner_arc = Arc::clone(&self.inner);
+        let inner_arc = std::rc::Rc::clone(&self.inner);
         let conn = {
             let inner = inner_arc.borrow();
             inner

@@ -112,6 +112,8 @@ fn decode_all_remaining_args_from_resp(encoded: &[u8]) -> Vec<Vec<u8>> {
 }
 
 /// Check if all keys map to the same slot.
+/// # Errors
+/// Returns [`RedisError`] if no keys are provided or they span multiple slots.
 pub fn keys_same_slot(keys: &[Vec<u8>]) -> Result<u16, RedisError> {
     if keys.is_empty() {
         return Err(RedisError::Parse("no keys provided".into()));
@@ -126,10 +128,16 @@ pub fn keys_same_slot(keys: &[Vec<u8>]) -> Result<u16, RedisError> {
 }
 
 /// Build fan-out sub-commands.
-pub fn fan_out(
+/// # Errors
+/// Returns [`RedisError`] on encoding or routing failures.
+pub fn fan_out<S: std::hash::BuildHasher>(
     cmd: &CommandBuilder,
     slot_map: &SlotMap,
-    connections: &HashMap<crate::cluster::slot_map::NodeId, std::sync::Arc<Connection>>,
+    connections: &HashMap<
+        crate::cluster::slot_map::NodeId,
+        std::sync::Arc<Connection>,
+        S,
+    >,
 ) -> Result<Vec<FanOutCommand>, RedisError> {
     let encoded = cmd
         .clone()
@@ -149,6 +157,11 @@ pub fn fan_out(
 }
 
 /// Execute fan-out commands and aggregate results.
+/// # Errors
+/// Returns [`RedisError`] on channel or queue failures.
+///
+/// # Panics
+/// If any sub-result is an error (shouldn't happen with current logic).
 pub fn aggregate_responses(
     fan_out_cmds: Vec<FanOutCommand>,
 ) -> Result<RedisValue, RedisError> {
@@ -179,7 +192,10 @@ pub fn aggregate_responses(
             return r.clone();
         }
     }
-    let values: Vec<RedisValue> = results.into_iter().map(|r| r.unwrap()).collect();
+    let mut values = Vec::with_capacity(results.len());
+    for r in results {
+        values.push(r?);
+    }
     Ok(combine_results(&values))
 }
 
@@ -208,17 +224,16 @@ fn combine_results(values: &[RedisValue]) -> RedisValue {
 }
 
 /// Check if a command can be executed on a single node.
+#[must_use]
 pub fn can_execute_single(cmd: &CommandBuilder) -> bool {
-    let name = match cmd.command_name() {
-        Some(n) => n,
-        None => return true,
+    let Some(name) = cmd.command_name() else {
+        return true;
     };
     if !is_multi_key_command(name) {
         return true;
     }
-    let encoded = match cmd.clone().build() {
-        Some(e) => e,
-        None => return true,
+    let Some(encoded) = cmd.clone().build() else {
+        return true;
     };
     let keys = extract_keys(cmd, encoded.as_ref());
     keys_same_slot(&keys).is_ok()
@@ -230,6 +245,12 @@ pub fn can_execute_single(cmd: &CommandBuilder) -> bool {
 
 #[cfg(test)]
 mod tests {
+    #![allow(
+        clippy::unwrap_used,
+        clippy::expect_used,
+        clippy::used_underscore_items,
+        clippy::panic
+    )]
     use super::*;
     use crate::cluster::crc16::compute_slot;
     use std::collections::HashMap;
@@ -333,7 +354,7 @@ mod tests {
         let k1 = b"{aaa}:key".to_vec();
         let k2 = b"{zzz}:key".to_vec();
         assert_ne!(compute_slot(&k1), compute_slot(&k2));
-        let err = keys_same_slot(&vec![k1, k2]).unwrap_err().to_string();
+        let err = keys_same_slot(&[k1, k2]).unwrap_err().to_string();
         assert!(err.contains("multiple slots") || err.contains("span"));
     }
 
@@ -383,7 +404,7 @@ mod tests {
         if let RedisValue::Array(arr) = combine_results(&values) {
             assert_eq!(arr.len(), 3);
         } else {
-            panic!("expected array");
+            unreachable!("combine_results returned non-array")
         }
     }
 

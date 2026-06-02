@@ -58,6 +58,7 @@ impl std::fmt::Display for Redirect {
 ///
 /// # Errors
 /// Returns [`RedisError::Parse`] if the value is not a MOVED redirect.
+#[must_use]
 pub fn parse_moved_redirect(value: &RedisValue) -> Option<Redirect> {
     let RedisValue::Error(ref msg) = value else {
         return None;
@@ -71,6 +72,7 @@ pub fn parse_moved_redirect(value: &RedisValue) -> Option<Redirect> {
 ///
 /// # Errors
 /// Returns [`RedisError::Parse`] if the value is not an ASK redirect.
+#[must_use]
 pub fn parse_ask_redirect(value: &RedisValue) -> Option<Redirect> {
     let RedisValue::Error(ref msg) = value else {
         return None;
@@ -112,7 +114,7 @@ fn parse_redirect(text: &str, kind: RedirectKind) -> Option<Redirect> {
 pub fn update_slot_map_on_redirect(map: &mut SlotMap, redirect: &Redirect) {
     // Find the node that owns this redirect target address and
     // re-add it so the redirect slot points to it.
-    for node in map.nodes().cloned().collect::<Vec<_>>() {
+    for node in map.nodes().cloned() {
         if node.addr == redirect.target {
             map.add_node(node);
             break;
@@ -185,6 +187,7 @@ pub fn retry_command(
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
 
     #[test]

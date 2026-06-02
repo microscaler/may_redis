@@ -76,6 +76,7 @@ use crate::cluster::slot_map::NodeId;
 ///
 /// # Panics
 /// Does not panic — all parsing errors are returned as [`RedisError`].
+#[allow(clippy::too_many_lines)]
 pub fn parse_cluster_nodes(text: &str) -> Result<SlotMap, RedisError> {
     let mut map = SlotMap::empty();
 
@@ -107,7 +108,7 @@ pub fn parse_cluster_nodes(text: &str) -> Result<SlotMap, RedisError> {
         let port: u16 = port_str
             .parse()
             .map_err(|_| RedisError::Parse(format!("invalid port: {port_str}")))?;
-        let bus_port: u16 = bus_port_str.parse().map_err(|_| {
+        let _bus_port: u16 = bus_port_str.parse().map_err(|_| {
             RedisError::Parse(format!("invalid bus port: {bus_port_str}"))
         })?;
         let addr: SocketAddr = format!("{host}:{port}")
@@ -129,24 +130,24 @@ pub fn parse_cluster_nodes(text: &str) -> Result<SlotMap, RedisError> {
         };
 
         // Parse bus info (fields 3-8).
-        let master_id = if parts.len() > 3 && parts[3] != "-" {
+        let _master_id = if parts.len() > 3 && parts[3] != "-" {
             Some(NodeId::from_hex(parts[3]))
         } else {
             None
         };
-        let ping_sent: u64 = parts.get(4).and_then(|s| s.parse().ok()).unwrap_or(0);
-        let pong_received: u64 = parts.get(5).and_then(|s| s.parse().ok()).unwrap_or(0);
-        let config_epoch: u64 = parts.get(6).and_then(|s| s.parse().ok()).unwrap_or(0);
-        let link_state = match parts.get(7).map(|s| *s) {
+        let _ping_sent: u64 = parts.get(4).and_then(|s| s.parse().ok()).unwrap_or(0);
+        let _pong_received: u64 =
+            parts.get(5).and_then(|s| s.parse().ok()).unwrap_or(0);
+        let _config_epoch: u64 = parts.get(6).and_then(|s| s.parse().ok()).unwrap_or(0);
+        let _link_state = match parts.get(7).copied() {
             Some("connected") => NodeLinkState::Connected,
-            Some("disconnected") => NodeLinkState::Disconnected,
+            Some("disconnected") | None => NodeLinkState::Disconnected,
             Some(s) => {
                 return Err(RedisError::Parse(format!("unknown link state: {s}")))
             }
-            None => NodeLinkState::Disconnected,
         };
 
-        let flags: Vec<NodeFlag> = flags_str
+        let _flags: Vec<NodeFlag> = flags_str
             .split(',')
             .filter_map(|f| match f {
                 "myself" => Some(NodeFlag::Myself),
@@ -194,21 +195,11 @@ pub fn parse_cluster_nodes(text: &str) -> Result<SlotMap, RedisError> {
             addr,
             role,
             state,
-            slots: if slots.is_empty() {
-                None
-            } else {
-                Some(*slots.first().unwrap()..=*slots.last().unwrap())
-            },
-        };
-
-        let _bus_info = NodeBusInfo {
-            bus_port,
-            flags,
-            master_id,
-            ping_sent,
-            pong_received,
-            config_epoch,
-            link_state,
+            slots: slots
+                .first()
+                .copied()
+                .zip(slots.last().copied())
+                .map(|(f, l)| f..=l),
         };
 
         map.add_node(node);
@@ -379,6 +370,7 @@ pub fn parse_cluster_slots(value: &RedisValue) -> Result<SlotMap, RedisError> {
 /// Check if a RedisValue indicates a CLUSTERDOWN error.
 ///
 /// Returns `Some(slot)` if the error indicates a slot is unassigned.
+#[must_use]
 pub fn parse_clusterdown(value: &RedisValue) -> Option<u16> {
     let RedisValue::Error(ref msg) = value else {
         return None;

@@ -34,7 +34,7 @@ pub fn crc16(data: &[u8]) -> u16 {
     while i < data.len() {
         let byte = data[i];
         i += 1;
-        crc ^= byte as u16;
+        crc ^= u16::from(byte);
 
         let mut bit = 0;
         while bit < 8 {
@@ -50,10 +50,34 @@ pub fn crc16(data: &[u8]) -> u16 {
     crc
 }
 
+/// Extract the hash-tag from a Redis key.
+///
+/// Per the Redis Cluster spec, if a key contains `{...}`, only the
+/// substring between the braces is used for hashing. This allows
+/// related keys to be co-located on the same cluster node.
+///
+/// # Examples
+///
+/// * `{user:123}:profile` → `user:123`
+/// * `plain_key` → `plain_key` (no braces, return as-is)
+/// * `{no-closing` → `{no-closing` (unclosed brace, return as-is)
+#[must_use]
+pub fn hash_tag(key: &[u8]) -> &[u8] {
+    if let Some(start) = key.iter().position(|&b| b == b'{') {
+        if let Some(end) = key[start + 1..].iter().position(|&b| b == b'}') {
+            return &key[start + 1..start + 1 + end];
+        }
+    }
+    key
+}
+
 /// Compute the Redis Cluster slot for a given key.
 ///
-/// The slot is `CRC16(key) mod 16384`, where 16384 is the fixed
+/// The slot is `CRC16(hash_tag(key)) mod 16384`, where 16384 is the fixed
 /// number of hash slots in every Redis Cluster deployment.
+///
+/// If the key contains `{...}`, only the content inside the braces
+/// is hashed (hash-tag extraction per Redis Cluster spec).
 ///
 /// # Arguments
 ///
@@ -73,7 +97,7 @@ pub fn crc16(data: &[u8]) -> u16 {
 /// ```
 #[must_use]
 pub fn compute_slot(key: &[u8]) -> u16 {
-    crc16(key) % 16384
+    crc16(hash_tag(key)) % 16384
 }
 
 #[cfg(test)]
@@ -122,7 +146,7 @@ mod tests {
         ];
         for key in test_keys {
             let slot = compute_slot(key);
-            assert!(slot < 16384, "slot {slot} out of range for key {:?}", key);
+            assert!(slot < 16384, "slot {slot} out of range for key {key:?}");
         }
     }
 
