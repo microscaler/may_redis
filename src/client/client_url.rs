@@ -3,6 +3,8 @@
 
 use std::collections::HashMap;
 use std::path::PathBuf;
+
+use crate::connection::SsrfConfig;
 use std::time::Duration;
 
 use crate::core::RedisError;
@@ -99,6 +101,7 @@ fn parse_tls_query_params(query: &str) -> Result<HashMap<String, String>, RedisE
 /// * `system_certs=true` — use webpki_roots (Mozilla) instead of ca_cert
 /// * `server_name=example.com` — override SNI server name
 /// * `tls_min_version=1.2|1.3` — minimum TLS version (default: 1.2)
+/// * `ssrf=true|false` — enable/disable SSRF IP deny-list for TLS (default: true)
 /// * `tls_max_version=1.2|1.3` — maximum TLS version (default: 1.3)
 ///
 /// All parameter names are case-insensitive. Values are URL-decoded.
@@ -332,13 +335,29 @@ pub fn connect_url(url: &str) -> Result<super::client::RedisClient, RedisError> 
                 verify_server,
             };
 
-            let client = super::client::RedisClient::connect_tls(
-                host,
-                port,
-                &tls_config,
-                timeout_secs,
-            )
-            .map_err(|e| RedisError::Parse(format!("TLS connection failed: {e}")))?;
+            let ssrf_enabled = params.get("ssrf").map(|v| v == "true").unwrap_or(true);
+
+            let client = if ssrf_enabled {
+                let ssrf_config = SsrfConfig::default();
+                super::client::RedisClient::connect_tls_with_ssrf(
+                    host,
+                    port,
+                    &tls_config,
+                    timeout_secs,
+                    ssrf_config,
+                )
+                .map_err(|e| {
+                    RedisError::Parse(format!("TLS+SSRF connection failed: {e}"))
+                })?
+            } else {
+                super::client::RedisClient::connect_tls(
+                    host,
+                    port,
+                    &tls_config,
+                    timeout_secs,
+                )
+                .map_err(|e| RedisError::Parse(format!("TLS connection failed: {e}")))?
+            };
 
             // Send AUTH if password was provided in URL
             if let Some(pass) = password {

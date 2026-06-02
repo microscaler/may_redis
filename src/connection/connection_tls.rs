@@ -102,7 +102,18 @@ pub(super) fn connect_tls_with_ssrf(
 /// The TLS handshake MUST already be complete before calling this.
 /// The epoll loop will wrap the TLS stream the same way it wraps TCP.
 #[cfg(feature = "tls")]
-fn from_tls_stream(mut tls_stream: ConnectionStream) -> super::connection::Connection {
+fn from_tls_stream(tls_stream: ConnectionStream) -> super::connection::Connection {
+    from_tls_stream_with_ssrf(tls_stream, None)
+}
+
+/// Create a Connection from an already-handshaked TLS stream with SSRF config.
+///
+/// The TLS handshake MUST already be complete before calling this.
+#[cfg(feature = "tls")]
+fn from_tls_stream_with_ssrf(
+    mut tls_stream: ConnectionStream,
+    ssrf_config: Option<tcp::SsrfConfig>,
+) -> super::connection::Connection {
     let id = tls_stream.inner_mut().as_raw_fd() as usize;
     let waker = tls_stream.inner_mut().waker();
     let req_queue = Arc::new(Queue::new());
@@ -119,6 +130,6 @@ fn from_tls_stream(mut tls_stream: ConnectionStream) -> super::connection::Conne
         max_queue_depth: DEFAULT_MAX_QUEUE_DEPTH,
         max_request_size: DEFAULT_MAX_REQUEST_SIZE,
         pending_count,
-        ssrf_config: None,
+        ssrf_config,
     }
 }

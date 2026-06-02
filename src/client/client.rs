@@ -159,6 +159,42 @@ impl RedisClient {
         })
     }
 
+    /// Establish a TLS connection to a Redis server with SSRF protection.
+    ///
+    /// # Arguments
+    /// * `host` - Server hostname or IP address
+    /// * `port` - Server port (typically 6380 for TLS)
+    /// * `tls_config` - TLS configuration
+    /// * `timeout_secs` - Connection timeout in seconds
+    /// * `ssrf_config` - Configuration for which IP ranges to block
+    ///
+    /// # Errors
+    /// Returns [`ConnectionError`] if the TCP connection, SSRF check, or TLS
+    /// handshake fails.
+    #[cfg(feature = "tls")]
+    pub fn connect_tls_with_ssrf(
+        host: &str,
+        port: u16,
+        tls_config: &crate::tls::TlsConfig,
+        timeout_secs: u32,
+        ssrf_config: SsrfConfig,
+    ) -> Result<Self, crate::connection::ConnectionError> {
+        let connection = Connection::connect_tls_with_ssrf(
+            host,
+            port,
+            tls_config,
+            timeout_secs,
+            ssrf_config,
+        )?;
+        Ok(Self {
+            inner: Arc::new(InnerClient {
+                connection,
+                default_timeout: Duration::from_secs(u64::from(timeout_secs)),
+                command_policy: crate::protocol::builder::CommandPolicy::AllowAll,
+            }),
+        })
+    }
+
     /// Connect to a Redis server given a URL.
     ///
     /// # Supported formats
