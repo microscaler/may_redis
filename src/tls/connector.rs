@@ -104,12 +104,10 @@ impl TlsConfig {
         }
 
         // Install the ring crypto provider if not already installed.
+        // `install_default()` returns `Err` if already installed — that's fine,
+        // we just continue with the existing provider.
         let provider = default_provider();
-        provider.clone().install_default().map_err(|_| {
-            TlsError::Config(
-                "failed to install crypto provider (already installed?)".to_string(),
-            )
-        })?;
+        let _ = provider.clone().install_default(); // ignore already-installed
 
         // Determine which protocol versions to allow.
         let versions = match (self.min_version, self.max_version) {

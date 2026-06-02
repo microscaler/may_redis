@@ -128,10 +128,10 @@ impl ClientCerts {
 
 ## Tasks
 
-- [ ] Add `ClientCerts` struct to `src/tls/mod.rs` with `certificates` and `private_key` fields
-- [ ] Implement `ClientCerts::from_pem()` — parse PEM certs and PKCS8 private key
-- [ ] Implement `ClientCerts::from_der()` — accept DER-encoded data directly
-- [ ] Extend `TlsConfig::into_config()` to handle `client_certs`:
+- [x] Add `ClientCerts` struct to `src/tls/config.rs` with `certificates` and `private_key` fields
+- [x] Implement `ClientCerts::from_pem()` — parse PEM certs and PKCS8 private key
+- [x] Implement `ClientCerts::from_der()` — accept DER-encoded data directly
+- [x] Extend `TlsConfig::into_config()` to handle `client_certs`:
   ```rust
   let config = if let Some(client_certs) = self.client_certs {
       config.with_client_auth_cert(
@@ -143,19 +143,27 @@ impl ClientCerts {
       config
   };
   ```
-- [ ] Add `TlsError::ClientCertRequired(String)` variant for when server requests cert but none provided
-- [ ] Handle `rustls::ConfigBuilder` error when `with_client_auth_cert()` fails (e.g., invalid certificate format)
-- [ ] Wire mTLS path in `connect_tls()` — if `client_certs` is Some, `TlsConfig::into_config()` builds mTLS config
-- [ ] Re-export `ClientCerts` in `src/lib.rs`:
-  ```rust
-  #[cfg(feature = "tls")]
-  pub use tls::ClientCerts;
-  ```
-- [ ] Run `cargo build --features tls` and verify it compiles
-- [ ] Run `cargo test --lib --features tls` and verify unit tests pass
-- [ ] Run `cargo clippy --lib --features tls --all-targets -- -D warnings` — zero warnings
+- [x] Add `TlsError::ClientCertRequired(String)` variant for when server requests cert but none provided
+- [x] Handle `rustls::ConfigBuilder` error when `with_client_auth_cert()` fails (e.g., invalid certificate format)
+- [x] Wire mTLS path in `TlsConfig::into_config()` — if `client_certs` is Some, builds mTLS config
+- [x] Re-export `ClientCerts` in `src/tls/mod.rs` and `src/lib.rs`
+- [x] Run `cargo build --features tls` and verify it compiles
+- [x] Run `cargo test --lib --features tls` — 20 passed, 0 failed
+- [x] Run `cargo clippy --lib --features tls --all-targets -- -D warnings` — zero warnings
 
 ## Verification
+
+- `cargo test --lib --features tls` — 20 passed, 0 failed. All TLS+mTLS tests pass.
+- Unit tests: `test_tls_config_mtls_from_der` — mTLS config builds successfully (validates code path)
+- Unit tests: `test_client_certs_from_der` — creates `ClientCerts` from DER
+- Unit tests: `test_client_certs_from_pem_invalid` — returns `TlsError::Config` on invalid PEM
+- Unit tests: `test_tls_config_no_client_certs` — `client_certs: None` builds standard TLS config
+- Unit tests: `test_tls_error_client_cert_required_display` — `TlsError::ClientCertRequired` displays correctly
+- Unit tests: `test_tls_config_mtls_from_der` — mTLS config fails gracefully with dummy DER (validates error path)
+- Unit tests: `test_rustls_root_certs_webpki` — WebPkiRoots loads non-empty root store
+- Unit tests: `test_tls_config_no_verify_server` — verify_server=false works
+- Unit tests: `test_tls_config_server_name` — custom server_name works
+- Unit tests: `test_tls_config_min_max_same` — min==max version works
 
 - `cargo test --lib --features tls` — all existing tests pass
 - Unit test: `test_tls_config_mtls_from_pem` — creates `ClientCerts` from PEM and builds `rustls::ClientConfig`

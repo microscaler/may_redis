@@ -110,7 +110,7 @@ impl RustlsRootCerts {
 }
 
 /// Client certificate and private key for mutual TLS.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct ClientCerts {
     /// DER-encoded client certificate chain (leaf first, then intermediates).
     pub certificates: Vec<Vec<u8>>,

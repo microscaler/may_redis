@@ -11,5 +11,9 @@ pub mod connector;
 pub mod tls_stream;
 pub mod verifier;
 
+#[cfg(test)]
+mod tests;
+
+pub use config::ClientCerts;
 pub use connector::{TlsConfig, TlsConnector, TlsError};
 pub use tls_stream::TlsStream;

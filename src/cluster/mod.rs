@@ -7,6 +7,8 @@ pub mod cluster_client;
 /// This module provides the hash function (`crc16`) and slot computation
 /// (`compute_slot`) as pure, no-std-compatible functions.
 pub mod crc16;
+/// Fan-out logic for multi-key commands that span multiple hash slots.
+pub mod fanout;
 /// MOVED/ASK redirect parsing and retry logic.
 pub mod redirect;
 /// Slot-to-node mapping for Redis Cluster.
@@ -20,5 +22,6 @@ pub mod topology;
 
 pub use cluster_client::{RefreshPolicy, SeedNode};
 pub use crc16::{compute_slot, crc16};
+pub use fanout::{can_execute_single, extract_keys};
 pub use redirect::{parse_ask_redirect, parse_moved_redirect, Redirect, RedirectKind};
 pub use slot_map::{NodeId, NodeInfo, NodeRole, NodeState, SlotMap};

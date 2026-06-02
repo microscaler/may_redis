@@ -34,5 +34,8 @@ pub use core::{FromRedisValue, RedisError, RedisValue, ToRedisArgs};
 pub use protocol::builder::{cmd, CommandBuilder, CommandPolicy};
 pub use protocol::commands::Commands;
 
+#[cfg(feature = "tls")]
+pub use tls::ClientCerts;
+
 #[cfg(feature = "test")]
 pub use client::in_memory::InMemoryClient;
