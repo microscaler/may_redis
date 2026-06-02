@@ -12,6 +12,7 @@
 - [[jsf-compliance]] — JSF-AV rule compliance: AV1, AV3, AV206, AV208, AV119, AV148/209 enforced via clippy
 - [[redis-command-e2e-test-coverage]] — 122 command methods across 8 traits, 100% protocol tests, ~12% real-data coverage, 6-phase implementation plan for 100% coverage
 - [[ssrf-protection]] — SSRF prevention: blocks connections to private, link-local, loopback, reserved IPs after DNS resolution
+- [[tls-mtls-epic14]] — TLS/mTLS support (Epic 14): rustls 0.23 + ring, mTLS, rediss:// URL parsing, SSRF for TLS, test gap analysis
 
 ## Comparisons
 

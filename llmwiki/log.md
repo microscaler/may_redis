@@ -244,6 +244,23 @@
 - Plan: extract all #[cfg(test)] blocks into separate _tests.rs files
 - Target: 23 files -> ~36, avg 605 lines -> 260 lines per production file
 
+## [2026-06-02] docs(epic14) — TLS/mTLS: audit, wiki update, test gap analysis
+- Completed QA audit of all 9 Epic 14 source files with 0% unit test coverage
+- Identified 49 missing test scenarios across SSRF deny-list, TlsConnector::handshake,
+  execute_with_timeout, connect_tls, from_tls_stream, TlsStream, Connection struct methods
+- Created `docs/Epics/Epic_14/TEST_GAP_ANALYSIS.md` — full gap analysis with priority ordering
+- Created `llmwiki/topics/tls-mtls-epic14.md` — Epic 14 wiki page with story summaries,
+  source file catalog, test coverage summary, API surface, design decisions
+- Updated `llmwiki/index.md` — added TLS/mTLS topic entry
+- Fixed hash-tag extraction in `compute_slot()` — added `hash_tag()` function for
+  Redis Cluster spec compliance; keys with `{tag}` now hash only the tag content
+- Fixed unused imports in `client_url.rs` — SsrfConfig and PathBuf gated behind
+  `#[cfg(feature = "tls")]`
+- Added 17 comprehensive hash-tag extraction tests covering positive (same-tag
+  co-location, different tags, known slots) and negative (unclosed brace, nested
+  braces, braces in suffix) scenarios
+- Build/fmt/clippy/test all clean: 421 tests pass, 0 failures
+
 ## [2026-06-01] docs(epic15) — Redis Cluster Support: PRD analysis + story creation
 - Analyzed `docs/PRD-redis-cluster.md` — full PRD for Redis Cluster support
 - Created Epic 15 with 6 stories:
