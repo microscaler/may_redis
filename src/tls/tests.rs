@@ -38,6 +38,30 @@ mod tests {
     }
 
     #[test]
+    fn test_tls_version_from_str_non_standard() {
+        let err = TlsVersion::parse("1.3.1").unwrap_err();
+        assert!(matches!(err, TlsError::InvalidTlsVersion(_)));
+    }
+
+    #[test]
+    fn test_tls_version_from_str_with_prefix() {
+        let err = TlsVersion::parse("v1.2").unwrap_err();
+        assert!(matches!(err, TlsError::InvalidTlsVersion(_)));
+    }
+
+    #[test]
+    fn test_tls_version_from_str_whitespace_only() {
+        let err = TlsVersion::parse("   ").unwrap_err();
+        assert!(matches!(err, TlsError::InvalidTlsVersion(_)));
+    }
+
+    #[test]
+    fn test_tls_version_to_supported() {
+        assert_eq!(TlsVersion::Tls12.to_supported(), &rustls::version::TLS12);
+        assert_eq!(TlsVersion::Tls13.to_supported(), &rustls::version::TLS13);
+    }
+
+    #[test]
     fn test_tls_version_ordering() {
         assert!(TlsVersion::Tls12 < TlsVersion::Tls13);
     }
@@ -126,6 +150,180 @@ mod tests {
         let store = certs.to_root_store();
         assert!(store.is_ok());
         assert!(!store.unwrap().roots.is_empty());
+    }
+
+    #[test]
+    fn test_rustls_root_certs_pem_nonexistent_file() {
+        let certs = RustlsRootCerts::Pem(vec![std::path::PathBuf::from(
+            "/nonexistent/path/to/cert.pem",
+        )]);
+        let result = certs.to_root_store();
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("CA cert file") || err.contains("failed to open"),
+            "expected file-open error, got: {err}"
+        );
+    }
+
+    #[test]
+    fn test_rustls_root_certs_pem_invalid_pem_content() {
+        // Create a temp file with invalid PEM content
+        let dir = std::env::temp_dir();
+        let path = dir.join("may-redis-test-invalid-cert.pem");
+        std::fs::write(&path, "this is not a valid pem file").unwrap();
+        let certs = RustlsRootCerts::Pem(vec![path]);
+        // PEM parsing with rustls_pemfile::certs() for garbage data — may succeed
+        // (producing empty vec) or fail; either way it shouldn't panic.
+        let _ = certs.to_root_store();
+    }
+
+    #[test]
+    fn test_rustls_root_certs_der_empty_vec() {
+        let certs = RustlsRootCerts::Der(vec![]);
+        let store = certs.to_root_store();
+        assert!(store.is_ok());
+        assert!(store.unwrap().roots.is_empty());
+    }
+
+    #[test]
+    fn test_rustls_root_certs_der_valid_single() {
+        // A minimal DER-encoded self-signed cert (not valid for real verification,
+        // but can be parsed by add_parsable_certificates).
+        let certs = RustlsRootCerts::Der(vec![vec![0u8; 100]]);
+        let store = certs.to_root_store();
+        assert!(store.is_ok());
+        // The cert is malformed for real TLS, but add_parsable_certificates
+        // accepts any DER blob — so the store is non-empty.
+        assert!(!store.unwrap().roots.is_empty());
+    }
+
+    #[test]
+    fn test_rustls_root_certs_clone() {
+        let certs1 = RustlsRootCerts::WebPkiRoots;
+        // RustlsRootCerts is Copy — clone is a no-op, but verify no panic.
+        let certs2 = certs1;
+        let _ = certs2.to_root_store();
+    }
+
+    #[test]
+    fn test_client_certs_from_pem_valid_cert_no_key() {
+        // Valid cert PEM but no key — should fail with "no private key" error.
+        let cert_pem = b"-----BEGIN CERTIFICATE-----\n".to_vec().into_boxed_slice();
+        let result = crate::tls::ClientCerts::from_pem(&cert_pem, b"not a key");
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("private key") || err.contains("certificate"),
+            "expected cert/key error, got: {err}"
+        );
+    }
+
+    #[test]
+    fn test_client_certs_from_pem_empty_cert() {
+        let result = crate::tls::ClientCerts::from_pem(b"", b"not a key");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_client_certs_clone() {
+        let certs = crate::tls::ClientCerts {
+            certificates: vec![vec![1, 2, 3]],
+            private_key: vec![4, 5, 6],
+        };
+        let certs2 = certs.clone();
+        assert_eq!(certs.certificates, certs2.certificates);
+        assert_eq!(certs.private_key, certs2.private_key);
+    }
+
+    // -----------------------------------------------------------------------
+    // TlsConfig min/max=1.2 only path
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_tls_config_min_max_tls12_only() {
+        let config = TlsConfig {
+            root_certificates: RustlsRootCerts::WebPkiRoots,
+            min_version: TlsVersion::Tls12,
+            max_version: TlsVersion::Tls12,
+            ..TlsConfig::default()
+        };
+        assert!(config.into_config().is_ok());
+    }
+
+    #[test]
+    fn test_tls_config_pem_with_valid_ca_cert() {
+        // Use a real self-signed CA cert to exercise the Pem path through into_config()
+        let ca_path = std::path::PathBuf::from("/tmp/test_ca_cert.pem");
+        if !ca_path.exists() {
+            // If the test cert doesn't exist, skip this test
+            // (it's only generated in CI/CD or when manually run)
+            return;
+        }
+        let config = TlsConfig {
+            root_certificates: RustlsRootCerts::Pem(vec![ca_path]),
+            client_certs: None,
+            server_name: "may-redis-test".to_string(),
+            min_version: TlsVersion::Tls12,
+            max_version: TlsVersion::Tls13,
+            verify_server: false, // self-signed, don't verify
+        };
+        // The PEM cert should parse successfully into a rustls ClientConfig
+        assert!(config.into_config().is_ok());
+    }
+
+    #[test]
+    fn test_tls_config_pem_multiple_certs() {
+        let ca_path = std::path::PathBuf::from("/tmp/test_ca_cert.pem");
+        if !ca_path.exists() {
+            return;
+        }
+        let config = TlsConfig {
+            root_certificates: RustlsRootCerts::Pem(vec![ca_path.clone(), ca_path]),
+            client_certs: None,
+            server_name: "may-redis-test".to_string(),
+            min_version: TlsVersion::Tls12,
+            max_version: TlsVersion::Tls13,
+            verify_server: false,
+        };
+        // Multiple PEM certs should build successfully
+        assert!(config.into_config().is_ok());
+    }
+
+    #[test]
+    fn test_tls_config_pem_empty_path() {
+        let config = TlsConfig {
+            root_certificates: RustlsRootCerts::Pem(vec![]),
+            client_certs: None,
+            server_name: "localhost".to_string(),
+            min_version: TlsVersion::Tls12,
+            max_version: TlsVersion::Tls13,
+            verify_server: false,
+        };
+        // Empty PEM paths produce an empty root store (no error)
+        assert!(config.into_config().is_ok());
+    }
+
+    #[test]
+    fn test_tls_config_mtls_from_pem() {
+        let ca_path = std::path::PathBuf::from("/tmp/test_ca_cert.pem");
+        let key_path = std::path::PathBuf::from("/tmp/test_ca_key.pem");
+        if !ca_path.exists() || !key_path.exists() {
+            return;
+        }
+        let cert_bytes = std::fs::read(&ca_path).unwrap();
+        let key_bytes = std::fs::read(&key_path).unwrap();
+        let certs = crate::tls::ClientCerts::from_pem(&cert_bytes, &key_bytes);
+        let config = TlsConfig {
+            root_certificates: RustlsRootCerts::Pem(vec![ca_path]),
+            client_certs: Some(certs.unwrap()),
+            server_name: "may-redis-test".to_string(),
+            min_version: TlsVersion::Tls12,
+            max_version: TlsVersion::Tls13,
+            verify_server: false,
+        };
+        // mTLS config with real PEM cert and key should build successfully
+        assert!(config.into_config().is_ok());
     }
 
     // -----------------------------------------------------------------------

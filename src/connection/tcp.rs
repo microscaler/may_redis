@@ -87,7 +87,7 @@ pub fn ssrf_allowed(addr: &SocketAddr, config: &SsrfConfig) -> bool {
 }
 
 impl SsrfConfig {
-    fn is_blocked(self, addr: &SocketAddr) -> bool {
+    pub(crate) fn is_blocked(self, addr: &SocketAddr) -> bool {
         match addr {
             SocketAddr::V4(v4) => self.is_blocked_v4(*v4.ip()),
             SocketAddr::V6(v6) => self.is_blocked_v6(v6.ip()),
