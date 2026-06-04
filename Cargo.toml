@@ -23,9 +23,12 @@ cluster = []
 test = []
 
 [dev-dependencies]
+bollard = { version = "0.20", features = ["ssl", "chrono"] }
 fastrand = "2.0"
+futures = "0.3"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+tokio = { version = "1", features = ["full"] }
 
 [lints.clippy]
 all = { level = "deny", priority = -1 }

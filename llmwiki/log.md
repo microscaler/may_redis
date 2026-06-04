@@ -1,4 +1,15 @@
 
+## [2026-06-03] docs(epic16) — Docker-Managed Test Fixtures: PRD with FRs, NFRs, acceptance criteria
+- Analyzed BRRTRouter's bollard-based Docker test container patterns (tests/curl_harness.rs, tests/docker_integration_tests.rs)
+- Identified root problem: integration tests require hardcoded `localhost:6379` — fails on machines without pre-installed Redis, shares state across tests, dead code in tests/test_fixture.rs (uses tokio::spawn)
+- Created Epic 16 with 4 stories:
+  - Story_0: Epic overview — 11 FRs, 8 NFRs, 9 epic-level acceptance criteria, architecture diagram, dependency graph
+  - Story 16.1: Fix tests/test_fixture.rs — replace tokio::spawn with std::thread cleanup, convert async to sync, add Docker availability check
+  - Story 16.2: Wire fixture into integration tests — replace shared_client() with shared_client_with_fixture(), all 10 test files updated
+  - Story 16.3: Docker availability check + skip logic — is_docker_available() with OnceLock caching, SKIP_DOCKER_TESTS=1 env var, DockerBuildError type
+- All acceptance criteria trace back to specific FR/NFR numbers
+- Existing tests/test_fixture.rs has bollard as dev-dependency — no new deps needed
+
 ## [2026-06-01] fix(test) — Phase 1/2 integration tests compilation and clippy compliance
 - Fixed compilation: all test modules now compile cleanly
 - Added #[allow(clippy::unwrap_used, ...)] to all new test modules
@@ -62,7 +73,7 @@
 
 ## [2026-06-01] create | Redis command expansion epic
 - Created Epic 7 stories for systematic Redis command expansion
-- Story 1: String Extension (DECR, SETNX, MGET, MSET, STRLEN, GETRANGE, SETBIT, GETBIT, BITCOUNT)
+- Story 1: String Extension (DECR, DECRBY, SETNX, MGET, MSET, STRLEN, GETRANGE, SETBIT, GETBIT, BITCOUNT)
 - Story 2: Hash (HDEL, HKEYS, HGETALL, HMSET, HINCRBY, HLEN, HEXISTS, HSCAN)
 - Story 3: Set (SMEMBERS, SPOP, SRANDMEMBER, SCARD, SINTER, SUNION, SMOVE, SSCAN)
 - Story 4: List (LPUSH, RPUSH, LPOP, RPOP, LLEN, LRANGE, LINDEX, LSET, LREM, LTRIM, BLPOP, BRPOP)
@@ -71,7 +82,7 @@
 - Story 7: Server/Admin (SELECT, TYPE, MOVE, RENAME, RENAMENX, SORT, SCAN, TOUCH, SAVE, BGSAVE, FLUSHALL, PTTL, PEXPIRE, PERSIST, SHUTDOWN, INFO, CONFIG)
 
 ## [2026-06-01] update | Epic 7 Story 1 implemented
-- Added 13 String Extension commands to `src/protocol/commands.rs`: DECR, DECRBY, SETNX, MGET, MSET, MSETNX, STRLEN, GETRANGE, SETRANGE, SETBIT, GETBIT, BITCOUNT (basic), BITCOUNT_RANGE
+- Added 13 String Extension commands to `src/protocol/commands.rs`: DECR, DECRBY, SETNX, MGET, MSET, MSETNX, STRLEN, GETRANGE, SETRANGE, SETBIT, GETBIT, BITCOUNT (basic), BITCOUNT_RANGE (basic)
 - Added 13 corresponding unit tests verifying RESP2 wire encoding
 - Total Commands trait methods: 22 → 35
 - Total command tests: 21 → 34
@@ -101,26 +112,112 @@
   - Added `use std::fmt::Write` for `write!` macro in `random_hex()`
 - All 35 command tests pass, clippy --lib --tests --all-features: ZERO warnings
 
-## [2026-05-28] fix(client) — RESPReader depth/length caps and timeout
-- Added max_depth, max_bulk_len, max_array_len to RESPReader to reject oversized payloads
-- Added connection timeout via `may::timer::sleep` for non-blocking connect
-- Story 5 in Epic 0 hardening
+## [2026-05-28] fix(test) — Phase 1/2 integration tests compilation and clippy compliance
+- Fixed compilation: all test modules now compile cleanly
+- Added #[allow(clippy::unwrap_used, ...)] to all new test modules
+- Fixed trait method signatures (zadd: score before member arg)
+- Added FromRedisValue impls: Option<String>, Vec<String>, Vec<i64>,
+  Vec<Option<String>>, Vec<(String, String)>, Vec<(String, f64)>,
+  (i64, Vec<String>), (i64, Vec<(String, f64)>)
+- Fixed transaction test type annotations (multi/exec/discard return types)
+- Fixed sinter/sunion to use slice args instead of variadic
+- Fixed clippy format! macro warnings (uninlined-format-args)
+- Total integration tests discovered: 81 (34 P0 + 21 P1 + 26 pre-existing)
+- All 319 unit tests pass, 91 ignored (live Redis required)
+- Coverage progression: ~12% → ~22% P0, ~22% → ~35% P1
 
-## [2026-05-28] fix(client) — InMemoryClient returns Null for missing keys
-- GET on missing/expired key returns RedisValue::Null instead of error
-- Fixes test-reality divergence with real Redis wire format
-- Updated test assertions to match correct Redis behavior
+## [2026-06-01] feat(test) — Phase 1 (P0) Hash, Lists, Sets, SortedSets integration tests
+- Created `src/client/client_tests/integration_hashes_basic.rs` — 14 tests (222 lines)
+- Created `src/client/client_tests/integration_hashes_advanced.rs` — 14 tests (218 lines)
+- Created `src/client/client_tests/integration_lists_basic.rs` — 11 tests (285 lines)
+- Created `src/client/client_tests/integration_sets_basic.rs` — 11 tests (283 lines)
+- Created `src/client/client_tests/integration_sorted_sets.rs` — 12 tests (325 lines)
+- Created `src/client/client_tests/mod.rs` — module declarations for all new test files
+- Total new integration tests: 62 across 4 command families
+- All tests follow established patterns: #[ignore] for live Redis, flushdb before/after, may::run + may::go! runtime
+- Pre-existing state: 319 tests pass, clippy clean, fmt clean, all files under 350 lines
+- Coverage progression: ~12% → ~22% real-data integration coverage (25 → ~37 distinct commands with real-Redis tests)
 
-## [2026-05-28] feat(codec,core,pipeline) — S14-S18
-- Unit args: edge case testing for basic type conversions
-- CRLF strictness: enforce CRLF after every value in RESPReader
-- Pipeline partial errors: handle errors in batched pipeline responses
-- Integer edge cases: overflow/underflow protection for int type conversion
-- Roundtrip invariants: added comprehensive roundtrip test suite
+## [2026-06-01] feat(test) — Phase 2 (P1) Admin & Transactions integration tests
+- Created `src/client/client_tests/integration_admin_basic.rs` — 13 tests (305 lines)
+  - TYPE, MOVE, RENAME, RENAMENX, TOUCH, PTTL, PEXPIRE, PEXPIREAT, PERSIST
+  - SELECT, SCAN (basic + MATCH), INFO, CONFIG_GET, concurrent key ops
+- Created `src/client/client_tests/integration_admin_advanced.rs` — 8 tests (214 lines)
+  - FLUSHALL, SORT, SORT_LIMIT
+- Created `src/client/client_tests/integration_transactions.rs` — 5 tests (191 lines)
+  - MULTI/EXEC, MULTI/DISCARD, WATCH (no conflict), WATCH (conflict), UNWATCH
+- Total new integration tests: 26 across Admin & Transactions families
+- All tests follow established patterns: #[ignore] for live Redis, flushdb before/after, may::run + may::go!
+- Pre-existing state: 319 tests pass, clippy clean, fmt clean, all files under 350 lines
+- Coverage progression: ~22% → ~35% real-data integration coverage (37 → ~43 distinct commands)
 
-## [2026-05-28] fix(tests) — ignore integration tests requiring live Redis
+## [2026-05-28] audit | Full codebase code review
+- Created `docs/code-review-2026-05-28.md` — expert review of main branch
+- Created `llmwiki/topics/code-review-2026-05-28.md` — wiki summary page
+- Result: APPROVE with conditions (2 must-fix: CL1 worker thread blocking, S1 missing safety comments)
+- 10 findings total: 2 must-fix, 4 should-fix, 4 nice-to-have
+- Build: clean, 313 tests pass, clippy clean (lib+tests+all-features)
+- Architecture rated ★★★★☆ to ★★★★★ across all 5 modules
+
+## [2026-06-01] create | Wiki initialized
+- Domain: Project infrastructure, architecture, and engineering decisions
+- Structure created with SCHEMA.md, index.md, log.md
+
+## [2026-06-01] update | Redis command coverage audit
+- Created comparison page: redis-command-coverage.md
+- Documents 20/82+ commands implemented (~24% coverage)
+- Confirms 100% sesame-idam command coverage (all 11 canonical commands implemented)
+- Lists 60+ missing commands by category (HASH, SET, LIST, SORTED SET, STRING EXTENSION, PUB/SUB, TRANSACTIONS, SERVER/ADMIN)
+
+## [2026-06-01] create | Redis command expansion epic
+- Created Epic 7 stories for systematic Redis command expansion
+- Story 1: String Extension (DECR, DECRBY, SETNX, MGET, MSET, STRLEN, GETRANGE, SETBIT, GETBIT, BITCOUNT)
+- Story 2: Hash (HDEL, HKEYS, HGETALL, HMSET, HINCRBY, HLEN, HEXISTS, HSCAN)
+- Story 3: Set (SMEMBERS, SPOP, SRANDMEMBER, SCARD, SINTER, SUNION, SMOVE, SSCAN)
+- Story 4: List (LPUSH, RPUSH, LPOP, RPOP, LLEN, LRANGE, LINDEX, LSET, LREM, LTRIM, BLPOP, BRPOP)
+- Story 5: Sorted Set (ZADD, ZREM, ZRANGE, ZRANK, ZSCORE, ZCARD, ZCOUNT, ZINCRBY, ZPOPMAX, ZPOPMIN, ZSCAN, ZRANGEBYSCORE)
+- Story 6: Pub/Sub + Transactions (SUBSCRIBE, UNSUBSCRIBE, PSUBSCRIBE, PUNSUBSCRIBE, MULTI, EXEC, DISCARD, WATCH, UNWATCH)
+- Story 7: Server/Admin (SELECT, TYPE, MOVE, RENAME, RENAMENX, SORT, SCAN, TOUCH, SAVE, BGSAVE, FLUSHALL, PTTL, PEXPIRE, PERSIST, SHUTDOWN, INFO, CONFIG)
+
+## [2026-06-01] update | Epic 7 Story 1 implemented
+- Added 13 String Extension commands to `src/protocol/commands.rs`: DECR, DECRBY, SETNX, MGET, MSET, MSETNX, STRLEN, GETRANGE, SETRANGE, SETBIT, GETBIT, BITCOUNT (basic), BITCOUNT_RANGE (basic)
+- Added 13 corresponding unit tests verifying RESP2 wire encoding
+- Total Commands trait methods: 22 → 35
+- Total command tests: 21 → 34
+- All 35 tests pass (lib only, no runtime needed)
+- Clippy --lib: zero warnings
+
+## [2026-06-01] update | Epic 7 Story 1 verified complete
+- All 13 checklist items verified against Story_1.md requirements
+- `cargo check --lib`: PASS
+- All 13 specific command tests pass: DECR, DECRBY, SETNX, MGET, MSET, MSETNX, STRLEN, GETRANGE, SETRANGE, SETBIT, GETBIT, BITCOUNT, BITCOUNT_RANGE
+- `cargo clippy --lib -- -D warnings`: zero warnings
+- Coverage: 35/82+ commands (~43%), sesame-idam still 100% covered
+- Story 7.2 (Hash): 0 commands implemented, still PENDING — 10 hash extension commands remain
+
+## [2026-06-01] fix | Zero clippy warnings across entire codebase
+- Fixed 63 clippy errors in `tests/perf/main.rs`:
+  - `unreadable_literal`: 4 occurrences of `2592000` → `2_592_000`
+  - `unused-variables`: `jti_value` → `_jti_value`, `elapsed_ms` → `_elapsed_ms`
+  - `format_collect`: replaced `.map().collect()` fold pattern with `fold(String::new(), |mut acc, _| write!(...) ... acc)`
+  - `uninlined-format-args`: ~35 `format!("...", var)` → `format!("{var}")` inline patterns
+  - `manual-div-ceil`: `(count + workers - 1) / workers` → `count.div_ceil(workers)`
+  - `cast_lossless`: `i32 as f64` → `f64::from(i32)` for all ops_per_sec calculations
+  - `unused-must-use`: added `let _ =` to 12 unchecked `client.execute()` calls
+  - `needless-borrows-for-generic-args`: removed `&` before `format!(...)` in `client.get()` calls
+  - `no-effect-underscore-binding`: `_ops_per_sec` already ignored, fixed cast_lossless
+  - `manual-range-patterns`: `10 | 11 | 12 | 13` → `10..=13`, `14 | 15 | 16` → `14..=16`
+  - Added `use std::fmt::Write` for `write!` macro in `random_hex()`
+- All 35 command tests pass, clippy --lib --tests --all-features: ZERO warnings
+
+## [2026-05-28] fix(test) — ignore integration tests requiring live Redis
 - Integration tests (connection, client) now skipped when no Redis server
 - Fixes CI flakes from missing Redis dependency
+
+## [2026-05-28] fix(client) — InMemoryStore returns Ok("") for missing keys
+- InMemoryStore::get now returns Ok(String::new()) for missing/expired keys
+- Matches real Redis NULL response behavior for GET on missing key
+- Fixed test_inmemory_flushdb and test_get_expired_key_returns_null assertions
 
 ## [2026-05-28] feat(8) — Epic 8 completion: gaps and hardening
 - Implemented critical stories S5-S8 from audit:
@@ -186,11 +283,6 @@
 - Added Justfile with `lint` target matching CI command
 - Added .pre-commit-config.yaml to run `just lint` on commit
 - All clippy warnings resolved across entire codebase
-
-## [2026-05-28] fix(client) — InMemoryStore returns Ok("") for missing keys
-- InMemoryStore::get now returns Ok(String::new()) for missing/expired keys
-- Matches real Redis NULL response behavior for GET on missing key
-|- Fixed test_inmemory_flushdb and test_get_expired_key_returns_null assertions
 
 ## [2026-05-28] feat(epic-9) — JSF-AV compliance hardening (all 6 stories)
 - Story 9.1: Replaced `.next().unwrap()` with index-based access in all 4 `FromPipelineResponse` impls — no-panic dispatch

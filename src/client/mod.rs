@@ -79,5 +79,7 @@ mod client_tests {
     #[cfg(test)]
     mod integration_transactions;
     #[cfg(test)]
+    mod tls_tests;
+    #[cfg(test)]
     mod unit;
 }
