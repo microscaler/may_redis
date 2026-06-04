@@ -1,4 +1,14 @@
 // Gap 9: Connection struct methods integration tests.
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::redundant_closure,
+    clippy::option_if_let_else,
+    clippy::manual_string_new,
+    clippy::unnecessary_trailing_comma,
+    clippy::needless_borrows_for_generic_args
+)]
 
 use super::common::{run_may, test_tls_config};
 use crate::connection::tcp::SsrfConfig;

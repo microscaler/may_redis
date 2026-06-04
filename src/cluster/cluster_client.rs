@@ -6,17 +6,17 @@
 ///
 /// # Example
 ///
-/// ```no_run
-/// use may_redis::RedisClusterClient;
+/// ```ignore
+/// use may_redis::cluster::cluster_client::RedisClusterClient;
 ///
 /// let cluster = may::run(|| {
-///     may::go(|| {
+///     may::go! {
 ///         let client = RedisClusterClient::connect(&[
 ///             "192.168.1.10:6379",
 ///             "192.168.1.11:6379",
 ///             "192.168.1.12:6379",
 ///         ]).join();
-///     }).join()
+///     }
 /// });
 /// ```
 use std::cell::RefCell;

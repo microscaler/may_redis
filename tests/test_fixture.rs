@@ -1,14 +1,21 @@
 // Test fixture — manages Redis/Redis-TLS containers via bollard.
 //
-// Pattern from BRRTRouter/tests/docker_integration_tests.rs:
-//   - ContainerCreateBody for container config
-//   - CreateContainerOptionsBuilder for creation options
-//   - RemoveContainerOptionsBuilder for cleanup options
-//   - futures::executor::block_on for sync API calls
-//   - Bind port "0" then read back from inspect_container
-//   - RAII Drop for automatic cleanup (mirrors DockerTestContainer)
+// Pattern from `BRRTRouter`'s `DockerTestContainer` pattern:
+//   - `ContainerCreateBody` for container config
+//   - `CreateContainerOptionsBuilder` for creation options
+//   - `RemoveContainerOptionsBuilder` for cleanup options
+//   - `futures::executor::block_on` for sync API calls
+//   - Bind port `"0"` then read back from `inspect_container`
+//   - RAII Drop for automatic cleanup
 //
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::missing_const_for_fn,
+    clippy::used_underscore_binding,
+    clippy::unused_self
+)]
 
 use bollard::models::{ContainerCreateBody, HostConfig, PortBinding};
 use bollard::query_parameters::{
@@ -19,20 +26,21 @@ use bollard::Docker;
 use futures::executor::block_on;
 use std::collections::HashMap;
 use std::env;
+use std::net::TcpStream;
 use std::path::PathBuf;
 use std::sync::OnceLock;
 
 /// A managed Redis container.
 pub struct RedisContainer {
     id: String,
-    _docker: Docker,
+    docker: Docker,
     /// The host port mapped to the container's Redis port.
     host_port: u16,
 }
 
 /// A Redis test fixture that manages one or more containers.
 ///
-/// Mirrors BRRTRouter's DockerTestContainer pattern:
+/// Mirrors `BRRTRouter`'s `DockerTestContainer` pattern:
 /// automatic RAII cleanup on drop.
 pub struct RedisTestFixture {
     containers: Vec<RedisContainer>,
@@ -40,41 +48,43 @@ pub struct RedisTestFixture {
 
 impl RedisTestFixture {
     /// Create a builder for constructing a test fixture.
+    #[must_use]
     pub fn builder() -> RedisTestFixtureBuilder {
         RedisTestFixtureBuilder::new()
     }
 
     /// Get the host port for the container at index `i`.
+    #[must_use]
     pub fn host(&self, i: usize) -> u16 {
         self.containers[i].host_port
     }
 
     /// Get the number of containers in this fixture.
-    pub fn len(&self) -> usize {
+    #[must_use]
+    pub const fn len(&self) -> usize {
         self.containers.len()
     }
 
-    pub fn is_empty(&self) -> bool {
+    /// Check if the fixture has no containers.
+    #[must_use]
+    pub const fn is_empty(&self) -> bool {
         self.containers.is_empty()
     }
 }
 
 impl Drop for RedisTestFixture {
     fn drop(&mut self) {
-        // Mirror BRRTRouter's DockerTestContainer::drop pattern:
-        // Spawn a thread with a tokio runtime, block_on the async cleanup.
         for container in self.containers.drain(..) {
-            let id = container.id.clone();
-            let docker = container._docker.clone();
+            let id = container.id;
+            let docker = container.docker;
             std::thread::spawn(move || {
                 let rt = tokio::runtime::Builder::new_current_thread()
                     .enable_all()
                     .build()
                     .unwrap();
                 rt.block_on(async {
-                    let opts = RemoveContainerOptionsBuilder::default()
-                        .force(true)
-                        .build();
+                    let opts =
+                        RemoveContainerOptionsBuilder::default().force(true).build();
                     let _ = docker.remove_container(&id, Some(opts)).await;
                 });
             });
@@ -112,14 +122,12 @@ impl std::error::Error for DockerBuildError {}
 static DOCKER_AVAILABLE: OnceLock<bool> = OnceLock::new();
 
 /// Check if Docker is available and running.
-/// Mirrors BRRTRouter's is_docker_available() pattern.
+/// Mirrors `BRRTRouter`'s `is_docker_available()` pattern.
 pub fn is_docker_available() -> bool {
-    *DOCKER_AVAILABLE.get_or_init(|| {
-        Docker::connect_with_socket_defaults().is_ok()
-    })
+    *DOCKER_AVAILABLE.get_or_init(|| Docker::connect_with_socket_defaults().is_ok())
 }
 
-/// Builder for constructing a RedisTestFixture.
+/// Builder for constructing a `RedisTestFixture`.
 pub struct RedisTestFixtureBuilder {
     plain_redis: bool,
     tls_redis: bool,
@@ -139,28 +147,38 @@ impl RedisTestFixtureBuilder {
     }
 
     /// Include a plain Redis container (default: yes).
+    #[must_use]
     pub fn with_plain_redis(mut self, enabled: bool) -> Self {
         self.plain_redis = enabled;
         self
     }
 
     /// Include a Redis-TLS container (default: yes).
+    #[must_use]
     pub fn with_tls_redis(mut self, enabled: bool) -> Self {
         self.tls_redis = enabled;
         self
     }
 
     /// Custom path to TLS certificates.
+    #[must_use]
     pub fn tls_cert_dir(mut self, dir: PathBuf) -> Self {
         self.tls_cert_dir = dir;
         self
     }
 
     /// Build the fixture — creates containers and waits for them to be ready.
+    ///
+    /// # Errors
+    ///
+    /// Returns `DockerBuildError` if Docker is not available, or if
+    /// container creation, startup, or port discovery fails.
     pub fn build(self) -> Result<RedisTestFixture, DockerBuildError> {
-        // Connect to Docker (mirrors BRRTRouter's Docker::connect_with_local_defaults)
-        let docker = Docker::connect_with_socket_defaults()
-            .map_err(|e| DockerBuildError::DockerNotAvailable(format!("Failed to connect to Docker: {e}")))?;
+        let docker = Docker::connect_with_socket_defaults().map_err(|e| {
+            DockerBuildError::DockerNotAvailable(format!(
+                "Failed to connect to Docker: {e}"
+            ))
+        })?;
 
         let mut containers = Vec::new();
 
@@ -176,7 +194,6 @@ impl RedisTestFixtureBuilder {
 
         let fixture = RedisTestFixture { containers };
 
-        // Wait for all containers to be ready.
         for container in &fixture.containers {
             container.wait_until_ready()?;
         }
@@ -184,15 +201,17 @@ impl RedisTestFixtureBuilder {
         Ok(fixture)
     }
 
-    fn create_plain_redis(&self, docker: &Docker) -> Result<RedisContainer, DockerBuildError> {
-        // Mirror BRRTRouter pattern: build port bindings, host_config, ContainerCreateBody
-        let name = self.container_name("plain");
+    fn create_plain_redis(
+        &self,
+        docker: &Docker,
+    ) -> Result<RedisContainer, DockerBuildError> {
+        let name = Self::container_name("plain");
         let port_key = "6379/tcp".to_string();
         let bindings = HashMap::from([(
             port_key.clone(),
             Some(vec![PortBinding {
                 host_ip: Some("127.0.0.1".into()),
-                host_port: Some("0".into()),  // bind to random port
+                host_port: Some("0".into()),
             }]),
         )]);
 
@@ -212,9 +231,7 @@ impl RedisTestFixtureBuilder {
             ..Default::default()
         };
 
-        let create_opts = CreateContainerOptionsBuilder::default()
-            .name(&name)
-            .build();
+        let create_opts = CreateContainerOptionsBuilder::default().name(&name).build();
 
         let created = block_on(docker.create_container(Some(create_opts), cfg))
             .map_err(|e| DockerBuildError::ContainerCreate(format!("{e}")))?;
@@ -222,12 +239,12 @@ impl RedisTestFixtureBuilder {
         block_on(docker.start_container(&created.id, None::<StartContainerOptions>))
             .map_err(|e| DockerBuildError::ContainerStart(format!("{e}")))?;
 
-        // Read back the mapped port from inspect (mirrors BRRTRouter's inspect pattern)
-        let inspect = block_on(docker.inspect_container(
-            &created.id,
-            None::<InspectContainerOptions>,
-        ))
-        .map_err(|e| DockerBuildError::ContainerCreate(format!("Failed to inspect: {e}")))?;
+        let inspect = block_on(
+            docker.inspect_container(&created.id, None::<InspectContainerOptions>),
+        )
+        .map_err(|e| {
+            DockerBuildError::ContainerCreate(format!("Failed to inspect: {e}"))
+        })?;
 
         let mapped_port = inspect
             .network_settings
@@ -242,20 +259,23 @@ impl RedisTestFixtureBuilder {
 
         Ok(RedisContainer {
             id: created.id,
-            _docker: docker.clone(),
+            docker: docker.clone(),
             host_port: mapped_port,
         })
     }
 
-    fn create_tls_redis(&self, docker: &Docker) -> Result<RedisContainer, DockerBuildError> {
-        let name = self.container_name("tls");
+    fn create_tls_redis(
+        &self,
+        docker: &Docker,
+    ) -> Result<RedisContainer, DockerBuildError> {
+        let name = Self::container_name("tls");
         let cert_mount = self.tls_cert_dir.to_str().unwrap().to_string();
         let port_key = "6380/tcp".to_string();
         let bindings = HashMap::from([(
             port_key.clone(),
             Some(vec![PortBinding {
                 host_ip: Some("127.0.0.1".into()),
-                host_port: Some("0".into()),  // bind to random port
+                host_port: Some("0".into()),
             }]),
         )]);
 
@@ -284,9 +304,7 @@ impl RedisTestFixtureBuilder {
             ..Default::default()
         };
 
-        let create_opts = CreateContainerOptionsBuilder::default()
-            .name(&name)
-            .build();
+        let create_opts = CreateContainerOptionsBuilder::default().name(&name).build();
 
         let created = block_on(docker.create_container(Some(create_opts), cfg))
             .map_err(|e| DockerBuildError::ContainerCreate(format!("{e}")))?;
@@ -294,12 +312,12 @@ impl RedisTestFixtureBuilder {
         block_on(docker.start_container(&created.id, None::<StartContainerOptions>))
             .map_err(|e| DockerBuildError::ContainerStart(format!("{e}")))?;
 
-        // Read back the mapped port from inspect (mirrors BRRTRouter)
-        let inspect = block_on(docker.inspect_container(
-            &created.id,
-            None::<InspectContainerOptions>,
-        ))
-        .map_err(|e| DockerBuildError::ContainerCreate(format!("Failed to inspect: {e}")))?;
+        let inspect = block_on(
+            docker.inspect_container(&created.id, None::<InspectContainerOptions>),
+        )
+        .map_err(|e| {
+            DockerBuildError::ContainerCreate(format!("Failed to inspect: {e}"))
+        })?;
 
         let mapped_port = inspect
             .network_settings
@@ -314,24 +332,36 @@ impl RedisTestFixtureBuilder {
 
         Ok(RedisContainer {
             id: created.id,
-            _docker: docker.clone(),
+            docker: docker.clone(),
             host_port: mapped_port,
         })
     }
 
-    fn container_name(&self, variant: &str) -> String {
+    fn container_name(variant: &str) -> String {
         format!("may-redis-{variant}-{}", std::process::id())
     }
 }
 
 impl RedisContainer {
     /// Wait until the container is accepting connections.
+    ///
+    /// # Errors
+    ///
+    /// Returns `DockerBuildError::ContainerNotReady` if the container
+    /// does not accept TCP connections within 10 seconds.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the `host_port` value cannot be parsed as a `u16`.
     pub fn wait_until_ready(&self) -> Result<(), DockerBuildError> {
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
         loop {
-            let addr: std::net::SocketAddr =
-                format!("127.0.0.1:{}", self.host_port).parse().unwrap();
-            if std::net::TcpStream::connect_timeout(&addr, std::time::Duration::from_millis(100)).is_ok() {
+            let addr: std::net::SocketAddr = format!("127.0.0.1:{}", self.host_port)
+                .parse()
+                .expect("host_port is a valid u16");
+            if TcpStream::connect_timeout(&addr, std::time::Duration::from_millis(100))
+                .is_ok()
+            {
                 return Ok(());
             }
             if std::time::Instant::now() > deadline {

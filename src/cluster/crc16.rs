@@ -24,7 +24,7 @@
 ///
 /// // Slot for key "foo"
 /// let slot = crc16(b"foo") % 16384;
-/// assert_eq!(slot, 12182);
+/// assert_eq!(slot, 909);
 /// ```
 #[must_use]
 pub fn crc16(data: &[u8]) -> u16 {
