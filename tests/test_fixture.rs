@@ -14,7 +14,9 @@
     clippy::panic,
     clippy::missing_const_for_fn,
     clippy::used_underscore_binding,
-    clippy::unused_self
+    clippy::unused_self,
+    clippy::missing_panics_doc,
+    dead_code
 )]
 
 use bollard::models::{ContainerCreateBody, HostConfig, PortBinding};
@@ -124,7 +126,22 @@ static DOCKER_AVAILABLE: OnceLock<bool> = OnceLock::new();
 /// Check if Docker is available and running.
 /// Mirrors `BRRTRouter`'s `is_docker_available()` pattern.
 pub fn is_docker_available() -> bool {
-    *DOCKER_AVAILABLE.get_or_init(|| Docker::connect_with_socket_defaults().is_ok())
+    *DOCKER_AVAILABLE.get_or_init(|| {
+        // Docker::connect_with_socket_defaults() requires a tokio Handle internally
+        // even though it returns Result synchronously.
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        rt.block_on(async {
+            // This block_on is needed because Docker::connect_with_socket()
+            // internally uses hyper which needs a runtime.
+            let docker =
+                Docker::connect_with_socket_defaults().expect("connect docker");
+            // Quick probe: just check we have a client
+            docker.version().await.is_ok()
+        })
+    })
 }
 
 /// Builder for constructing a `RedisTestFixture`.
@@ -174,31 +191,44 @@ impl RedisTestFixtureBuilder {
     /// Returns `DockerBuildError` if Docker is not available, or if
     /// container creation, startup, or port discovery fails.
     pub fn build(self) -> Result<RedisTestFixture, DockerBuildError> {
-        let docker = Docker::connect_with_socket_defaults().map_err(|e| {
-            DockerBuildError::DockerNotAvailable(format!(
-                "Failed to connect to Docker: {e}"
-            ))
-        })?;
+        // Docker::connect_with_socket_defaults() requires a tokio Handle internally.
+        // Create a short-lived runtime to satisfy this.
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .map_err(|e| {
+                DockerBuildError::DockerNotAvailable(format!(
+                    "Failed to build tokio runtime: {e}"
+                ))
+            })?;
 
-        let mut containers = Vec::new();
+        rt.block_on(async {
+            let docker = Docker::connect_with_socket_defaults().map_err(|e| {
+                DockerBuildError::DockerNotAvailable(format!(
+                    "Failed to connect to Docker: {e}"
+                ))
+            })?;
 
-        if self.plain_redis {
-            let container = self.create_plain_redis(&docker)?;
-            containers.push(container);
-        }
+            let mut containers = Vec::new();
 
-        if self.tls_redis {
-            let container = self.create_tls_redis(&docker)?;
-            containers.push(container);
-        }
+            if self.plain_redis {
+                let container = self.create_plain_redis(&docker)?;
+                containers.push(container);
+            }
 
-        let fixture = RedisTestFixture { containers };
+            if self.tls_redis {
+                let container = self.create_tls_redis(&docker)?;
+                containers.push(container);
+            }
 
-        for container in &fixture.containers {
-            container.wait_until_ready()?;
-        }
+            let fixture = RedisTestFixture { containers };
 
-        Ok(fixture)
+            for container in &fixture.containers {
+                container.wait_until_ready()?;
+            }
+
+            Ok(fixture)
+        })
     }
 
     fn create_plain_redis(
