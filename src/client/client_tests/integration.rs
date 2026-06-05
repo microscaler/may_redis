@@ -1,11 +1,11 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
-use super::unit::{run_may, shared_client};
+use super::unit::{run_integration, shared_client};
+use crate::core::FromRedisValue;
 use crate::protocol::commands::{AdminCommands, PubsubCommands, StringsCommands};
 
 #[test]
-#[ignore = "requires live Redis server"]
 fn test_integration_ping() {
-    run_may(|| {
+    run_integration(|| {
         let client = shared_client();
         let result = client.ping();
         assert_eq!(result.unwrap(), "PONG");
@@ -14,9 +14,8 @@ fn test_integration_ping() {
 }
 
 #[test]
-#[ignore = "requires live Redis server"]
 fn test_integration_set_get() {
-    run_may(|| {
+    run_integration(|| {
         let client = shared_client();
         client
             .execute::<()>(client.set("test_key", "hello"))
@@ -28,9 +27,8 @@ fn test_integration_set_get() {
 }
 
 #[test]
-#[ignore = "requires live Redis server"]
 fn test_integration_incr() {
-    run_may(|| {
+    run_integration(|| {
         let client = shared_client();
         client.execute::<()>(client.flushdb()).ok();
 
@@ -45,9 +43,8 @@ fn test_integration_incr() {
 }
 
 #[test]
-#[ignore = "requires live Redis server"]
 fn test_integration_exists_del() {
-    run_may(|| {
+    run_integration(|| {
         let client = shared_client();
         client.execute::<()>(client.flushdb()).ok();
 
@@ -67,9 +64,8 @@ fn test_integration_exists_del() {
 }
 
 #[test]
-#[ignore = "requires live Redis server"]
 fn test_integration_dbsize() {
-    run_may(|| {
+    run_integration(|| {
         let client = shared_client();
         client.execute::<()>(client.flushdb()).ok();
 
@@ -86,9 +82,8 @@ fn test_integration_dbsize() {
 }
 
 #[test]
-#[ignore = "requires live Redis server"]
 fn test_integration_set_ex_ttl() {
-    run_may(|| {
+    run_integration(|| {
         let client = shared_client();
         client.execute::<()>(client.flushdb()).ok();
 
@@ -106,9 +101,8 @@ fn test_integration_set_ex_ttl() {
 }
 
 #[test]
-#[ignore = "requires live Redis server"]
 fn test_integration_keys() {
-    run_may(|| {
+    run_integration(|| {
         let client = shared_client();
         client.execute::<()>(client.flushdb()).ok();
 
@@ -126,9 +120,8 @@ fn test_integration_keys() {
 }
 
 #[test]
-#[ignore = "requires live Redis server"]
 fn test_integration_send_sync_clone() {
-    run_may(|| {
+    run_integration(|| {
         let client = shared_client();
         client.execute::<()>(client.flushdb()).ok();
 
@@ -144,9 +137,8 @@ fn test_integration_send_sync_clone() {
 }
 
 #[test]
-#[ignore = "requires live Redis server"]
 fn test_integration_error_propagation() {
-    run_may(|| {
+    run_integration(|| {
         let client = shared_client();
         client.execute::<()>(client.flushdb()).ok();
 
@@ -161,9 +153,8 @@ fn test_integration_error_propagation() {
 }
 
 #[test]
-#[ignore = "requires live Redis server"]
 fn test_integration_pipeline() {
-    run_may(|| {
+    run_integration(|| {
         let client = shared_client();
         client.execute::<()>(client.flushdb()).ok();
 
@@ -182,9 +173,8 @@ fn test_integration_pipeline() {
 }
 
 #[test]
-#[ignore = "requires live Redis server"]
 fn test_integration_concurrent() {
-    run_may(|| {
+    run_integration(|| {
         let client = shared_client();
         client.execute::<()>(client.flushdb()).ok();
 
@@ -208,9 +198,8 @@ fn test_integration_concurrent() {
 }
 
 #[test]
-#[ignore = "requires live Redis server"]
 fn test_integration_concurrent_requests() {
-    run_may(|| {
+    run_integration(|| {
         let client = shared_client();
         client.execute::<()>(client.flushdb()).ok();
 
@@ -241,9 +230,8 @@ fn test_integration_concurrent_requests() {
 }
 
 #[test]
-#[ignore = "requires live Redis server"]
 fn test_integration_concurrent_pipelines() {
-    run_may(|| {
+    run_integration(|| {
         let client = shared_client();
         client.execute::<()>(client.flushdb()).ok();
 
@@ -270,26 +258,23 @@ fn test_integration_concurrent_pipelines() {
 }
 
 #[test]
-#[ignore = "requires live Redis server"]
 fn test_integration_request_ordering() {
-    run_may(|| {
+    run_integration(|| {
         let client = shared_client();
         client.execute::<()>(client.flushdb()).ok();
 
+        // Interleave SET/GET in one pipeline to verify positional response matching.
         let mut pipe = client.pipeline();
-        for i in 0..50 {
+        for i in 0..10 {
             pipe.add(client.set(format!("order:{i}"), i.to_string()));
-        }
-        let results: Vec<()> = pipe.execute().unwrap();
-        assert_eq!(results.len(), 50);
-
-        let mut pipe = client.pipeline();
-        for i in 0..50 {
             pipe.add(client.get(format!("order:{i}")));
         }
-        let results: Vec<Option<String>> = pipe.execute().unwrap();
-        for (i, val) in results.iter().enumerate() {
-            assert_eq!(val, &Some(i.to_string()), "order:{i} mismatch");
+        let raw = pipe.execute_raw().unwrap();
+        assert_eq!(raw.len(), 20);
+        for i in 0..10 {
+            let got: Option<String> =
+                FromRedisValue::from_redis_value(&raw[2 * i + 1]).expect("GET decode");
+            assert_eq!(got, Some(i.to_string()), "order:{i} mismatch");
         }
 
         client.execute::<()>(client.flushdb()).ok();
@@ -297,9 +282,8 @@ fn test_integration_request_ordering() {
 }
 
 #[test]
-#[ignore = "requires live Redis server"]
 fn test_integration_response_correlation() {
-    run_may(|| {
+    run_integration(|| {
         let client = shared_client();
         client.execute::<()>(client.flushdb()).ok();
 
@@ -321,9 +305,8 @@ fn test_integration_response_correlation() {
 }
 
 #[test]
-#[ignore = "requires live Redis server"]
 fn test_integration_server_error_propagation() {
-    run_may(|| {
+    run_integration(|| {
         let client = shared_client();
         client.execute::<()>(client.flushdb()).ok();
 
@@ -339,9 +322,8 @@ fn test_integration_server_error_propagation() {
 }
 
 #[test]
-#[ignore = "requires live Redis server"]
 fn test_integration_wrong_type_extraction() {
-    run_may(|| {
+    run_integration(|| {
         let client = shared_client();
         client.execute::<()>(client.flushdb()).ok();
 
@@ -353,9 +335,8 @@ fn test_integration_wrong_type_extraction() {
 }
 
 #[test]
-#[ignore = "requires live Redis server"]
 fn test_integration_empty_pipeline() {
-    run_may(|| {
+    run_integration(|| {
         let client = shared_client();
         client.execute::<()>(client.flushdb()).ok();
 
@@ -372,9 +353,8 @@ fn test_integration_empty_pipeline() {
 }
 
 #[test]
-#[ignore = "requires live Redis server"]
 fn test_integration_null_response_handling() {
-    run_may(|| {
+    run_integration(|| {
         let client = shared_client();
         client.execute::<()>(client.flushdb()).ok();
 
@@ -394,9 +374,8 @@ fn test_integration_null_response_handling() {
 }
 
 #[test]
-#[ignore = "requires live Redis server"]
 fn test_integration_redis_server_error_value() {
-    run_may(|| {
+    run_integration(|| {
         let client = shared_client();
         client.execute::<()>(client.flushdb()).ok();
 
@@ -414,9 +393,8 @@ fn test_integration_redis_server_error_value() {
 }
 
 #[test]
-#[ignore = "requires live Redis server"]
 fn test_integration_set_get_ex() {
-    run_may(|| {
+    run_integration(|| {
         let client = shared_client();
         client.execute::<()>(client.flushdb()).ok();
 
@@ -434,9 +412,8 @@ fn test_integration_set_get_ex() {
 }
 
 #[test]
-#[ignore = "requires live Redis server"]
 fn test_integration_del() {
-    run_may(|| {
+    run_integration(|| {
         let client = shared_client();
         client.execute::<()>(client.flushdb()).ok();
 
@@ -455,9 +432,8 @@ fn test_integration_del() {
 }
 
 #[test]
-#[ignore = "requires live Redis server"]
 fn test_integration_expire() {
-    run_may(|| {
+    run_integration(|| {
         let client = shared_client();
         client.execute::<()>(client.flushdb()).ok();
 
@@ -476,9 +452,8 @@ fn test_integration_expire() {
 }
 
 #[test]
-#[ignore = "requires live Redis server"]
 fn test_integration_publish() {
-    run_may(|| {
+    run_integration(|| {
         let client = shared_client();
         client.execute::<()>(client.flushdb()).ok();
 

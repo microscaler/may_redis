@@ -40,6 +40,7 @@
 pub use client::RedisClient;
 pub use pipeline::Pipeline;
 pub use pipeline_response::FromPipelineResponse;
+pub use pubsub_client::PubSubClient;
 
 #[cfg(feature = "test")]
 pub use in_memory::InMemoryClient;
@@ -53,6 +54,7 @@ mod client_timeout;
 mod client_url;
 pub mod pipeline;
 pub mod pipeline_response;
+pub mod pubsub_client;
 
 #[cfg(test)]
 mod client_tests {
@@ -68,6 +70,8 @@ mod client_tests {
     mod integration_hashes_basic;
     #[cfg(test)]
     mod integration_lists_basic;
+    #[cfg(test)]
+    mod integration_pubsub;
     #[cfg(test)]
     mod integration_sets_basic;
     #[cfg(test)]

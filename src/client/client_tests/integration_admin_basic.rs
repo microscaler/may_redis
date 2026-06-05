@@ -1,13 +1,12 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-use super::unit::{run_may, shared_client};
+use super::unit::{run_integration, shared_client};
 use crate::protocol::commands::{AdminCommands, StringsCommands};
 
 // TYPE — Check key type
 #[test]
-#[ignore = "requires live Redis server"]
 fn test_integration_admin_type() {
-    run_may(|| {
+    run_integration(|| {
         let client = shared_client();
         client.execute::<()>(client.flushdb()).ok();
 
@@ -24,9 +23,8 @@ fn test_integration_admin_type() {
 
 // MOVE — Move key to another DB
 #[test]
-#[ignore = "requires live Redis server"]
 fn test_integration_admin_move() {
-    run_may(|| {
+    run_integration(|| {
         let client = shared_client();
         client.execute::<()>(client.flushdb()).ok();
 
@@ -47,9 +45,8 @@ fn test_integration_admin_move() {
 
 // RENAME — Rename a key
 #[test]
-#[ignore = "requires live Redis server"]
 fn test_integration_admin_rename() {
-    run_may(|| {
+    run_integration(|| {
         let client = shared_client();
         client.execute::<()>(client.flushdb()).ok();
 
@@ -70,9 +67,8 @@ fn test_integration_admin_rename() {
 
 // RENAMENX — Rename only if target doesn't exist
 #[test]
-#[ignore = "requires live Redis server"]
 fn test_integration_admin_renamenx() {
-    run_may(|| {
+    run_integration(|| {
         let client = shared_client();
         client.execute::<()>(client.flushdb()).ok();
 
@@ -94,9 +90,8 @@ fn test_integration_admin_renamenx() {
 
 // TOUCH — Update access time
 #[test]
-#[ignore = "requires live Redis server"]
 fn test_integration_admin_touch() {
-    run_may(|| {
+    run_integration(|| {
         let client = shared_client();
         client.execute::<()>(client.flushdb()).ok();
 
@@ -114,9 +109,8 @@ fn test_integration_admin_touch() {
 
 // PTTL — Get TTL in milliseconds
 #[test]
-#[ignore = "requires live Redis server"]
 fn test_integration_admin_pttl() {
-    run_may(|| {
+    run_integration(|| {
         let client = shared_client();
         client.execute::<()>(client.flushdb()).ok();
 
@@ -137,9 +131,8 @@ fn test_integration_admin_pttl() {
 
 // PEXPIRE — Set expiry in milliseconds
 #[test]
-#[ignore = "requires live Redis server"]
 fn test_integration_admin_pexpire() {
-    run_may(|| {
+    run_integration(|| {
         let client = shared_client();
         client.execute::<()>(client.flushdb()).ok();
 
@@ -156,9 +149,8 @@ fn test_integration_admin_pexpire() {
 
 // PEXPIREAT — Set expiry at unix timestamp (ms)
 #[test]
-#[ignore = "requires live Redis server"]
 fn test_integration_admin_pexpireat() {
-    run_may(|| {
+    run_integration(|| {
         let client = shared_client();
         client.execute::<()>(client.flushdb()).ok();
 
@@ -182,9 +174,8 @@ fn test_integration_admin_pexpireat() {
 
 // PERSIST — Remove TTL from key
 #[test]
-#[ignore = "requires live Redis server"]
 fn test_integration_admin_persist() {
-    run_may(|| {
+    run_integration(|| {
         let client = shared_client();
         client.execute::<()>(client.flushdb()).ok();
 
@@ -210,9 +201,8 @@ fn test_integration_admin_persist() {
 
 // SELECT — Select database
 #[test]
-#[ignore = "requires live Redis server"]
 fn test_integration_admin_select() {
-    run_may(|| {
+    run_integration(|| {
         let client = shared_client();
         client.execute::<()>(client.flushdb()).ok();
 
@@ -233,9 +223,8 @@ fn test_integration_admin_select() {
 
 // SCAN — Incremental iteration
 #[test]
-#[ignore = "requires live Redis server"]
 fn test_integration_admin_scan() {
-    run_may(|| {
+    run_integration(|| {
         let client = shared_client();
         client.execute::<()>(client.flushdb()).ok();
 

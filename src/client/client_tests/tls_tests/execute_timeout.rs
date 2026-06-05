@@ -10,30 +10,15 @@
     clippy::needless_borrows_for_generic_args
 )]
 
-use super::common::{run_may, test_tls_config};
+use super::common::{prepare_tls_tests, run_may, tls_client};
 use crate::protocol::commands::{AdminCommands, StringsCommands};
-use crate::RedisClient;
 use std::time::Duration;
 
-const TLS_HOST: &str = "localhost";
-const TLS_PORT: u16 = 6380;
-
-fn tls_client() -> RedisClient {
-    static INIT: std::sync::Once = std::sync::Once::new();
-    static CLIENT: std::sync::OnceLock<RedisClient> = std::sync::OnceLock::new();
-    INIT.call_once(|| {
-        let config = test_tls_config();
-        let client = RedisClient::connect_tls(TLS_HOST, TLS_PORT, &config, 5)
-            .expect("Redis-TLS must be running on localhost:6380");
-        CLIENT.set(client).ok();
-    });
-    CLIENT.get().expect("client not initialized").clone()
-}
-
 #[test]
-#[ignore = "requires live Redis-TLS server on localhost:6380"]
 fn test_execute_timeout_normal() {
-    // Scenario 1: Normal execution — response arrives before timeout
+    if !prepare_tls_tests() {
+        return;
+    }
     run_may(|| {
         let client = tls_client();
         let val: Option<String> = client
@@ -45,8 +30,10 @@ fn test_execute_timeout_normal() {
 }
 
 #[test]
-#[ignore = "requires live Redis-TLS server on localhost:6380"]
 fn test_execute_timeout_fast_command() {
+    if !prepare_tls_tests() {
+        return;
+    }
     run_may(|| {
         let client = tls_client();
         let result: String = client.ping().unwrap();
@@ -55,9 +42,10 @@ fn test_execute_timeout_fast_command() {
 }
 
 #[test]
-#[ignore = "requires live Redis-TLS server on localhost:6380"]
 fn test_execute_timeout_very_short() {
-    // Local latency is sub-millisecond; 1ms should suffice for PING
+    if !prepare_tls_tests() {
+        return;
+    }
     run_may(|| {
         let client = tls_client();
         let result: String = client.ping().unwrap();
@@ -66,11 +54,10 @@ fn test_execute_timeout_very_short() {
 }
 
 #[test]
-#[ignore = "requires live Redis-TLS server on localhost:6380"]
 fn test_execute_timeout_multiple_coroutines() {
-    // Multiple sequential commands through execute_with_timeout exercise
-    // the timeout path. Parallel concurrency is not required to verify the
-    // data flow; sequential runs use the same epoll/request-response cycle.
+    if !prepare_tls_tests() {
+        return;
+    }
     run_may(|| {
         let client = tls_client();
         for i in 0..3 {
@@ -88,8 +75,10 @@ fn test_execute_timeout_multiple_coroutines() {
 }
 
 #[test]
-#[ignore = "requires live Redis-TLS server on localhost:6380"]
 fn test_execute_timeout_large_payload() {
+    if !prepare_tls_tests() {
+        return;
+    }
     run_may(|| {
         let client = tls_client();
         let large_value = "x".repeat(10_000);

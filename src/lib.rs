@@ -30,6 +30,8 @@ pub mod tls;
 pub use client::client::RedisClient;
 pub use client::pipeline::Pipeline;
 pub use client::pipeline_response::FromPipelineResponse;
+pub use client::pubsub_client::PubSubClient;
+pub use connection::PubSubMessage;
 pub use core::{FromRedisValue, RedisError, RedisValue, ToRedisArgs};
 pub use protocol::builder::{cmd, CommandBuilder, CommandPolicy};
 pub use protocol::commands::Commands;
@@ -39,3 +41,6 @@ pub use tls::ClientCerts;
 
 #[cfg(feature = "test")]
 pub use client::in_memory::InMemoryClient;
+
+#[cfg(feature = "test")]
+pub mod test_fixture;

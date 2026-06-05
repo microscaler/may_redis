@@ -5,7 +5,7 @@
     clippy::used_underscore_items
 )]
 
-use super::unit::{run_may, shared_client};
+use super::unit::{run_integration, shared_client};
 use crate::protocol::commands::{AdminCommands, StringsCommands};
 
 // ---------------------------------------------------------------------------
@@ -13,9 +13,8 @@ use crate::protocol::commands::{AdminCommands, StringsCommands};
 // ---------------------------------------------------------------------------
 
 #[test]
-#[ignore = "requires live Redis server"]
 fn test_strings_incrby_basic() {
-    run_may(|| {
+    run_integration(|| {
         let client = shared_client();
         client.execute::<()>(client.flushdb()).ok();
 
@@ -31,9 +30,8 @@ fn test_strings_incrby_basic() {
 }
 
 #[test]
-#[ignore = "requires live Redis server"]
 fn test_strings_incrby_overflow() {
-    run_may(|| {
+    run_integration(|| {
         let client = shared_client();
         client.execute::<()>(client.flushdb()).ok();
 
@@ -54,9 +52,8 @@ fn test_strings_incrby_overflow() {
 // ---------------------------------------------------------------------------
 
 #[test]
-#[ignore = "requires live Redis server"]
 fn test_strings_decr_basic() {
-    run_may(|| {
+    run_integration(|| {
         let client = shared_client();
         client.execute::<()>(client.flushdb()).ok();
 
@@ -72,9 +69,8 @@ fn test_strings_decr_basic() {
 }
 
 #[test]
-#[ignore = "requires live Redis server"]
 fn test_strings_decr_negative() {
-    run_may(|| {
+    run_integration(|| {
         let client = shared_client();
         client.execute::<()>(client.flushdb()).ok();
 
@@ -91,9 +87,8 @@ fn test_strings_decr_negative() {
 // ---------------------------------------------------------------------------
 
 #[test]
-#[ignore = "requires live Redis server"]
 fn test_strings_setnx() {
-    run_may(|| {
+    run_integration(|| {
         let client = shared_client();
         client.execute::<()>(client.flushdb()).ok();
 
@@ -119,9 +114,8 @@ fn test_strings_setnx() {
 // ---------------------------------------------------------------------------
 
 #[test]
-#[ignore = "requires live Redis server"]
 fn test_strings_append() {
-    run_may(|| {
+    run_integration(|| {
         let client = shared_client();
         client.execute::<()>(client.flushdb()).ok();
 
@@ -137,9 +131,8 @@ fn test_strings_append() {
 }
 
 #[test]
-#[ignore = "requires live Redis server"]
 fn test_strings_append_nonexistent() {
-    run_may(|| {
+    run_integration(|| {
         let client = shared_client();
         client.execute::<()>(client.flushdb()).ok();
 
@@ -158,9 +151,8 @@ fn test_strings_append_nonexistent() {
 // ---------------------------------------------------------------------------
 
 #[test]
-#[ignore = "requires live Redis server"]
 fn test_strings_mget() {
-    run_may(|| {
+    run_integration(|| {
         let client = shared_client();
         client.execute::<()>(client.flushdb()).ok();
 
@@ -182,9 +174,8 @@ fn test_strings_mget() {
 }
 
 #[test]
-#[ignore = "requires live Redis server"]
 fn test_strings_mget_empty() {
-    run_may(|| {
+    run_integration(|| {
         let client = shared_client();
         client.execute::<()>(client.flushdb()).ok();
 

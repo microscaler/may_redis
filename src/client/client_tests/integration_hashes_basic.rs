@@ -1,6 +1,6 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-use super::unit::{run_may, shared_client};
+use super::unit::{run_integration, shared_client};
 use crate::protocol::commands::{AdminCommands, HashesCommands};
 
 // ---------------------------------------------------------------------------
@@ -8,9 +8,8 @@ use crate::protocol::commands::{AdminCommands, HashesCommands};
 // ---------------------------------------------------------------------------
 
 #[test]
-#[ignore = "requires live Redis server"]
 fn test_integration_hashes_hget() {
-    run_may(|| {
+    run_integration(|| {
         let client = shared_client();
         client.execute::<()>(client.flushdb()).ok();
 
@@ -27,9 +26,8 @@ fn test_integration_hashes_hget() {
 // ---------------------------------------------------------------------------
 
 #[test]
-#[ignore = "requires live Redis server"]
 fn test_integration_hashes_hgetall() {
-    run_may(|| {
+    run_integration(|| {
         let client = shared_client();
         client.execute::<()>(client.flushdb()).ok();
 
@@ -47,9 +45,8 @@ fn test_integration_hashes_hgetall() {
 // ---------------------------------------------------------------------------
 
 #[test]
-#[ignore = "requires live Redis server"]
 fn test_integration_hashes_hdel() {
-    run_may(|| {
+    run_integration(|| {
         let client = shared_client();
         client.execute::<()>(client.flushdb()).ok();
 
@@ -66,9 +63,8 @@ fn test_integration_hashes_hdel() {
 // ---------------------------------------------------------------------------
 
 #[test]
-#[ignore = "requires live Redis server"]
 fn test_integration_hashes_hkeys() {
-    run_may(|| {
+    run_integration(|| {
         let client = shared_client();
         client.execute::<()>(client.flushdb()).ok();
 
@@ -85,9 +81,8 @@ fn test_integration_hashes_hkeys() {
 // ---------------------------------------------------------------------------
 
 #[test]
-#[ignore = "requires live Redis server"]
 fn test_integration_hashes_hlen() {
-    run_may(|| {
+    run_integration(|| {
         let client = shared_client();
         client.execute::<()>(client.flushdb()).ok();
 
@@ -104,9 +99,8 @@ fn test_integration_hashes_hlen() {
 // ---------------------------------------------------------------------------
 
 #[test]
-#[ignore = "requires live Redis server"]
 fn test_integration_hashes_hscan() {
-    run_may(|| {
+    run_integration(|| {
         let client = shared_client();
         client.execute::<()>(client.flushdb()).ok();
 

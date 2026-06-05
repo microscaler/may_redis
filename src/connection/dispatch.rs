@@ -17,6 +17,8 @@ use crate::codec::reader::RESPReader;
 use crate::core::{RedisError, RedisValue};
 
 use super::connection::{PendingRequest, Request};
+use super::pubsub::{is_pubsub_push, parse_pubsub_push};
+use may::sync::spsc;
 
 const MIN_BUFFER_CAPACITY: usize = 512;
 
@@ -82,18 +84,25 @@ fn release_pending(pending_count: &Arc<AtomicUsize>) {
 pub(super) fn decode_responses(
     read_buf: &mut BytesMut,
     resp_queue: &mut VecDeque<PendingRequest>,
+    pending_count: &Arc<AtomicUsize>,
+    push_sender: Option<&spsc::Sender<super::pubsub::PubSubMessage>>,
 ) -> io::Result<()> {
     while !read_buf.is_empty() {
         let mut reader = RESPReader::new(read_buf.split());
         match reader.read_value() {
             Ok(value) => {
-                // CRITICAL: must run BEFORE the dispatch below so that any
-                // remaining batched responses are visible to the next
-                // iteration of this `while !read_buf.is_empty()` loop.
-                // See Bug 2 in `llmwiki/topics/connection-loop-pitfalls.md`.
                 read_buf.unsplit(reader.take_buf());
+                if is_pubsub_push(&value) {
+                    if let Some(tx) = push_sender {
+                        if let Some(msg) = parse_pubsub_push(&value) {
+                            let _ = tx.send(msg);
+                            continue;
+                        }
+                    }
+                }
                 if let Some(pending) = resp_queue.pop_front() {
                     let _ = pending.sender.send(value);
+                    release_pending(pending_count);
                 } else {
                     log::warn!("unexpected response from server");
                 }

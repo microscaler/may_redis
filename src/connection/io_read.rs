@@ -67,3 +67,23 @@ pub(super) fn nonblock_read<R: io::Read>(
     unsafe { read_buf.advance_mut(read_cnt) };
     Ok(read_cnt < len)
 }
+
+/// Drain every byte currently queued in the kernel socket buffer.
+///
+/// May uses edge-triggered epoll (`EPOLLET`). A single [`nonblock_read`]
+/// call can return `WouldBlock` while bytes remain in the kernel queue
+/// (for example when a ~70-byte pipeline response batch straddles a
+/// 64-byte read boundary). Decoding and parking on `wait_io()` in that
+/// state leaves the trailing bytes undrained and no further `EPOLLIN`
+/// edge fires — pipeline callers hang on the last `rx.recv()`.
+///
+/// Loop [`nonblock_read`] until it reports `WouldBlock` (`Ok(true)`).
+pub(super) fn drain_nonblock_read<R: io::Read>(
+    stream: &mut R,
+    read_buf: &mut BytesMut,
+) -> io::Result<bool> {
+    while !nonblock_read(stream, read_buf)? {
+        // read filled the buffer but more kernel data may remain
+    }
+    Ok(true)
+}

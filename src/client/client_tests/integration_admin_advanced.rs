@@ -1,13 +1,12 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-use super::unit::{run_may, shared_client};
+use super::unit::{run_integration, shared_client};
 use crate::protocol::commands::{AdminCommands, StringsCommands};
 
 // FLUSHALL — Delete all keys from all databases
 #[test]
-#[ignore = "requires live Redis server"]
 fn test_integration_admin_flushall() {
-    run_may(|| {
+    run_integration(|| {
         let client = shared_client();
         client.execute::<()>(client.flushdb()).ok();
         client.execute::<()>(client.set("db0_key", "value")).ok();
@@ -42,9 +41,8 @@ fn test_integration_admin_flushall() {
 
 // SORT — Sort a list
 #[test]
-#[ignore = "requires live Redis server"]
 fn test_integration_admin_sort_list() {
-    run_may(|| {
+    run_integration(|| {
         let client = shared_client();
         client.execute::<()>(client.flushdb()).ok();
 
@@ -59,9 +57,8 @@ fn test_integration_admin_sort_list() {
 
 // SCAN with MATCH pattern
 #[test]
-#[ignore = "requires live Redis server"]
 fn test_integration_admin_scan_match() {
-    run_may(|| {
+    run_integration(|| {
         let client = shared_client();
         client.execute::<()>(client.flushdb()).ok();
 
@@ -88,9 +85,8 @@ fn test_integration_admin_scan_match() {
 
 // INFO — Get server info
 #[test]
-#[ignore = "requires live Redis server"]
 fn test_integration_admin_info() {
-    run_may(|| {
+    run_integration(|| {
         let client = shared_client();
         client.execute::<()>(client.flushdb()).ok();
 
@@ -104,9 +100,8 @@ fn test_integration_admin_info() {
 
 // Admin — concurrent access with key operations
 #[test]
-#[ignore = "requires live Redis server"]
 fn test_integration_admin_concurrent() {
-    run_may(|| {
+    run_integration(|| {
         let client = shared_client();
         client.execute::<()>(client.flushdb()).ok();
 

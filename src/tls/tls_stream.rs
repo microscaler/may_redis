@@ -34,10 +34,13 @@ impl TlsStream {
         &mut self.stream
     }
 
-    /// Return the raw inner tcp stream.
-    #[must_use]
-    pub const fn inner(&self) -> &TcpStream {
-        &self.stream
+    /// Drive rustls record-layer I/O on the underlying `std::net::TcpStream`.
+    ///
+    /// Must be called after queuing plaintext writes and before/after reads so
+    /// encrypted bytes actually hit the socket and incoming records are processed.
+    pub(crate) fn drive_io(&mut self) -> io::Result<()> {
+        let sys = self.stream.inner_mut();
+        self.conn.complete_io(sys).map(|_| ())
     }
 }
 
@@ -61,11 +64,10 @@ impl io::Write for TlsStream {
 use crate::connection::StreamHandle;
 
 impl StreamHandle for TlsStream {
-    fn inner_mut(&mut self) -> &mut may::net::TcpStream {
-        &mut self.stream
-    }
-
     fn wait_io(&mut self) -> i32 {
-        self.stream.wait_io()
+        #[allow(clippy::cast_possible_wrap)]
+        {
+            may::io::WaitIo::wait_io(&self.stream) as i32
+        }
     }
 }

@@ -10,28 +10,14 @@
     clippy::needless_borrows_for_generic_args
 )]
 
-use super::common::{run_may, test_tls_config};
+use super::common::{prepare_tls_tests, run_may, tls_client};
 use crate::protocol::commands::{AdminCommands, StringsCommands};
-use crate::RedisClient;
-
-const TLS_HOST: &str = "localhost";
-const TLS_PORT: u16 = 6380;
-
-fn tls_client() -> RedisClient {
-    static INIT: std::sync::Once = std::sync::Once::new();
-    static CLIENT: std::sync::OnceLock<RedisClient> = std::sync::OnceLock::new();
-    INIT.call_once(|| {
-        let config = test_tls_config();
-        let client = RedisClient::connect_tls(TLS_HOST, TLS_PORT, &config, 5)
-            .expect("Redis-TLS must be running on localhost:6380");
-        CLIENT.set(client).ok();
-    });
-    CLIENT.get().expect("client not initialized").clone()
-}
 
 #[test]
-#[ignore = "requires live Redis-TLS server on localhost:6380"]
 fn test_tls_stream_construction() {
+    if !prepare_tls_tests() {
+        return;
+    }
     run_may(|| {
         let client = tls_client();
         let val: Option<String> =
@@ -42,8 +28,10 @@ fn test_tls_stream_construction() {
 }
 
 #[test]
-#[ignore = "requires live Redis-TLS server on localhost:6380"]
 fn test_tls_stream_inner_mut() {
+    if !prepare_tls_tests() {
+        return;
+    }
     run_may(|| {
         let client = tls_client();
         let _ = client.ping().unwrap();
@@ -51,8 +39,10 @@ fn test_tls_stream_inner_mut() {
 }
 
 #[test]
-#[ignore = "requires live Redis-TLS server on localhost:6380"]
 fn test_tls_stream_inner() {
+    if !prepare_tls_tests() {
+        return;
+    }
     run_may(|| {
         let client = tls_client();
         let _ = client.ping().unwrap();
@@ -60,9 +50,10 @@ fn test_tls_stream_inner() {
 }
 
 #[test]
-#[ignore = "requires live Redis-TLS server on localhost:6380"]
 fn test_tls_stream_read_write_data_flow() {
-    // Set and get exercises full Write -> Read path
+    if !prepare_tls_tests() {
+        return;
+    }
     run_may(|| {
         let client = tls_client();
         let key = "data_flow";
@@ -71,7 +62,6 @@ fn test_tls_stream_read_write_data_flow() {
         let result: String = client.execute(client.get(key)).unwrap();
         assert_eq!(result, value);
 
-        // Larger payload test through TLS
         let extended_key = "extended_test";
         let extended_value = "x".repeat(1000);
         client
@@ -84,8 +74,10 @@ fn test_tls_stream_read_write_data_flow() {
 }
 
 #[test]
-#[ignore = "requires live Redis-TLS server on localhost:6380"]
 fn test_tls_stream_flush() {
+    if !prepare_tls_tests() {
+        return;
+    }
     run_may(|| {
         let client = tls_client();
         for i in 0..5 {

@@ -208,3 +208,39 @@ split / unsplit dance disappears; until then, every match arm in
    under `--test-threads=1` after every connection-loop change.** They
    are the canonical end-to-end coverage and they hang (rather than
    fail loudly) when these classes of bugs regress.
+
+## Bug 3 — EPOLLET partial read leaves trailing pipeline bytes (10+ bulk GET hang)
+
+### Symptom
+
+- Pipelines with **10 or more bulk-string responses** (typical of batched
+  `GET`) hang on the last `rx.recv()`. Fewer than 10 responses in one
+  batch succeed; exactly 9 bulk replies (~63 bytes wire) succeed, 10
+  (~70 bytes) hang. SET-only pipelines of the same command count pass.
+- Reproducer:
+  `cargo test --features test --lib test_integration_request_ordering -- --test-threads=1`
+
+### Root cause
+
+may's epoll uses **edge-triggered** mode (`EPOLLET`). A single
+[`nonblock_read`] call reads until `WouldBlock`, but the kernel may
+deliver a multi-response pipeline batch across an internal buffer
+boundary (observed around 64 bytes). The connection loop decoded the
+complete prefix, left a **partial RESP value** in `read_buf`, and
+called `wait_io()`. No new `EPOLLIN` edge fires for bytes already
+queued but not yet read, so the final response is never decoded and
+the caller blocks forever.
+
+### Fix
+
+Add [`drain_nonblock_read`] in `io_read.rs`: loop [`nonblock_read`]
+until it returns `Ok(true)` (`WouldBlock`), draining the full kernel
+queue before [`decode_responses`]. Use it in `epoll_loop.rs` instead
+of a single `nonblock_read` per iteration.
+
+### Regression coverage
+
+- `connection::connection_tests::test_decode_responses_ten_bulk_strings`
+  (decoder can handle 10 bulk values in one buffer)
+- `client::client_tests::integration::test_integration_request_ordering`
+  (10 interleaved SET/GET pairs in one pipeline)

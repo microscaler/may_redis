@@ -1,6 +1,6 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-use super::unit::{run_may, shared_client};
+use super::unit::{run_integration, shared_client};
 use crate::protocol::commands::{AdminCommands, StringsCommands, TransactionsCommands};
 
 // ---------------------------------------------------------------------------
@@ -8,9 +8,8 @@ use crate::protocol::commands::{AdminCommands, StringsCommands, TransactionsComm
 // ---------------------------------------------------------------------------
 
 #[test]
-#[ignore = "requires live Redis server"]
 fn test_integration_transaction_multi_exec() {
-    run_may(|| {
+    run_integration(|| {
         let client = shared_client();
         client.execute::<()>(client.flushdb()).ok();
 
@@ -40,9 +39,8 @@ fn test_integration_transaction_multi_exec() {
 // ---------------------------------------------------------------------------
 
 #[test]
-#[ignore = "requires live Redis server"]
 fn test_integration_transaction_discard() {
-    run_may(|| {
+    run_integration(|| {
         let client = shared_client();
         client.execute::<()>(client.flushdb()).ok();
 
@@ -77,9 +75,8 @@ fn test_integration_transaction_discard() {
 // ---------------------------------------------------------------------------
 
 #[test]
-#[ignore = "requires live Redis server"]
 fn test_integration_transaction_watch() {
-    run_may(|| {
+    run_integration(|| {
         let client = shared_client();
         client.execute::<()>(client.flushdb()).ok();
 
@@ -113,9 +110,8 @@ fn test_integration_transaction_watch() {
 // ---------------------------------------------------------------------------
 
 #[test]
-#[ignore = "requires live Redis server"]
 fn test_integration_transaction_watch_conflict() {
-    run_may(|| {
+    run_integration(|| {
         let client = shared_client();
         client.execute::<()>(client.flushdb()).ok();
 
@@ -161,9 +157,8 @@ fn test_integration_transaction_watch_conflict() {
 // ---------------------------------------------------------------------------
 
 #[test]
-#[ignore = "requires live Redis server"]
 fn test_integration_transaction_unwatch() {
-    run_may(|| {
+    run_integration(|| {
         let client = shared_client();
         client.execute::<()>(client.flushdb()).ok();
 

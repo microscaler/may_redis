@@ -18,13 +18,22 @@ use may::go;
 use may::queue::mpsc::Queue;
 use may::sync::spsc;
 use std::collections::VecDeque;
+use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
 use std::sync::Once;
+
+fn decode_test(
+    read_buf: &mut BytesMut,
+    resp_queue: &mut VecDeque<PendingRequest>,
+) -> std::io::Result<()> {
+    let pending_count = Arc::new(AtomicUsize::new(0));
+    decode_responses(read_buf, resp_queue, &pending_count, None)
+}
 
 fn init_may_runtime() {
     static INIT: Once = Once::new();
     INIT.call_once(|| {
-        config().set_workers(1);
+        config().set_workers(2);
     });
 }
 
@@ -88,7 +97,7 @@ fn test_decode_responses_integer() {
     let mut resp_queue = VecDeque::new();
     resp_queue.push_back(PendingRequest { sender: tx });
 
-    let result = decode_responses(&mut read_buf, &mut resp_queue);
+    let result = decode_test(&mut read_buf, &mut resp_queue);
     assert!(result.is_ok());
     assert!(read_buf.is_empty());
 }
@@ -102,7 +111,7 @@ fn test_decode_responses_bulk_string() {
     let mut resp_queue = VecDeque::new();
     resp_queue.push_back(PendingRequest { sender: tx });
 
-    let result = decode_responses(&mut read_buf, &mut resp_queue);
+    let result = decode_test(&mut read_buf, &mut resp_queue);
     assert!(result.is_ok());
     assert!(read_buf.is_empty());
 }
@@ -116,7 +125,7 @@ fn test_decode_responses_error() {
     let mut resp_queue = VecDeque::new();
     resp_queue.push_back(PendingRequest { sender: tx });
 
-    let result = decode_responses(&mut read_buf, &mut resp_queue);
+    let result = decode_test(&mut read_buf, &mut resp_queue);
     assert!(result.is_ok());
     assert!(read_buf.is_empty());
 }
@@ -130,7 +139,7 @@ fn test_decode_responses_incomplete() {
     let mut resp_queue = VecDeque::new();
     resp_queue.push_back(PendingRequest { sender: tx });
 
-    let result = decode_responses(&mut read_buf, &mut resp_queue);
+    let result = decode_test(&mut read_buf, &mut resp_queue);
     assert!(result.is_ok());
     assert!(!read_buf.is_empty()); // incomplete, so buffer is restored
 }
@@ -142,7 +151,7 @@ fn test_decode_responses_unexpected() {
     // resp_queue is empty — no pending request
     let mut resp_queue = VecDeque::<PendingRequest>::new();
 
-    let result = decode_responses(&mut read_buf, &mut resp_queue);
+    let result = decode_test(&mut read_buf, &mut resp_queue);
     assert!(result.is_ok());
     assert!(read_buf.is_empty());
 }
@@ -167,7 +176,7 @@ fn test_decode_responses_multiple_in_one_buffer() {
         receivers.push(rx);
     }
 
-    let result = decode_responses(&mut read_buf, &mut resp_queue);
+    let result = decode_test(&mut read_buf, &mut resp_queue);
     assert!(
         result.is_ok(),
         "decode_responses returned error: {result:?}"
@@ -184,6 +193,47 @@ fn test_decode_responses_multiple_in_one_buffer() {
     assert!(matches!(v1, RedisValue::SimpleString(ref s) if s == "OK"));
     assert!(matches!(v2, RedisValue::SimpleString(ref s) if s == "OK"));
     assert!(matches!(v3, RedisValue::BulkString(ref b) if b == b"hello"));
+}
+
+/// Regression: pipelines with many bulk-string GET responses must decode
+/// every value in one buffer (integration hung at 10+ GET replies).
+#[test]
+fn test_decode_responses_ten_bulk_strings() {
+    let wire: Vec<u8> = (0..10)
+        .flat_map(|i| {
+            let s = i.to_string();
+            let mut v = format!("${}\r\n", s.len()).into_bytes();
+            v.extend_from_slice(s.as_bytes());
+            v.extend_from_slice(b"\r\n");
+            v
+        })
+        .collect();
+    let mut read_buf: BytesMut = wire.as_slice().into();
+
+    let mut resp_queue = VecDeque::<PendingRequest>::new();
+    let mut receivers: Vec<spsc::Receiver<RedisValue>> = Vec::new();
+    for _ in 0..10 {
+        let (tx, rx) = spsc::channel();
+        resp_queue.push_back(PendingRequest { sender: tx });
+        receivers.push(rx);
+    }
+
+    let result = decode_test(&mut read_buf, &mut resp_queue);
+    assert!(
+        result.is_ok(),
+        "decode_responses returned error: {result:?}"
+    );
+    assert!(read_buf.is_empty(), "buffer not fully drained");
+    assert!(resp_queue.is_empty(), "not all pending requests dispatched");
+
+    for (i, rx) in receivers.iter().enumerate() {
+        let val = rx.try_recv().expect("missing bulk response");
+        let expected = i.to_string();
+        assert!(
+            matches!(val, RedisValue::BulkString(ref b) if b == expected.as_bytes()),
+            "response {i} mismatch"
+        );
+    }
 }
 
 /// Regression: when several responses are concatenated and the final
@@ -203,7 +253,7 @@ fn test_decode_responses_multiple_with_partial_trailing() {
         receivers.push(rx);
     }
 
-    let result = decode_responses(&mut read_buf, &mut resp_queue);
+    let result = decode_test(&mut read_buf, &mut resp_queue);
     assert!(result.is_ok());
 
     // First two pending requests got responses, third did not.
@@ -222,6 +272,37 @@ fn test_decode_responses_multiple_with_partial_trailing() {
     assert!(
         receivers[2].try_recv().is_err(),
         "response 2 should be absent"
+    );
+}
+
+/// Pub/sub push messages route to the push channel, not the pending queue.
+#[test]
+fn test_decode_responses_pubsub_push() {
+    let mut read_buf: BytesMut =
+        b"*3\r\n$7\r\nmessage\r\n$5\r\nnews\r\n$5\r\nhello\r\n"
+            .as_slice()
+            .into();
+    let mut resp_queue = VecDeque::<PendingRequest>::new();
+    let (push_tx, push_rx) = spsc::channel();
+    let pending_count = Arc::new(AtomicUsize::new(0));
+
+    let result = decode_responses(
+        &mut read_buf,
+        &mut resp_queue,
+        &pending_count,
+        Some(&push_tx),
+    );
+    assert!(result.is_ok());
+    assert!(read_buf.is_empty());
+    assert!(resp_queue.is_empty());
+
+    let msg = push_rx.try_recv().expect("push message");
+    assert_eq!(
+        msg,
+        crate::connection::PubSubMessage::Message {
+            channel: "news".to_string(),
+            payload: "hello".to_string(),
+        }
     );
 }
 

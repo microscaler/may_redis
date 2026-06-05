@@ -5,7 +5,7 @@
     clippy::used_underscore_items
 )]
 
-use super::unit::{run_may, shared_client};
+use super::unit::{run_integration, shared_client};
 use crate::protocol::commands::{AdminCommands, HashesCommands, StringsCommands};
 
 // ---------------------------------------------------------------------------
@@ -13,9 +13,8 @@ use crate::protocol::commands::{AdminCommands, HashesCommands, StringsCommands};
 // ---------------------------------------------------------------------------
 
 #[test]
-#[ignore = "requires live Redis server"]
 fn test_strings_mset() {
-    run_may(|| {
+    run_integration(|| {
         let client = shared_client();
         client.execute::<()>(client.flushdb()).ok();
 
@@ -38,9 +37,8 @@ fn test_strings_mset() {
 // ---------------------------------------------------------------------------
 
 #[test]
-#[ignore = "requires live Redis server"]
 fn test_strings_msetnx_all_new() {
-    run_may(|| {
+    run_integration(|| {
         let client = shared_client();
         client.execute::<()>(client.flushdb()).ok();
 
@@ -56,9 +54,8 @@ fn test_strings_msetnx_all_new() {
 }
 
 #[test]
-#[ignore = "requires live Redis server"]
 fn test_strings_msetnx_existing() {
-    run_may(|| {
+    run_integration(|| {
         let client = shared_client();
         client.execute::<()>(client.flushdb()).ok();
 
@@ -83,9 +80,8 @@ fn test_strings_msetnx_existing() {
 // ---------------------------------------------------------------------------
 
 #[test]
-#[ignore = "requires live Redis server"]
 fn test_strings_strlen() {
-    run_may(|| {
+    run_integration(|| {
         let client = shared_client();
         client.execute::<()>(client.flushdb()).ok();
 
@@ -105,9 +101,8 @@ fn test_strings_strlen() {
 // ---------------------------------------------------------------------------
 
 #[test]
-#[ignore = "requires live Redis server"]
 fn test_strings_getrange() {
-    run_may(|| {
+    run_integration(|| {
         let client = shared_client();
         client.execute::<()>(client.flushdb()).ok();
 
@@ -144,9 +139,8 @@ fn test_strings_getrange() {
 // ---------------------------------------------------------------------------
 
 #[test]
-#[ignore = "requires live Redis server"]
 fn test_strings_setrange() {
-    run_may(|| {
+    run_integration(|| {
         let client = shared_client();
         client.execute::<()>(client.flushdb()).ok();
 
@@ -164,9 +158,8 @@ fn test_strings_setrange() {
 }
 
 #[test]
-#[ignore = "requires live Redis server"]
 fn test_strings_setrange_offset_beyond() {
-    run_may(|| {
+    run_integration(|| {
         let client = shared_client();
         client.execute::<()>(client.flushdb()).ok();
 
@@ -187,9 +180,8 @@ fn test_strings_setrange_offset_beyond() {
 // ---------------------------------------------------------------------------
 
 #[test]
-#[ignore = "requires live Redis server"]
 fn test_strings_setbit_getbit() {
-    run_may(|| {
+    run_integration(|| {
         let client = shared_client();
         client.execute::<()>(client.flushdb()).ok();
 
@@ -208,9 +200,8 @@ fn test_strings_setbit_getbit() {
 }
 
 #[test]
-#[ignore = "requires live Redis server"]
 fn test_strings_bitcount() {
-    run_may(|| {
+    run_integration(|| {
         let client = shared_client();
         client.execute::<()>(client.flushdb()).ok();
 
@@ -242,9 +233,8 @@ fn test_strings_bitcount() {
 // ---------------------------------------------------------------------------
 
 #[test]
-#[ignore = "requires live Redis server"]
 fn test_strings_setex() {
-    run_may(|| {
+    run_integration(|| {
         let client = shared_client();
         client.execute::<()>(client.flushdb()).ok();
 
@@ -262,9 +252,8 @@ fn test_strings_setex() {
 }
 
 #[test]
-#[ignore = "requires live Redis server"]
 fn test_strings_setex_large_ttl() {
-    run_may(|| {
+    run_integration(|| {
         let client = shared_client();
         client.execute::<()>(client.flushdb()).ok();
 
@@ -286,9 +275,8 @@ fn test_strings_setex_large_ttl() {
 // ---------------------------------------------------------------------------
 
 #[test]
-#[ignore = "requires live Redis server"]
 fn test_strings_incr_wrong_type() {
-    run_may(|| {
+    run_integration(|| {
         let client = shared_client();
         client.execute::<()>(client.flushdb()).ok();
 
@@ -305,9 +293,8 @@ fn test_strings_incr_wrong_type() {
 }
 
 #[test]
-#[ignore = "requires live Redis server"]
 fn test_strings_append_wrong_type() {
-    run_may(|| {
+    run_integration(|| {
         let client = shared_client();
         client.execute::<()>(client.flushdb()).ok();
 

@@ -159,6 +159,7 @@ pub fn connect_url(url: &str) -> Result<super::client::RedisClient, RedisError> 
         "verify_server",
         "system_certs",
         "server_name",
+        "ssrf",
         "tls_min_version",
         "tls_max_version",
     ]

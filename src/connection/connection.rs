@@ -128,15 +128,38 @@ impl Connection {
     /// # Errors
     /// Returns [`ConnectionError`] if the TCP connection fails.
     pub fn connect(host: &str, port: u16) -> Result<Self, ConnectionError> {
+        Self::connect_with_push(host, port, None)
+    }
+
+    /// Dedicated pub/sub connection — push messages go to `push_tx`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ConnectionError`] if the TCP connection fails.
+    pub fn connect_for_pubsub(
+        host: &str,
+        port: u16,
+        push_tx: spsc::Sender<super::pubsub::PubSubMessage>,
+    ) -> Result<Self, ConnectionError> {
+        Self::connect_with_push(host, port, Some(push_tx))
+    }
+
+    fn connect_with_push(
+        host: &str,
+        port: u16,
+        push_tx: Option<spsc::Sender<super::pubsub::PubSubMessage>>,
+    ) -> Result<Self, ConnectionError> {
         let stream = TcpConnector::connect(host, port)?;
         let id = stream.as_raw_fd() as usize;
         let waker = stream.waker();
         let req_queue = Arc::new(Queue::new());
         let pending_count = Arc::new(AtomicUsize::new(0));
+        let push_sender = push_tx.map(Arc::new);
         let io_handle = spawn_connection_loop(
             super::connection_stream::ConnectionStream::Tcp(stream),
             req_queue.clone(),
             pending_count.clone(),
+            push_sender,
         );
         Ok(Self {
             io_handle,
@@ -172,6 +195,7 @@ impl Connection {
             super::connection_stream::ConnectionStream::Tcp(stream),
             req_queue.clone(),
             pending_count.clone(),
+            None,
         );
         Ok(Self {
             io_handle,
@@ -206,6 +230,7 @@ impl Connection {
             super::connection_stream::ConnectionStream::Tcp(stream),
             req_queue.clone(),
             pending_count.clone(),
+            None,
         );
         Ok(Self {
             io_handle,

@@ -1,13 +1,12 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-use super::unit::{run_may, shared_client};
+use super::unit::{run_integration, shared_client};
 use crate::protocol::commands::{AdminCommands, ListsCommands};
 
 // LPOP / RPOP — Pop from list
 #[test]
-#[ignore = "requires live Redis server"]
 fn test_integration_lists_pop() {
-    run_may(|| {
+    run_integration(|| {
         let client = shared_client();
         client.execute::<()>(client.flushdb()).ok();
 
@@ -24,9 +23,8 @@ fn test_integration_lists_pop() {
 
 // LLEN — Get list length
 #[test]
-#[ignore = "requires live Redis server"]
 fn test_integration_lists_len() {
-    run_may(|| {
+    run_integration(|| {
         let client = shared_client();
         client.execute::<()>(client.flushdb()).ok();
 
@@ -40,9 +38,8 @@ fn test_integration_lists_len() {
 
 // LRANGE — Get range of elements
 #[test]
-#[ignore = "requires live Redis server"]
 fn test_integration_lists_range() {
-    run_may(|| {
+    run_integration(|| {
         let client = shared_client();
         client.execute::<()>(client.flushdb()).ok();
 
@@ -57,9 +54,8 @@ fn test_integration_lists_range() {
 
 // LINDEX — Get element by index
 #[test]
-#[ignore = "requires live Redis server"]
 fn test_integration_lists_index() {
-    run_may(|| {
+    run_integration(|| {
         let client = shared_client();
         client.execute::<()>(client.flushdb()).ok();
 
@@ -73,9 +69,8 @@ fn test_integration_lists_index() {
 
 // LTRIM — Trim list to range
 #[test]
-#[ignore = "requires live Redis server"]
 fn test_integration_lists_trim() {
-    run_may(|| {
+    run_integration(|| {
         let client = shared_client();
         client.execute::<()>(client.flushdb()).ok();
 

@@ -73,8 +73,6 @@ impl<'a> Pipeline<'a> {
     pub fn execute_raw(
         &mut self,
     ) -> Result<Vec<crate::core::RedisValue>, crate::core::RedisError> {
-        // Push all commands to the connection's request queue at once
-        // using the senders we stored during `add()`
         for (data, tx) in std::mem::take(&mut self.commands)
             .into_iter()
             .zip(std::mem::take(&mut self.senders))
@@ -83,15 +81,11 @@ impl<'a> Pipeline<'a> {
             let _ = self.connection.send(request);
         }
 
-        // Yield to let the connection loop process all queued requests
-        // before we start collecting responses. Without this, the first
-        // rx.recv() would block the coroutine before the epoll loop
-        // has a chance to process the queued commands and send responses.
         yield_now();
 
-        // Collect responses from the receivers we stored during `add()`
         let mut responses = Vec::with_capacity(self.receivers.len());
         for rx in std::mem::take(&mut self.receivers) {
+            yield_now();
             let response = rx.recv().map_err(|_| {
                 crate::core::RedisError::Parse("response channel closed".into())
             })?;

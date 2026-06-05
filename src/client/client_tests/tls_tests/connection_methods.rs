@@ -10,30 +10,18 @@
     clippy::needless_borrows_for_generic_args
 )]
 
-use super::common::{run_may, test_tls_config};
+use super::common::{
+    plain_port, prepare_tls_tests, run_may, test_tls_config, tls_client, tls_port,
+};
 use crate::connection::tcp::SsrfConfig;
 use crate::protocol::commands::{AdminCommands, StringsCommands};
 use crate::RedisClient;
 
-const TLS_HOST: &str = "localhost";
-const TLS_PORT: u16 = 6380;
-
-fn tls_client() -> RedisClient {
-    static INIT: std::sync::Once = std::sync::Once::new();
-    static CLIENT: std::sync::OnceLock<RedisClient> = std::sync::OnceLock::new();
-    INIT.call_once(|| {
-        let config = test_tls_config();
-        let client = RedisClient::connect_tls(TLS_HOST, TLS_PORT, &config, 5)
-            .expect("Redis-TLS must be running on localhost:6380");
-        CLIENT.set(client).ok();
-    });
-    CLIENT.get().expect("client not initialized").clone()
-}
-
 #[test]
-#[ignore = "requires live Redis-TLS server on localhost:6380"]
 fn test_connect_default_limits() {
-    // Default limits on connect_tls()
+    if !prepare_tls_tests() {
+        return;
+    }
     run_may(|| {
         let client = tls_client();
         let _ = client.ping().unwrap();
@@ -41,19 +29,22 @@ fn test_connect_default_limits() {
 }
 
 #[test]
-#[ignore = "requires live Redis-TLS server on localhost:6380"]
 fn test_ssrf_config_none_plain() {
-    // Plain TCP has no SSRF config
+    if !prepare_tls_tests() {
+        return;
+    }
     run_may(|| {
-        let client = RedisClient::connect("127.0.0.1", 6379)
+        let client = RedisClient::connect("127.0.0.1", plain_port())
             .expect("Plain Redis connection should succeed");
         let _ = client.ping().unwrap();
     });
 }
 
 #[test]
-#[ignore = "requires live Redis-TLS server on localhost:6380"]
 fn test_send_success_within_limits() {
+    if !prepare_tls_tests() {
+        return;
+    }
     run_may(|| {
         let client = tls_client();
         for i in 0..10 {
@@ -67,9 +58,10 @@ fn test_send_success_within_limits() {
 }
 
 #[test]
-#[ignore = "requires live Redis-TLS server on localhost:6380"]
 fn test_send_request_too_large() {
-    // Default max_request_size is ~1MB; 100KB should succeed
+    if !prepare_tls_tests() {
+        return;
+    }
     run_may(|| {
         let client = tls_client();
         let large_value = "x".repeat(100_000);
@@ -81,13 +73,15 @@ fn test_send_request_too_large() {
 }
 
 #[test]
-#[ignore = "requires live Redis-TLS server on localhost:6380"]
 fn test_connection_id_uniqueness() {
+    if !prepare_tls_tests() {
+        return;
+    }
     run_may(|| {
         let config = test_tls_config();
-        let client1 = RedisClient::connect_tls(TLS_HOST, TLS_PORT, &config, 5)
+        let client1 = RedisClient::connect_tls("127.0.0.1", tls_port(), &config, 5)
             .expect("Connection 1 should succeed");
-        let client2 = RedisClient::connect_tls(TLS_HOST, TLS_PORT, &config, 5)
+        let client2 = RedisClient::connect_tls("127.0.0.1", tls_port(), &config, 5)
             .expect("Connection 2 should succeed");
         let _ = client1.ping().unwrap();
         let _ = client2.ping().unwrap();
@@ -97,8 +91,10 @@ fn test_connection_id_uniqueness() {
 }
 
 #[test]
-#[ignore = "requires live Redis-TLS server on localhost:6380"]
 fn test_ssrf_config_some_on_tls_with_ssrf() {
+    if !prepare_tls_tests() {
+        return;
+    }
     run_may(|| {
         let config = test_tls_config();
         let ssrf = SsrfConfig {
@@ -106,17 +102,24 @@ fn test_ssrf_config_some_on_tls_with_ssrf() {
             deny_link_local: false,
             deny_loopback: false,
         };
-        let client =
-            RedisClient::connect_tls_with_ssrf("127.0.0.1", TLS_PORT, &config, 5, ssrf)
-                .expect("TLS with SSRF should succeed");
+        let client = RedisClient::connect_tls_with_ssrf(
+            "127.0.0.1",
+            tls_port(),
+            &config,
+            5,
+            ssrf,
+        )
+        .expect("TLS with SSRF should succeed");
         let _ = client.ping().unwrap();
         client.execute::<()>(client.flushdb()).ok();
     });
 }
 
 #[test]
-#[ignore = "requires live Redis-TLS server on localhost:6380"]
 fn test_connection_pooling_shared_client() {
+    if !prepare_tls_tests() {
+        return;
+    }
     run_may(|| {
         let client = tls_client();
         let client2 = client.clone();

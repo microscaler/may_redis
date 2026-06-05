@@ -1,13 +1,12 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-use super::unit::{run_may, shared_client};
+use super::unit::{run_integration, shared_client};
 use crate::protocol::commands::{AdminCommands, HashesCommands};
 
 // HSCAN on large hash (1000 fields)
 #[test]
-#[ignore = "requires live Redis server"]
 fn test_integration_hashes_hscan_large() {
-    run_may(|| {
+    run_integration(|| {
         let client = shared_client();
         client.execute::<()>(client.flushdb()).ok();
 
@@ -23,9 +22,8 @@ fn test_integration_hashes_hscan_large() {
 
 // HSCAN with MATCH pattern
 #[test]
-#[ignore = "requires live Redis server"]
 fn test_integration_hashes_hscan_match() {
-    run_may(|| {
+    run_integration(|| {
         let client = shared_client();
         client.execute::<()>(client.flushdb()).ok();
 
@@ -39,9 +37,8 @@ fn test_integration_hashes_hscan_match() {
 
 // Non-existent hash returns empty for all methods
 #[test]
-#[ignore = "requires live Redis server"]
 fn test_integration_hashes_nonexistent() {
-    run_may(|| {
+    run_integration(|| {
         let client = shared_client();
         client.execute::<()>(client.flushdb()).ok();
 

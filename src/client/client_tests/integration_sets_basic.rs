@@ -1,13 +1,12 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-use super::unit::{run_may, shared_client};
+use super::unit::{run_integration, shared_client};
 use crate::protocol::commands::{AdminCommands, SetsCommands, StringsCommands};
 
 // SCARD — Get set cardinality
 #[test]
-#[ignore = "requires live Redis server"]
 fn test_integration_sets_card() {
-    run_may(|| {
+    run_integration(|| {
         let client = shared_client();
         client.execute::<()>(client.flushdb()).ok();
 
@@ -21,9 +20,8 @@ fn test_integration_sets_card() {
 
 // SMEMBERS — Get all members
 #[test]
-#[ignore = "requires live Redis server"]
 fn test_integration_sets_members() {
-    run_may(|| {
+    run_integration(|| {
         let client = shared_client();
         client.execute::<()>(client.flushdb()).ok();
 
@@ -37,9 +35,8 @@ fn test_integration_sets_members() {
 
 // SPOP — Pop random member
 #[test]
-#[ignore = "requires live Redis server"]
 fn test_integration_sets_pop() {
-    run_may(|| {
+    run_integration(|| {
         let client = shared_client();
         client.execute::<()>(client.flushdb()).ok();
 
@@ -58,9 +55,8 @@ fn test_integration_sets_pop() {
 
 // SRANDMEMBER — Random member
 #[test]
-#[ignore = "requires live Redis server"]
 fn test_integration_sets_randmember() {
-    run_may(|| {
+    run_integration(|| {
         let client = shared_client();
         client.execute::<()>(client.flushdb()).ok();
 
@@ -80,9 +76,8 @@ fn test_integration_sets_randmember() {
 
 // SINTER — Intersection
 #[test]
-#[ignore = "requires live Redis server"]
 fn test_integration_sets_intersect() {
-    run_may(|| {
+    run_integration(|| {
         let client = shared_client();
         client.execute::<()>(client.flushdb()).ok();
 
@@ -96,9 +91,8 @@ fn test_integration_sets_intersect() {
 
 // SUNION — Union
 #[test]
-#[ignore = "requires live Redis server"]
 fn test_integration_sets_union() {
-    run_may(|| {
+    run_integration(|| {
         let client = shared_client();
         client.execute::<()>(client.flushdb()).ok();
 
@@ -112,9 +106,8 @@ fn test_integration_sets_union() {
 
 // SSCAN — Scan set members
 #[test]
-#[ignore = "requires live Redis server"]
 fn test_integration_sets_scan() {
-    run_may(|| {
+    run_integration(|| {
         let client = shared_client();
         client.execute::<()>(client.flushdb()).ok();
 
@@ -130,9 +123,8 @@ fn test_integration_sets_scan() {
 
 // Non-existent set returns empty for all operations
 #[test]
-#[ignore = "requires live Redis server"]
 fn test_integration_sets_nonexistent() {
-    run_may(|| {
+    run_integration(|| {
         let client = shared_client();
         client.execute::<()>(client.flushdb()).ok();
 
@@ -153,9 +145,8 @@ fn test_integration_sets_nonexistent() {
 
 // Concurrent set operations
 #[test]
-#[ignore = "requires live Redis server"]
 fn test_integration_sets_concurrent() {
-    run_may(|| {
+    run_integration(|| {
         let client = shared_client();
         client.execute::<()>(client.flushdb()).ok();
 

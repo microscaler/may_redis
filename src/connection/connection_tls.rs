@@ -3,18 +3,15 @@
 // This module was extracted from `connection.rs` to keep that file under the
 // 350-line limit. It owns all TLS-related construction logic.
 
-use std::os::fd::AsRawFd;
 use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
 
-use may::io::WaitIo;
 use may::queue::mpsc::Queue;
 
 use super::connection_limits::{DEFAULT_MAX_QUEUE_DEPTH, DEFAULT_MAX_REQUEST_SIZE};
 use super::connection_stream::ConnectionStream;
 use super::epoll_loop::spawn_connection_loop;
 use super::tcp::{self, ConnectionError, TcpConnector};
-use super::StreamHandle;
 use crate::tls::TlsConnector;
 
 // ---------------------------------------------------------------------------
@@ -114,12 +111,15 @@ fn from_tls_stream_with_ssrf(
     mut tls_stream: ConnectionStream,
     ssrf_config: Option<tcp::SsrfConfig>,
 ) -> super::connection::Connection {
-    let id = tls_stream.inner_mut().as_raw_fd() as usize;
-    let waker = tls_stream.inner_mut().waker();
+    let (id, waker) = tls_stream.socket_fd_and_waker();
     let req_queue = Arc::new(Queue::new());
     let pending_count = Arc::new(AtomicUsize::new(0));
-    let io_handle =
-        spawn_connection_loop(tls_stream, req_queue.clone(), pending_count.clone());
+    let io_handle = spawn_connection_loop(
+        tls_stream,
+        req_queue.clone(),
+        pending_count.clone(),
+        None,
+    );
 
     super::connection::Connection {
         io_handle,

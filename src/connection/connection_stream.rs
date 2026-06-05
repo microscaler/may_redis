@@ -5,6 +5,20 @@
 // require type erasure for JoinHandle).
 
 use std::io;
+use std::os::fd::AsRawFd;
+
+use may::io::WaitIo;
+
+/// Non-blocking read/write target for the connection loop.
+///
+/// Plain TCP uses the underlying `std::net::TcpStream` so `read`/`write`
+/// return `WouldBlock` without yielding (see `may_postgres` `connection_loop`).
+/// TLS uses [`TlsStream`] so rustls handles encryption.
+pub(super) enum IoTarget<'a> {
+    Sys(&'a mut std::net::TcpStream),
+    #[cfg(feature = "tls")]
+    Tls(&'a mut crate::tls::TlsStream),
+}
 
 pub enum ConnectionStream {
     /// Plain TCP stream.
@@ -42,15 +56,31 @@ impl io::Write for ConnectionStream {
     }
 }
 
-impl super::StreamHandle for ConnectionStream {
-    fn inner_mut(&mut self) -> &mut may::net::TcpStream {
+impl ConnectionStream {
+    /// Return the I/O object for non-blocking `nonblock_read` / `nonblock_write`.
+    pub(super) fn io_target(&mut self) -> IoTarget<'_> {
         match self {
-            Self::Tcp(stream) => stream,
+            Self::Tcp(stream) => IoTarget::Sys(stream.inner_mut()),
             #[cfg(feature = "tls")]
-            Self::Tls(stream) => stream.inner_mut(),
+            Self::Tls(stream) => IoTarget::Tls(stream),
         }
     }
 
+    /// Socket fd and waker for connection setup (before the loop owns the stream).
+    #[cfg_attr(not(feature = "tls"), allow(dead_code))]
+    pub(super) fn socket_fd_and_waker(&mut self) -> (usize, may::io::WaitIoWaker) {
+        match self {
+            Self::Tcp(stream) => (stream.as_raw_fd() as usize, stream.waker()),
+            #[cfg(feature = "tls")]
+            Self::Tls(stream) => {
+                let tcp = stream.inner_mut();
+                (tcp.as_raw_fd() as usize, tcp.waker())
+            }
+        }
+    }
+}
+
+impl super::StreamHandle for ConnectionStream {
     fn wait_io(&mut self) -> i32 {
         match self {
             Self::Tcp(stream) => stream.wait_io(),

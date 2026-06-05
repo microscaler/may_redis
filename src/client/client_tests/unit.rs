@@ -23,7 +23,7 @@ use std::sync::Once;
 fn init_may_runtime() {
     static INIT: Once = Once::new();
     INIT.call_once(|| {
-        config().set_workers(1);
+        config().set_workers(2);
     });
 }
 
@@ -56,32 +56,64 @@ fn test_commands_trait_methods_exist() {
 }
 
 // ---------------------------------------------------------------------------
-// Integration tests — require a Redis server on localhost:6379
+// Integration tests — require Redis (Docker fixture or localhost:6379)
 // ---------------------------------------------------------------------------
-// Each test runs inside `run_may()` which spawns the test body as a
-// coroutine via `go!` (the may crate's coroutine spawning macro). This
-// ensures the may scheduler is properly initialized on the current thread
-// before spawning any coroutines.
-//
-// CRITICAL: We reuse a SINGLE shared RedisClient across all integration
-// tests. Creating a new connection per test spawns a new epoll coroutine
-// that gets cancelled on drop, exhausting the may scheduler's coroutine
-// pool after ~4 tests. Keeping one connection alive avoids this.
-// ---------------------------------------------------------------------------
+
+/// Start Docker Redis on the test main thread when `test` feature is enabled.
+pub(super) fn prepare_integration_tests() -> bool {
+    if std::env::var("SKIP_DOCKER_TESTS").is_ok() {
+        eprintln!("SKIP: SKIP_DOCKER_TESTS is set");
+        return false;
+    }
+    #[cfg(feature = "test")]
+    {
+        match crate::test_fixture::ensure_started() {
+            Ok(()) => true,
+            Err(err) => {
+                eprintln!("SKIP: {err}");
+                false
+            }
+        }
+    }
+    #[cfg(not(feature = "test"))]
+    {
+        true
+    }
+}
+
+fn integration_redis_port() -> u16 {
+    #[cfg(feature = "test")]
+    if let Some(port) = crate::test_fixture::plain_redis_port() {
+        return port;
+    }
+    6379
+}
 
 /// Returns the shared RedisClient, initializing it on first call.
 pub(super) fn shared_client() -> RedisClient {
     static INIT: std::sync::Once = std::sync::Once::new();
     static CLIENT: std::sync::OnceLock<RedisClient> = std::sync::OnceLock::new();
     INIT.call_once(|| {
+        let port = integration_redis_port();
         CLIENT
             .set(
-                RedisClient::connect("127.0.0.1", 6379)
-                    .expect("Redis must be running on localhost:6379"),
+                RedisClient::connect("127.0.0.1", port)
+                    .expect("Redis integration fixture connection failed"),
             )
             .ok();
     });
     CLIENT.get().expect("client not initialized").clone()
+}
+
+/// Run an integration test body inside the may scheduler (skips when Docker unavailable).
+pub(super) fn run_integration<F>(f: F)
+where
+    F: FnOnce() + Send + 'static,
+{
+    if !prepare_integration_tests() {
+        return;
+    }
+    run_may(f);
 }
 
 /// Run e2e test logic inside the may scheduler.
@@ -110,8 +142,6 @@ where
         *wrapper2.lock().unwrap() = Some(val);
     });
 
-    // JoinHandle::join() blocks at the coroutine level (park/unpark),
-    // so it cooperatively yields while the scheduler runs the connection loop.
     let result = handle.join();
     match result {
         Ok(()) => wrapper

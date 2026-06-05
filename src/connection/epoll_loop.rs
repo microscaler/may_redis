@@ -11,6 +11,7 @@ use bytes::BytesMut;
 use may::coroutine::JoinHandle;
 use may::go;
 use may::queue::mpsc::Queue;
+use may::sync::spsc;
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -18,8 +19,9 @@ use std::sync::Arc;
 use super::connection::PendingRequest;
 use super::connection::Request;
 use super::dispatch::{decode_responses, error_dispatch, process_req};
-use super::io_read::nonblock_read;
+use super::io_read::drain_nonblock_read;
 use super::io_write::nonblock_write;
+use super::pubsub::PubSubMessage;
 use super::StreamHandle;
 use crate::core::RedisValue;
 
@@ -71,10 +73,12 @@ use crate::core::RedisValue;
 /// `resp_queue` is signalled with a [`RedisValue::Error`] describing
 /// the failure, and the loop breaks (the coroutine exits, the
 /// `JoinHandle` becomes joinable).
+#[allow(clippy::too_many_lines)]
 pub(super) fn spawn_connection_loop(
     mut stream: super::connection_stream::ConnectionStream,
     req_queue: Arc<Queue<Request>>,
     pending_count: Arc<AtomicUsize>,
+    push_sender: Option<Arc<spsc::Sender<PubSubMessage>>>,
 ) -> JoinHandle<()> {
     go!(move || {
         let mut read_buf = BytesMut::with_capacity(65536);
@@ -83,52 +87,108 @@ pub(super) fn spawn_connection_loop(
         let mut io_events = 1;
 
         loop {
-            // Re-acquire the inner raw socket each iteration to satisfy
-            // the borrow checker (we also need `&mut stream` further down
-            // for `stream.wait_io()`).
-            let inner = stream.inner_mut();
-
             // (1) Drain new requests onto write_buf / resp_queue.
             process_req(&req_queue, &mut resp_queue, &mut write_buf);
 
             // (2) Best-effort flush of pending bytes to the socket.
-            if let Err(e) = nonblock_write(inner, &mut write_buf) {
-                log::error!("write error: {e}");
-                error_dispatch(
-                    &mut resp_queue,
-                    &pending_count,
-                    &format!("Write error: {e}"),
-                );
-                break;
-            }
-
             // (3) Read from the socket iff epoll said it was readable.
             //
-            // The bool returned by `nonblock_read` is load-bearing:
-            // it is the only signal that decides whether step (5)
-            // below blocks on epoll or busy-spins. See Bug 1 in
-            // `llmwiki/topics/connection-loop-pitfalls.md`.
-            let read_blocked = if io_events & 1 != 0 {
-                match nonblock_read(inner, &mut read_buf) {
-                    Ok(blocked) => blocked,
-                    Err(e) => {
-                        log::error!("read error: {e}");
+            // Use `io_target()` — NOT `may::net::TcpStream` directly. The may
+            // wrapper's `Read`/`Write` yield on EAGAIN instead of returning
+            // `WouldBlock`, which breaks the epoll loop (Bug 1 in
+            // `llmwiki/topics/connection-loop-pitfalls.md`). Plain TCP must
+            // use `std::net::TcpStream` like `may_postgres`.
+            let read_blocked = match stream.io_target() {
+                super::connection_stream::IoTarget::Sys(sys) => {
+                    if let Err(e) = nonblock_write(sys, &mut write_buf) {
+                        log::error!("write error: {e}");
                         error_dispatch(
                             &mut resp_queue,
                             &pending_count,
-                            &format!("Read error: {e}"),
+                            &format!("Write error: {e}"),
                         );
                         break;
                     }
+                    if io_events & 1 != 0 {
+                        match drain_nonblock_read(sys, &mut read_buf) {
+                            Ok(blocked) => blocked,
+                            Err(e) => {
+                                log::error!("read error: {e}");
+                                error_dispatch(
+                                    &mut resp_queue,
+                                    &pending_count,
+                                    &format!("Read error: {e}"),
+                                );
+                                break;
+                            }
+                        }
+                    } else {
+                        true
+                    }
                 }
-            } else {
-                true
+                #[cfg(feature = "tls")]
+                super::connection_stream::IoTarget::Tls(tls) => {
+                    if let Err(e) = nonblock_write(tls, &mut write_buf) {
+                        log::error!("write error: {e}");
+                        error_dispatch(
+                            &mut resp_queue,
+                            &pending_count,
+                            &format!("Write error: {e}"),
+                        );
+                        break;
+                    }
+                    if let Err(e) = tls.drive_io() {
+                        if e.kind() != std::io::ErrorKind::WouldBlock {
+                            log::error!("tls io error: {e}");
+                            error_dispatch(
+                                &mut resp_queue,
+                                &pending_count,
+                                &format!("TLS I/O error: {e}"),
+                            );
+                            break;
+                        }
+                    }
+                    if io_events & 1 != 0 {
+                        match drain_nonblock_read(tls, &mut read_buf) {
+                            Ok(blocked) => {
+                                if let Err(e) = tls.drive_io() {
+                                    if e.kind() != std::io::ErrorKind::WouldBlock {
+                                        log::error!("tls io error: {e}");
+                                        error_dispatch(
+                                            &mut resp_queue,
+                                            &pending_count,
+                                            &format!("TLS I/O error: {e}"),
+                                        );
+                                        break;
+                                    }
+                                }
+                                blocked
+                            }
+                            Err(e) => {
+                                log::error!("read error: {e}");
+                                error_dispatch(
+                                    &mut resp_queue,
+                                    &pending_count,
+                                    &format!("Read error: {e}"),
+                                );
+                                break;
+                            }
+                        }
+                    } else {
+                        true
+                    }
+                }
             };
 
             // (4) Dispatch every full RESP value sitting in read_buf.
             //     This MAY dispatch more than one PendingRequest per
             //     call (Bug 2 — see `decode_responses` docs).
-            if let Err(e) = decode_responses(&mut read_buf, &mut resp_queue) {
+            if let Err(e) = decode_responses(
+                &mut read_buf,
+                &mut resp_queue,
+                &pending_count,
+                push_sender.as_ref().map(std::sync::Arc::as_ref),
+            ) {
                 log::error!("decode error: {e}");
                 error_dispatch(
                     &mut resp_queue,
@@ -136,11 +196,6 @@ pub(super) fn spawn_connection_loop(
                     &format!("Decode error: {e}"),
                 );
                 break;
-            }
-
-            // Decrement pending count for each dispatched response.
-            while resp_queue.pop_front().is_some() {
-                pending_count.fetch_sub(1, Ordering::SeqCst);
             }
 
             // (5) Park on epoll until something useful happens.

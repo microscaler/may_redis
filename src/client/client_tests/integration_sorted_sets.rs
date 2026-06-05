@@ -1,13 +1,12 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-use super::unit::{run_may, shared_client};
+use super::unit::{run_integration, shared_client};
 use crate::protocol::commands::{AdminCommands, SortedSetsCommands};
 
 // ZADD — Add members with scores
 #[test]
-#[ignore = "requires live Redis server"]
 fn test_integration_sorted_sets_add() {
-    run_may(|| {
+    run_integration(|| {
         let client = shared_client();
         client.execute::<()>(client.flushdb()).ok();
 
@@ -25,9 +24,8 @@ fn test_integration_sorted_sets_add() {
 
 // ZREM — Remove members
 #[test]
-#[ignore = "requires live Redis server"]
 fn test_integration_sorted_sets_remove() {
-    run_may(|| {
+    run_integration(|| {
         let client = shared_client();
         client.execute::<()>(client.flushdb()).ok();
 
@@ -43,9 +41,8 @@ fn test_integration_sorted_sets_remove() {
 
 // ZCARD — Get set cardinality
 #[test]
-#[ignore = "requires live Redis server"]
 fn test_integration_sorted_sets_card() {
-    run_may(|| {
+    run_integration(|| {
         let client = shared_client();
         client.execute::<()>(client.flushdb()).ok();
 
@@ -58,9 +55,8 @@ fn test_integration_sorted_sets_card() {
 
 // ZRANK — Get rank of member
 #[test]
-#[ignore = "requires live Redis server"]
 fn test_integration_sorted_sets_rank() {
-    run_may(|| {
+    run_integration(|| {
         let client = shared_client();
         client.execute::<()>(client.flushdb()).ok();
 
@@ -75,9 +71,8 @@ fn test_integration_sorted_sets_rank() {
 
 // ZSCORE — Get score of member
 #[test]
-#[ignore = "requires live Redis server"]
 fn test_integration_sorted_sets_score() {
-    run_may(|| {
+    run_integration(|| {
         let client = shared_client();
         client.execute::<()>(client.flushdb()).ok();
 
@@ -91,9 +86,8 @@ fn test_integration_sorted_sets_score() {
 
 // ZCOUNT — Count members in score range
 #[test]
-#[ignore = "requires live Redis server"]
 fn test_integration_sorted_sets_count() {
-    run_may(|| {
+    run_integration(|| {
         let client = shared_client();
         client.execute::<()>(client.flushdb()).ok();
 
@@ -108,9 +102,8 @@ fn test_integration_sorted_sets_count() {
 
 // ZPOPMAX — Pop member with highest score
 #[test]
-#[ignore = "requires live Redis server"]
 fn test_integration_sorted_sets_popmax() {
-    run_may(|| {
+    run_integration(|| {
         let client = shared_client();
         client.execute::<()>(client.flushdb()).ok();
 
@@ -125,9 +118,8 @@ fn test_integration_sorted_sets_popmax() {
 
 // ZPOPMIN — Pop member with lowest score
 #[test]
-#[ignore = "requires live Redis server"]
 fn test_integration_sorted_sets_popmin() {
-    run_may(|| {
+    run_integration(|| {
         let client = shared_client();
         client.execute::<()>(client.flushdb()).ok();
 
@@ -142,9 +134,8 @@ fn test_integration_sorted_sets_popmin() {
 
 // ZRANGE — Get range by index
 #[test]
-#[ignore = "requires live Redis server"]
 fn test_integration_sorted_sets_range() {
-    run_may(|| {
+    run_integration(|| {
         let client = shared_client();
         client.execute::<()>(client.flushdb()).ok();
 
@@ -158,9 +149,8 @@ fn test_integration_sorted_sets_range() {
 
 // ZSCAN — Scan sorted set
 #[test]
-#[ignore = "requires live Redis server"]
 fn test_integration_sorted_sets_scan() {
-    run_may(|| {
+    run_integration(|| {
         let client = shared_client();
         client.execute::<()>(client.flushdb()).ok();
 
@@ -176,9 +166,8 @@ fn test_integration_sorted_sets_scan() {
 
 // Non-existent set returns empty for all operations
 #[test]
-#[ignore = "requires live Redis server"]
 fn test_integration_sorted_sets_nonexistent() {
-    run_may(|| {
+    run_integration(|| {
         let client = shared_client();
         client.execute::<()>(client.flushdb()).ok();
 

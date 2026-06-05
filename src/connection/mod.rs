@@ -55,29 +55,16 @@
 //! });
 //! ```
 
-/// Trait for connection loop stream handles.
+/// Trait for connection loop stream handles — epoll wait only.
 ///
-/// Abstracts over [`may::net::TcpStream`] and [`tls::TlsStream`] so the
-/// epoll loop can read/write via `io::Read`/`io::Write` and wait on
-/// epoll via `wait_io()`.
-pub(crate) trait StreamHandle: std::io::Read + std::io::Write {
-    /// Return the inner socket for epoll registration.
-    ///
-    /// For plain TCP this returns `&mut TcpStream`.
-    /// For TLS this returns `&mut TcpStream` (the underlying socket).
-    fn inner_mut(&mut self) -> &mut may::net::TcpStream;
-
+/// Non-blocking read/write use [`ConnectionStream::io_target()`], not this
+/// trait, so plain TCP goes through `std::net::TcpStream` (see may_postgres).
+pub(crate) trait StreamHandle {
     /// Wait for I/O readiness via epoll.
     fn wait_io(&mut self) -> i32;
 }
 
-/// Blanket impl for anything that already implements `may::io::WaitIo`
-/// and has a `may::net::TcpStream`-compatible `inner_mut()`.
 impl StreamHandle for may::net::TcpStream {
-    fn inner_mut(&mut self) -> &mut may::net::TcpStream {
-        self
-    }
-
     fn wait_io(&mut self) -> i32 {
         #[allow(clippy::cast_possible_wrap)]
         {
@@ -98,6 +85,7 @@ pub mod dispatch;
 pub mod epoll_loop;
 pub mod io_read;
 pub mod io_write;
+pub mod pubsub;
 pub mod tcp;
 #[cfg(test)]
 mod tcp_tests;
@@ -106,4 +94,5 @@ mod test_limits;
 
 pub use connection::{Connection, Request};
 pub use connection_limits::ConnectionLimitError;
+pub use pubsub::PubSubMessage;
 pub use tcp::{ssrf_allowed, ConnectionError, SsrfConfig, TcpConnector};

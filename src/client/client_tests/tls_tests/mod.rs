@@ -1,11 +1,7 @@
-// TLS integration tests — require may runtime + Redis-TLS on localhost:6380
+// TLS integration tests — may runtime + bollard-managed Redis-TLS containers.
 //
-// All tests are #[ignore] and require a live Redis-TLS server.
-// Start with:
-//   docker run -d --name may-redis-tls-test -p 6380:6380 \
-//     -v ./tests/tls:/tls redis:7-alpine redis-server /tls/redis-tls.conf
-//
-// Run with: cargo test --features tls tls_tests -- --ignored --test-threads=1
+// Requires Docker and `--features tls,test`.
+// Run: cargo test --features tls,test tls_tests -- --test-threads=1
 
 #[cfg(feature = "tls")]
 mod common;
@@ -27,3 +23,6 @@ mod connection_methods;
 
 #[cfg(feature = "tls")]
 mod tls_stream;
+
+#[cfg(feature = "tls")]
+mod tcp_connector;
