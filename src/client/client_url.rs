@@ -257,9 +257,9 @@ pub fn connect_url(url: &str) -> Result<super::client::RedisClient, RedisError> 
                 tls_min_version_str,
                 tls_max_version_str,
             );
-            return Err(RedisError::Parse(
+            Err(RedisError::Parse(
                 "TLS support not enabled — rebuild with `--features tls`".into(),
-            ));
+            ))
         }
 
         #[cfg(feature = "tls")]

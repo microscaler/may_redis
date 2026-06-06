@@ -6,10 +6,11 @@
 
 **Dependencies:** Story 5.2 (Pipeline API)
 
-**Status:** PARTIAL — core implementation exists but has two gaps:
+**Status:** COMPLETE — all tasks implemented and tested.
 
-1. **Missing `#[cfg(feature = "test")]` gate** — `in_memory.rs` is always compiled, not gated behind the feature flag despite `test = []` existing in `Cargo.toml`
-2. **API mismatch** — methods return bare values (`bool`, `usize`) instead of `Result<T, RedisError>` as specified in the NFRs, breaking API consistency with the real `RedisClient`
+Both previously reported gaps have been resolved:
+1. **Feature gate added** — `#[cfg(feature = "test")]` present on module and re-export in `src/client/mod.rs`
+2. **API consistency fixed** — all `InMemoryClient` public methods return `Result<T, RedisError>` (except `set`/`flushdb` which correctly return `()` as void ops)
 
 **Source docs:** `docs/10-test-strategy.md`, `docs/Epics/Epic_5/Story_0.md`
 
@@ -108,14 +109,14 @@ pub struct InMemoryClient {
 - [x] Implement `dbsize(&self)` — returns count
 - [x] Implement `flushdb(&self)` — clears all data
 - [x] Re-export from umbrella crate: `may_redis::InMemoryClient`
-- [ ] **GAP:** Gate all implementations behind `#[cfg(feature = "test")]`
-- [ ] **GAP:** Change method signatures to return `Result<T, RedisError>` consistently
+- [x] Gate all implementations behind `#[cfg(feature = "test")]` — DONE (mod.rs:48-49)
+- [x] Change method signatures to return `Result<T, RedisError>` consistently — DONE
 
 ## Verification
 
 ### Unit Tests (minimum 9)
 
-All 11 methods exist and function correctly, but tests need feature flag gating:
+All 11 methods exist and function correctly, feature-gated behind `test` feature:
 
 - `test_inmemory_set_get` — set "key" "value", get returns "value"
 - `test_inmemory_set_ex_get` — set_ex "key" "value" 60, get returns "value"
@@ -128,4 +129,3 @@ All 11 methods exist and function correctly, but tests need feature flag gating:
 - `test_inmemory_flushdb` — flushdb clears all data, dbsize returns 0
 
 - `cargo clippy` — zero warnings
-- **Gap:** Feature-gated test suite not yet configured
