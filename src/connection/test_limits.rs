@@ -47,10 +47,7 @@ fn test_integration_connect_with_limits_large_request_size() {
 #[test]
 #[cfg(feature = "test")]
 fn test_integration_queue_full_returns_error() {
-    if crate::test_fixture::skip_docker_tests() {
-        return;
-    }
-    let port = crate::test_fixture::plain_redis_port().expect("fixture port");
+    let port = 6379;
     let Ok(conn) = Connection::connect_with_limits(
         "127.0.0.1",
         port,
@@ -86,10 +83,7 @@ fn test_integration_queue_full_returns_error() {
 #[test]
 #[cfg(feature = "test")]
 fn test_integration_request_too_large_returns_error() {
-    if crate::test_fixture::skip_docker_tests() {
-        return;
-    }
-    let port = crate::test_fixture::plain_redis_port().expect("fixture port");
+    let port = 6379;
     let Ok(conn) = Connection::connect_with_limits(
         "127.0.0.1",
         port,

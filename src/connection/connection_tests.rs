@@ -315,11 +315,9 @@ fn test_decode_responses_pubsub_push() {
 #[test]
 #[cfg(feature = "test")]
 fn test_integration_connection_connect() {
-    if crate::test_fixture::skip_docker_tests() {
-        return;
-    }
-    let port = crate::test_fixture::plain_redis_port().expect("fixture port");
-    let conn = Connection::connect("127.0.0.1", port);
+    // Connect to port 6379 (GitHub Actions service container or local Redis).
+    // Skip if connection fails (no Redis available).
+    let conn = Connection::connect("127.0.0.1", 6379);
     if let Ok(c) = conn {
         assert!(c.id() > 0);
         let tag = c.send(Request::new(vec![0], spsc::channel().0));
@@ -331,11 +329,7 @@ fn test_integration_connection_connect() {
 #[test]
 #[cfg(feature = "test")]
 fn test_integration_connection_send_tags() {
-    if crate::test_fixture::skip_docker_tests() {
-        return;
-    }
-    let port = crate::test_fixture::plain_redis_port().expect("fixture port");
-    let conn = Connection::connect("127.0.0.1", port);
+    let conn = Connection::connect("127.0.0.1", 6379);
     if let Ok(c) = conn {
         let tag0 = c.send(Request::new(vec![0], spsc::channel().0));
         let tag1 = c.send(Request::new(vec![0], spsc::channel().0));
@@ -350,11 +344,7 @@ fn test_integration_connection_send_tags() {
 #[test]
 #[cfg(feature = "test")]
 fn test_integration_connection_id() {
-    if crate::test_fixture::skip_docker_tests() {
-        return;
-    }
-    let port = crate::test_fixture::plain_redis_port().expect("fixture port");
-    let conn = Connection::connect("127.0.0.1", port);
+    let conn = Connection::connect("127.0.0.1", 6379);
     if let Ok(c) = conn {
         let id = c.id();
         assert!(id > 0); // socket fds start at 3
@@ -365,11 +355,7 @@ fn test_integration_connection_id() {
 #[test]
 #[cfg(feature = "test")]
 fn test_integration_connection_drop() {
-    if crate::test_fixture::skip_docker_tests() {
-        return;
-    }
-    let port = crate::test_fixture::plain_redis_port().expect("fixture port");
-    let conn = Connection::connect("127.0.0.1", port);
+    let conn = Connection::connect("127.0.0.1", 6379);
     if let Ok(c) = conn {
         let id = c.id();
         assert!(id > 0);
@@ -397,10 +383,7 @@ fn test_integration_connection_drop() {
 fn test_integration_connection_drop_during_request() {
     use std::sync::atomic::{AtomicUsize, Ordering};
 
-    if crate::test_fixture::skip_docker_tests() {
-        return;
-    }
-    let port = crate::test_fixture::plain_redis_port().expect("fixture port");
+    let port = 6379;
 
     init_may_runtime();
     go!(move || {
@@ -494,10 +477,7 @@ fn test_integration_connection_drop_during_request() {
 fn test_integration_connection_drop_during_pipeline() {
     use std::sync::atomic::{AtomicUsize, Ordering};
 
-    if crate::test_fixture::skip_docker_tests() {
-        return;
-    }
-    let port = crate::test_fixture::plain_redis_port().expect("fixture port");
+    let port = 6379;
 
     init_may_runtime();
     go!(move || {
@@ -584,10 +564,7 @@ fn test_integration_connection_drop_during_pipeline() {
 #[test]
 #[cfg(feature = "test")]
 fn test_integration_connection_drop_no_panic() {
-    if crate::test_fixture::skip_docker_tests() {
-        return;
-    }
-    let port = crate::test_fixture::plain_redis_port().expect("fixture port");
+    let port = 6379;
 
     // Scenario 1: Send then drop.
     {
