@@ -36,21 +36,23 @@ and **this** document needs updating — open an issue.
    provides a clean per-test in-memory backend implementing the
    `Commands` semantics, so unit tests of higher-level code don't need
    a running server.
+6. **Docker-managed integration tests.** Bollard-based test fixtures
+   (feature `test`) spin up isolated Redis containers (plain + TLS)
+   per test run, auto-clean on drop, skip gracefully when Docker is
+   unavailable.
 
 ### Non-goals (out of scope for v1)
 
 - RESP3 type markers (`~`, `=`, `_`, `,`, `%`, `>`).
-- Pub/Sub, MULTI/EXEC transactions, Lua scripting.
-- Cluster / Sentinel topology.
-- TLS, AUTH/ACL flows beyond a single `AUTH password` command.
 - Connection pooling — every `RedisClient` owns exactly one socket
   today. (Pool support is reserved for a future epic.)
 - Publication to crates.io. The crate is consumed from sibling
   microscaler repos via path / git dependencies.
+- Streams, Geo, HyperLogLog data types — reserved for future epics.
 
 ## 2. Crate shape
 
-Single crate, single `Cargo.toml`, five top-level modules under `src/`.
+Single crate, single `Cargo.toml`, eight top-level modules under `src/`.
 
 ```mermaid
 graph TB
@@ -58,52 +60,73 @@ graph TB
         Lib[src/lib.rs<br/>module declarations and root re-exports]
 
         subgraph "Pure data / encoding (no may dependency)"
-            Core[core<br/>RedisValue, RedisError,<br/>FromRedisValue, ToRedisArgs, RedisResult]
-            Codec[codec<br/>RESPReader, RESPWriter]
+            Core[core<br/>RedisValue, RedisError,<br/>FromRedisValue, ToRedisArgs]
+            Codec[codec<br/>RESPReader, RESPWriter<br/>roundtrip tests]
         end
 
         subgraph "Command construction (no I/O)"
-            Protocol[protocol<br/>CommandBuilder, Commands trait]
+            Protocol[protocol<br/>CommandBuilder, Commands trait<br/>FakeConnection for tests]
         end
 
         subgraph "Runtime / I/O (may + epoll)"
-            Connection[connection<br/>Connection, Request, PendingRequest,<br/>TcpConnector, ConnectionError]
+            Connection[connection<br/>Connection, Request, PendingRequest,<br/>TcpConnector, epoll loop,<br/>io_read, io_write, dispatch]
+        end
+
+        subgraph "Cluster routing"
+            Cluster[cluster<br/>CRC16, slot map, topology,<br/>fanout, redirect handling,<br/>cluster client]
         end
 
         subgraph "Public API (assembles all layers)"
-            Client[client<br/>RedisClient, Pipeline,<br/>InMemoryClient feature gated]
+            Client[client<br/>RedisClient, Pipeline,<br/>InMemoryClient, PubSubClient,<br/>URL parsing, timeout config]
+        end
+
+        subgraph "TLS (feature = tls)"
+            TLS[tls<br/>TlsConfig, ClientCerts,<br/>connector, verifier,<br/>tls_stream, config]
+        end
+
+        subgraph "Test fixtures (feature = test)"
+            Fixture[test_fixture<br/>bollard-managed Docker<br/>Redis containers]
         end
 
         Lib --> Core
         Lib --> Codec
         Lib --> Protocol
         Lib --> Connection
+        Lib --> Cluster
         Lib --> Client
+        Lib --> TLS
+        Lib --> Fixture
 
         Codec --> Core
         Protocol --> Core
         Protocol --> Codec
         Connection --> Core
         Connection --> Codec
+        Connection --> TLS
         Client --> Core
         Client --> Codec
         Client --> Protocol
         Client --> Connection
+        Client --> TLS
+        Cluster --> Core
+        Cluster --> Codec
+        Cluster --> Protocol
     end
 ```
 
 ### Module layer rules
 
-| Layer        | Modules                    | May / I/O? | Purpose                                                              |
-|--------------|----------------------------|------------|----------------------------------------------------------------------|
-| Data         | `core`, `codec`            | **No**     | Pure types and RESP2 codec. Must build standalone.                  |
-| Construction | `protocol`                 | **No**     | Build RESP-encoded commands. No runtime, no sockets.                |
-| Runtime      | `connection`               | **Yes**    | Owns the socket, runs the epoll loop, demultiplexes responses.      |
-| API          | `client`                   | **Yes**    | Public surface; assembles everything above.                          |
+|| Layer | Modules | May / I/O? | Purpose |
+|------|---------|----------|-----------|
+| Data | `core`, `codec` | **No** | Pure types and RESP2 codec. Must build standalone. |
+| Construction | `protocol` | **No** | Build RESP-encoded commands. No runtime, no sockets. |
+| Runtime | `connection` | **Yes** | Owns the socket, runs the epoll loop, demultiplexes responses. |
+| Cluster | `cluster` | **No** (data only) | CRC16 slot computation, topology parsing, redirect logic, fan-out. No network. |
+| API | `client` | **Yes** | Public surface; assembles everything above. |
 
-The "no may" rule for `core` / `codec` / `protocol` is a hard
+The "no may" rule for `core` / `codec` / `protocol` / `cluster` is a hard
 architectural boundary. Any change that introduces a `may::` import in
-those three modules should be rejected in review.
+those four modules should be rejected in review.
 
 ### File-level entry points
 
@@ -112,29 +135,87 @@ src/
 ├── lib.rs                         Module roots, re-exports
 ├── core/
 │   ├── mod.rs                     Re-exports
-│   ├── value.rs                   RedisValue enum (SimpleString / Error / Integer / BulkString / Array / Null)
-│   ├── error.rs                   RedisError + RedisResult + FromRedisValue trait
-│   ├── from_value.rs              FromRedisValue impls for primitives, Option, Vec
+│   ├── value.rs                   RedisValue enum
+│   ├── error.rs                   RedisError + RedisResult
+│   ├── from_value.rs              FromRedisValue impls (primitives, Option, Vec, f64, u64, i32, u8)
 │   └── to_args.rs                 ToRedisArgs trait + impls
 ├── codec/
 │   ├── mod.rs                     Re-exports
 │   ├── writer.rs                  RESPWriter (encoder, BytesMut-backed)
-│   ├── reader.rs                  RESPReader (decoder, cursor-based)
-│   └── roundtrip.rs               #[cfg(test)] encode-then-decode property tests
+│   ├── reader.rs                  RESPReader (decoder, cursor-based, depth/length caps)
+│   └── roundtrip.rs               encode-then-decode property tests
 ├── protocol/
 │   ├── mod.rs                     Re-exports
 │   ├── builder.rs                 CommandBuilder + cmd() free fn
-│   └── commands.rs                Commands trait + default impls
+│   ├── commands.rs                Commands trait + default impls
+│   ├── commands/admin.rs          Server commands (PING, AUTH, FLUSHDB, etc.)
+│   ├── commands/strings.rs        String commands (GET, SET, MGET, etc.)
+│   ├── commands/hashes.rs         Hash commands (HSET, HGET, HSCAN, etc.)
+│   ├── commands/lists.rs          List commands (LPUSH, RPOP, LRANGE, etc.)
+│   ├── commands/sets.rs           Set commands (SADD, SMEMBERS, SINTER, etc.)
+│   ├── commands/sorted_sets.rs    Sorted set commands (ZADD, ZRANGE, ZCOUNT, etc.)
+│   ├── commands/transactions.rs   Transaction commands (MULTI, EXEC, WATCH)
+│   ├── commands/pubsub.rs         Pub/Sub commands (SUBSCRIBE, PUBLISH)
+│   ├── fake.rs                    FakeConnection for protocol testing
+│   └── builder_tests.rs           CommandBuilder encoding tests
 ├── connection/
 │   ├── mod.rs                     Re-exports
 │   ├── connection.rs              Connection, Request, PendingRequest, spawn_connection_loop
-│   ├── tcp.rs                     TcpConnector, ConnectionError, address resolution
-│   └── epoll.rs                   (reserved — currently empty / placeholder)
-└── client/
-    ├── mod.rs                     Re-exports
-    ├── client.rs                  RedisClient + Commands impl + integration tests
-    ├── pipeline.rs                Pipeline + FromPipelineResponse tuple impls
-    └── in_memory.rs               #[cfg(feature = "test")] InMemoryClient
+│   ├── tcp.rs                     TcpConnector, ConnectionError, SSRF protection
+│   ├── connection_stream.rs       Connection stream abstraction
+│   ├── epoll_loop.rs              Epoll event loop (READABLE/WRITABLE handling)
+│   ├── io_read.rs                 Non-blocking read with EPOLL drain
+│   ├── io_write.rs                Non-blocking write
+│   ├── dispatch.rs                Response dispatch via spsc channels
+│   ├── pubsub.rs                  Pub/Sub message parsing
+│   ├── connection_tls.rs          TLS connection wrapping
+│   ├── connection_limits.rs       Resource limit configuration
+│   ├── tcp_tests.rs               Connection error + SSRF + URL tests
+│   ├── connection_tests.rs        Decode responses + process_req tests
+│   └── test_limits.rs             Resource limit tests
+├── cluster/
+│   ├── mod.rs                     Re-exports
+│   ├── crc16.rs                   CRC16 + hash-tag extraction (17 tests)
+│   ├── slot_map.rs                Slot-to-node mapping
+│   ├── topology.rs                Cluster slots/nodes parsing
+│   ├── fanout.rs                  Multi-key fan-out, result aggregation
+│   ├── redirect.rs                MOVED/ASK redirect handling
+│   └── cluster_client.rs          ClusterClient (multi-node client)
+├── client/
+│   ├── mod.rs                     Re-exports
+│   ├── client.rs                  RedisClient + Commands impl + integration tests
+│   ├── pipeline.rs                Pipeline + FromPipelineResponse
+│   ├── pipeline_response.rs       Tuple impls for pipeline response extraction
+│   ├── in_memory.rs               InMemoryClient (feature = test)
+│   ├── pubsub_client.rs           PubSubClient with dedicated connection
+│   ├── client_url.rs              URL parsing (redis://, rediss://, query params)
+│   ├── client_timeout.rs          Command policy + timeout config
+│   ├── in_memory_tests.rs         InMemoryClient tests
+│   ├── client_tests/              Comprehensive test suites
+│   │   ├── mod.rs
+│   │   ├── integration.rs         Core integration tests
+│   │   ├── integration_strings_*.rs String command tests
+│   │   ├── integration_hashes_*.rs Hash command tests
+│   │   ├── integration_lists_basic.rs List command tests
+│   │   ├── integration_sets_basic.rs Set command tests
+│   │   ├── integration_sorted_sets.rs Sorted set tests
+│   │   ├── integration_transactions.rs Transaction tests
+│   │   ├── integration_admin_*.rs Admin command tests
+│   │   ├── integration_pubsub.rs PubSub integration tests
+│   │   ├── tls_tests/             TLS-specific integration tests
+│   │   └── unit.rs                Unit tests for Commands trait
+│   └── integration_tests.rs       (stub)
+├── tls/
+│   ├── mod.rs                     Re-exports
+│   ├── config.rs                  TlsConfig, TlsVersion, RustlsRootCerts
+│   ├── connector.rs               TlsConnector, from_tls_stream
+│   ├── tls_stream.rs              RustlsStream wrapper
+│   ├── verifier.rs                TLS certificate verification
+│   └── tests.rs                   TLS URL parsing, version parsing, whitespace
+└── test_fixture/
+    ├── mod.rs                     shared_fixture(), skip_docker_tests()
+    ├── container.rs               bollard Docker container management
+    └── runtime.rs                 may runtime helpers for fixture tests
 ```
 
 ## 3. Runtime architecture
@@ -185,14 +266,14 @@ graph TB
 
 ### Key may primitives in use
 
-| Primitive                         | Role                                                                            |
-|-----------------------------------|---------------------------------------------------------------------------------|
-| `may::go!`                        | Spawn the connection loop coroutine.                                            |
-| `may::net::TcpStream`             | may-aware TCP socket (registers with epoll, supports `wait_io`).                |
-| `may::io::WaitIo` / `WaitIoWaker` | The loop's epoll yield point and the cross-coroutine wakeup hook.               |
-| `may::queue::mpsc::Queue<T>`      | Many-producer, single-consumer ingress queue for `Request`s.                    |
-| `may::sync::spsc::channel`        | One-shot response channel per `Request` (sender held by loop, receiver by app). |
-| `may::coroutine::JoinHandle`      | Lets `Drop for Connection` cancel the loop coroutine.                           |
+|| Primitive | Role |
+|-----------|--------|
+| `may::go!` | Spawn the connection loop coroutine. |
+| `may::net::TcpStream` | may-aware TCP socket (registers with epoll, supports `wait_io`). |
+| `may::io::WaitIo` / `WaitIoWaker` | The loop's epoll yield point and the cross-coroutine wakeup hook. |
+| `may::queue::mpsc::Queue<T>` | Many-producer, single-consumer ingress queue for `Request`s. |
+| `may::sync::spsc::channel` | One-shot response channel per `Request` (sender held by loop, receiver by app). |
+| `may::coroutine::JoinHandle` | Lets `Drop for Connection` cancel the loop coroutine. |
 
 ### Why FIFO matching works without per-message tags
 
@@ -244,8 +325,7 @@ sequenceDiagram
 
 Pipelines are the same picture with steps 4 / 12 happening N times in a
 row, separated by exactly one `yield_now()` so the loop sees the whole
-batch before any `rx.recv()` is waited on. See
-[`docs/Epics/Epic_5/`](./Epics/Epic_5/) for the pipeline-specific story.
+batch before any `rx.recv()` is waited on.
 
 ## 5. The connection loop, step by step
 
@@ -268,7 +348,6 @@ flowchart TD
     S3R -.->|read error| ErrR[drain resp_queue with RedisValue::Error,<br/>break]
     S4[4. decode_responses<br/>parse all complete RESP values<br/>unsplit tail back into read_buf]
     S4 -->|decode error| ErrD[drain resp_queue with RedisValue::Error,<br/>break]
-    S4 --> S5
     S5{read_blocked OR write_buf non-empty?}
     S5 -->|yes| Wait[5a. stream.wait_io<br/>yields the coroutine to epoll]
     S5 -->|no| Skip[5b. io_events = 1<br/>re-read immediately next iteration]
@@ -291,6 +370,11 @@ The two non-obvious correctness properties hidden in this diagram are
   tail is dropped, every response after the first is silently lost
   and callers hang on `rx.recv()` forever. See Bug 2 on the same
   pitfalls page.
+- **Step 3 must drain the kernel buffer before decoding** (post-v0.1.0 fix).
+  may's edge-triggered epoll never re-fired after a partial socket read.
+  Pipeline batches with many bulk GET replies would hang forever.
+  The fix drains the kernel buffer in a tight loop before decoding,
+  ensuring no pending data is lost between iterations.
 
 Both invariants are now also documented in the `rustdoc` for
 `spawn_connection_loop`, `nonblock_read`, and `decode_responses` so
@@ -321,7 +405,7 @@ graph LR
 
 - `ConnectionError` is the **connect-time** error type
   (`Connection::connect`, `RedisClient::connect`). DNS resolution, TCP
-  refusal, and `TCP_NODELAY` failure all show up here.
+  refusal, `TCP_NODELAY` failure, and SSRF violations all show up here.
 - `RedisError` is the **steady-state** error type returned from
   `client.execute(..)`. It carries parse errors, type-conversion
   errors, and server-side `-ERR …` replies.
@@ -364,6 +448,11 @@ pipe.add(client.set("a", "1"));
 pipe.add(client.set("b", "2"));
 pipe.add(client.get("a"));
 let ((), (), got_a): ((), (), Option<String>) = pipe.execute()?;
+
+// Pub/Sub: dedicated connection with push message handling.
+let pubsub = PubSubClient::connect("127.0.0.1", 6379)?;
+pubsub.subscribe("channel")?;
+let msg = pubsub.recv()?;  // blocking recv for push messages
 ```
 
 ### Tuple shapes for `Pipeline::execute<T>`
@@ -379,22 +468,24 @@ the `Vec<T>` impl when every result has the same type.
 
 ### `Commands` trait method shapes
 
-| Method                                            | Returns         | RESP command produced                |
-|---------------------------------------------------|-----------------|--------------------------------------|
-| `get<K>(key)`                                     | `CommandBuilder`| `GET key`                            |
-| `set<K, V>(key, value)`                           | `CommandBuilder`| `SET key value`                      |
-| `set_ex<K, V>(key, value, seconds)`               | `CommandBuilder`| `SET key value EX seconds`           |
-| `exists<K>(key)`                                  | `CommandBuilder`| `EXISTS key`                         |
-| `del<K>(key)`                                     | `CommandBuilder`| `DEL key`                            |
-| `incr<K>(key)`                                    | `CommandBuilder`| `INCR key`                           |
-| `ttl<K>(key)`                                     | `CommandBuilder`| `TTL key`                            |
-| `expire<K>(key, seconds)`                         | `CommandBuilder`| `EXPIRE key seconds`                 |
-| `publish<K, M>(channel, message)`                 | `CommandBuilder`| `PUBLISH channel message`            |
-| `keys<K>(pattern)`                                | `CommandBuilder`| `KEYS pattern`                       |
-| `dbsize()`                                        | `CommandBuilder`| `DBSIZE`                             |
-| `flushdb()`                                       | `CommandBuilder`| `FLUSHDB`                            |
-| `Commands::ping()`                                | `CommandBuilder`| `PING`                               |
-| `auth(password)`                                  | `CommandBuilder`| `AUTH password`                      |
+|| Method | Returns | RESP command produced |
+|--------|---------|----------------------|
+| `get<K>(key)` | `CommandBuilder` | `GET key` |
+| `set<K, V>(key, value)` | `CommandBuilder` | `SET key value` |
+| `set_ex<K, V>(key, value, seconds)` | `CommandBuilder` | `SET key value EX seconds` |
+| `exists<K>(key)` | `CommandBuilder` | `EXISTS key` |
+| `del<K>(key)` | `CommandBuilder` | `DEL key` |
+| `incr<K>(key)` | `CommandBuilder` | `INCR key` |
+| `ttl<K>(key)` | `CommandBuilder` | `TTL key` |
+| `expire<K>(key, seconds)` | `CommandBuilder` | `EXPIRE key seconds` |
+| `publish<K, M>(channel, message)` | `CommandBuilder` | `PUBLISH channel message` |
+| `keys<K>(pattern)` | `CommandBuilder` | `KEYS pattern` |
+| `dbsize()` | `CommandBuilder` | `DBSIZE` |
+| `flushdb()` | `CommandBuilder` | `FLUSHDB` |
+| `Commands::ping()` | `CommandBuilder` | `PING` |
+| `auth(password)` | `CommandBuilder` | `AUTH password` |
+
+Plus ~80 more commands across Hash, Set, List, Sorted Set, Server, Transaction, Pub/Sub, and General categories.
 
 `RedisClient::ping()` (inherent method) wraps `Commands::ping()` and
 calls `execute::<String>` for you. Auto-deref picks the inherent
@@ -403,56 +494,140 @@ builder use `Commands::ping(&client)`.
 
 ## 8. Feature flags
 
-The crate currently ships **two** features. Anything else you may see
-in older docs is aspirational and not present in `Cargo.toml`.
-
-| Feature   | Default | What it gates                                                  |
-|-----------|---------|----------------------------------------------------------------|
-| `default` | yes     | Empty — nothing extra is enabled by default.                  |
-| `test`    | no      | Compiles `client::in_memory::InMemoryClient` and re-exports it. |
-
-A future `pool` feature is reserved for a connection-pool epic and is
-not implemented today.
+|| Feature | Default | What it gates |
+|---------|---------|-----------|
+| `default` | yes | Empty — nothing extra is enabled by default. |
+| `test` | no | Compiles `client::in_memory::InMemoryClient`, `test_fixture/`, and test helpers. |
+| `tls` | no | Compiles TLS module (rustls, connector, TLS connections). |
+| `cluster` | no | Compiles cluster module (CRC16, slot map, topology, fan-out). |
 
 ## 9. Testing architecture
 
 ```mermaid
 graph LR
-    subgraph "Unit tests (#[cfg(test)] — no runtime, no network)"
-        UC[core / from_value / to_args / value / error]
-        UR[codec / reader + writer + roundtrip]
-        UP[protocol / builder + commands]
-        UCx[connection / process_req + decode_responses]
-        UIM[client / in_memory feature = test]
-        UPI[client / pipeline FromPipelineResponse]
+    subgraph "Unit Tests — no runtime, no network"
+        UC[core<br/>FromRedisValue, ToRedisArgs, value, error]
+        UR[codec<br/>reader, writer, roundtrip]
+        UP[protocol<br/>CommandBuilder, Commands encoding]
+        UU[connection<br/>process_req, decode_responses, SSRF]
+        UPI[client<br/>FromPipelineResponse, URL parsing]
     end
 
-    subgraph "Integration tests (#[cfg(test)] — needs Redis on 127.0.0.1:6379)"
-        IT[client::client::tests::test_integration_*]
+    subgraph "Integration Tests — requires may + Redis"
+        IT[core commands<br/>GET/SET/DEL/EXISTS/INCR]
+        IT2[Strings advanced<br/>MGET, SETEX, BITCOUNT, INCRBY]
+        IT3[Hash commands<br/>HGET, HSET, HSCAN, HDEL]
+        IT4[List commands<br/>LPUSH, RPOP, LRANGE, BLPOP]
+        IT5[Set commands<br/>SADD, SMEMBERS, SINTER, SSCAN]
+        IT6[Sorted set commands<br/>ZADD, ZRANGE, ZCOUNT, ZRANK]
+        IT7[Transaction commands<br/>MULTI, EXEC, WATCH]
+        IT8[Admin commands<br/>FLUSHDB, INFO, DBSIZE, SCAN]
+        IT9[PubSub integration<br/>subscribe, publish, receive]
+        ITX[Concurrent tests<br/>shared client, pipeline ordering, backpressure]
     end
 
-    subgraph "Test helpers"
-        Run[run_may&lt;F, T&gt;<br/>spawns body as coroutine,<br/>JoinHandle::join not SyncFlag::wait]
-        Shared[shared_client<br/>OnceLock RedisClient,<br/>one connection across all integration tests]
+    subgraph "E2E — Docker fixtures (feature = test)"
+        E2E[tls/both containers<br/>plain + TLS fixtures]
     end
 
-    IT --> Run
-    IT --> Shared
+    subgraph "Perf Tests"
+        PERF[JWT load scenarios<br/>2000-user population<br/>login burst<br/>mixed workload]
+    end
+
+    subgraph "Doctests"
+        DOC[crc16, compile checks]
+    end
+
+    IT --> UC
+    IT2 --> UC
+    IT3 --> UC
+    IT4 --> UC
+    IT5 --> UC
+    IT6 --> UC
+    IT7 --> UC
+    IT8 --> UC
+    IT9 --> UC
+    ITX --> UC
 ```
 
-Key testing rules — these are also enforced in code review for the
-connection loop because regressions tend to hang rather than fail:
+### Test breakdown (v0.1.0)
+
+|| Suite | Tests | Runtime | Network | What validates |
+|------|-------|---------|---------|------------|
+| core/unit | 140+ | `#[test]` | None | FromRedisValue, ToRedisArgs, RedisValue, RedisError |
+| codec/unit | 60+ | `#[test]` | None | RESPReader, RESPWriter, roundtrip, CRLF handling |
+| protocol/unit | 50+ | `#[test]` | None (FakeConnection) | CommandBuilder, Commands encoding, CommandPolicy |
+| cluster/unit | 27 | `#[test]` | None | CRC16, hash-tag extraction, slot distribution, topology |
+| connection/unit | 40+ | `#[test]` | None | SSRF protection, URL parsing, connection errors, decode_responses, process_req |
+| client/unit | 10 | `#[test]` | None | Commands trait methods, RedisClient struct, URL parsing |
+| integration | 100+ | `may` | Docker Redis | End-to-end command execution across all categories |
+| TLS integration | 10+ | `may` | Docker TLS Redis | TLS handshake, rediss:// URL parsing, client certs |
+| PubSub integration | 3+ | `may` | Docker Redis | subscribe, psubscribe, receive push messages |
+| Docker fixture | 2 | `may` | Docker | Plain + TLS container lifecycle |
+| Perf tests | 7 | `may` | None | 2000-user JWT load, login burst, mixed workload, concurrent population, authz latency, token refresh storm, authz load 10k |
+| Doctests | 8 | `#[test]` | None | Compile checks, CRC16 correctness |
+| **Total** | **620** | | | **0 failures** |
+
+### Key testing rules
 
 - **Never use `#[tokio::test]`, `async fn`, or `.await` anywhere.**
-- **Integration tests must use `run_may(..)` from `src/client/client.rs::tests`.** It spawns the test body as a may coroutine and uses `JoinHandle::join()` (coroutine-level park/unpark) instead of `SyncFlag::wait()` (std-thread block — deadlocks because it starves the connection loop).
-- **Reuse a single `RedisClient` across all integration tests** via the `shared_client()` `OnceLock`. Creating a fresh connection per test spawns a fresh epoll coroutine which is then cancelled on drop, and after ~4 tests the may scheduler runs out of free coroutine slots.
-- **Run integration tests under `cargo test ... -- --test-threads=1`.** They share Redis state via `FLUSHDB` and will race otherwise.
-- **Add a multi-value test for every decoder change.** Single-value tests will not catch dispatch bugs that only appear when several RESP frames share one TCP read (Bug 2).
+- **Integration tests must use `may::run` / `may::go!`** to create the coroutine context.
+- **Reuse a single `RedisClient` across all integration tests** via the `shared_client()` `OnceLock`.
+- **Run integration tests under `-- --test-threads=1`.** They share Redis state via `FLUSHDB` and will race otherwise.
+- **Add a multi-value test for every decoder change.** Single-value tests will not catch dispatch bugs that only appear when several RESP frames share one TCP read.
+- **Each integration test calls `FLUSHDB` before and after** for isolation.
 
-Full test breakdown lives in [`docs/10-test-strategy.md`](./10-test-strategy.md);
+### Docker test fixtures (feature = test)
+
+The `test_fixture` module provides bollard-managed Docker containers:
+
+```rust
+use may_redis::test_fixture;
+
+// Check if Docker is available
+if test_fixture::skip_docker_tests() {
+    return; // Skip gracefully
+}
+
+// Get a shared fixture (one Redis container per test run)
+let fixture = test_fixture::shared_fixture();
+
+// Connect to the plain Redis container
+let client = RedisClient::connect("127.0.0.1", fixture.port()).unwrap();
+```
+
+Features:
+- Auto-spins up Redis container on first use
+- Auto-cleans up on drop (RAII)
+- Skips gracefully when Docker is unavailable
+- Supports both plain Redis and TLS Redis (`tls_redis_port()`)
+
+Full test architecture lives in [`docs/10-test-strategy.md`](./10-test-strategy.md);
 this section only covers the architectural shape.
 
-## 10. Reference patterns and known pitfalls
+## 10. What's implemented (epics status as of v0.1.0)
+
+|| Epic | Title | Status | Key Deliverables |
+|------|-------|-------|--------|----------------|
+| 0 | Project foundation | COMPLETE | Single-crate layout, Cargo.toml, module structure |
+| 1 | Core types | COMPLETE | RedisValue, RedisError, FromRedisValue, ToRedisArgs |
+| 2 | RESP codec | COMPLETE | RESPReader, RESPWriter, roundtrip tests |
+| 3 | Protocol layer | COMPLETE | CommandBuilder, Commands trait, FakeConnection |
+| 4 | Connection loop | COMPLETE | Epoll loop, request-response pipeline, TCP connector |
+| 5 | Client API | COMPLETE | RedisClient, Pipeline, InMemoryClient |
+| 6 | Integration tests | COMPLETE | Multi-coroutine concurrency, error handling, migration guide |
+| 7 | Command expansion | COMPLETE | ~96 commands across 9 data categories |
+| 8 | Implementation gaps | COMPLETE | FromRedisValue for f64/u64/i32/u8, dead code removal |
+| 9 | JSF-AV compliance | COMPLETE | Lint profile, no-panic dispatch, bounded complexity |
+| 10 | Docs & lints | COMPLETE | Rustdocs on all public interfaces, deny(lints) |
+| 11 | Code review remediation | PARTIAL | URL parsing, timeouts, command policy, SSRF |
+| 12 | Regression tests | PARTIAL | Edge-case tests for Epic 11 findings |
+| 13 | Security audit | PARTIAL | SSRF, command injection, resource limits |
+| 14 | TLS/mTLS | PARTIAL | rustls 0.23, rediss:// URL parsing, client certs, server certs, handshake, 60+ tests |
+| 15 | Redis Cluster | PARTIAL | CRC16, hash-tag extraction, slot map, topology parsing, fan-out, redirect handling, 27+ tests |
+| 16 | Docker fixtures | PARTIAL | Bollard containers, shared_fixture(), plain + TLS, skip-docker support |
+
+## 11. Reference patterns and known pitfalls
 
 - **Canonical reference for the connection loop**:
   `../may_postgres/src/connection.rs::connection_loop`. Any divergence
@@ -460,8 +635,9 @@ this section only covers the architectural shape.
   justified in a code comment.
 - **Bug post-mortems and regression coverage**:
   [`llmwiki/topics/connection-loop-pitfalls.md`](../llmwiki/topics/connection-loop-pitfalls.md).
-  Two production-impacting bugs have shipped in the connection loop
-  to date; both are dissected there with the regression tests that
+  Three production-impacting bugs have shipped in the connection loop
+  to date (load-bearing bool drop, tail bytes drop, EPOLL drain).
+  All are dissected there with the regression tests that
   now guard them.
 - **may primitive cheat-sheet**:
   [`llmwiki/topics/may-coroutine-pattern.md`](../llmwiki/topics/may-coroutine-pattern.md).
@@ -471,11 +647,11 @@ this section only covers the architectural shape.
   crate**:
   [`docs/adr-001-single-crate-structure.md`](./adr-001-single-crate-structure.md).
 - **Per-epic implementation plan**:
-  [`docs/Epics/`](./Epics/) — Epic 0 (scaffolding) through Epic 6
-  (integration). Each epic has `Story_0.md` (overview) plus
+  [`docs/Epics/`](./Epics/) — Epic 0 (scaffolding) through Epic 16
+  (Docker fixtures). Each epic has `Story_0.md` (overview) plus
   `Story_1..N.md` (granular implementation stories).
 
-## 11. What this document deliberately does not cover
+## 12. What this document deliberately does not cover
 
 - **Per-method semantics** (argument shapes, return-type matrices,
   error mappings). Those live next to the code as rustdoc on the
@@ -485,5 +661,5 @@ this section only covers the architectural shape.
   `docs/Epics/Epic_*/Story_*.md`.
 - **Sesame-IDAM integration specifics.** See
   [`docs/03-sesame-idam-redis-usage.md`](./03-sesame-idam-redis-usage.md).
-- **Migration recipes for the `redis` crate.** Will live in a future
-  `docs/migration-guide.md` once Epic 6 lands.
+- **Migration recipes for the `redis` crate.** See
+  [`docs/09-migration-guide.md`](./09-migration-guide.md).

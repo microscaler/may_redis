@@ -2,334 +2,236 @@
 
 ## Overview
 
-Testing may-redis requires a dual approach:
+Testing may-redis requires a three-tier approach:
+
 1. **Unit tests** — pure data + encoding/decoding, runs in a regular `#[test]` with no runtime
-2. **Integration tests** — full may coroutine stack with real Redis server
+2. **Integration tests** — full may coroutine stack with real Redis server (via Docker fixtures)
+3. **E2E & performance tests** — Docker-managed containers, JWT load scenarios
 
 We cannot use `#[tokio::test]` or any tokio runtime. All integration tests must run inside
-a `may` coroutine context via `may::go!` or `may::run_sync`.
+a `may` coroutine context via `may::go!` or `may::run`.
 
 ## Test Architecture
 
 ```mermaid
 graph TB
     subgraph "Unit Tests — no runtime, no network"
-        UE[base\n RedisValue / FromRedisValue]
-        UC[codec\n encode/decode roundtrip]
-        UP[protocol\n CommandBuilder encoding]
+        UE[core<br/>FromRedisValue / ToRedisArgs / value / error]
+        UC[codec<br/>RESPReader / RESPWriter / roundtrip]
+        UP[protocol<br/>CommandBuilder / Commands encoding]
+        UU[connection<br/>process_req / decode_responses / SSRF]
+        UPI[client<br/>Pipeline / URL parsing]
+        UCL[cluster<br/>CRC16 / hash-tag / slot map / topology]
     end
     
-    subgraph "Integration Tests — requires may + Redis"
-        IE[connection\n connection lifecycle]
-        IP[client\n pipeline ordering]
-        IC[client\n concurrent coroutines]
+    subgraph "Integration Tests — requires may + Docker Redis"
+        IE[core commands<br/>GET/SET/DEL/INCR/EXISTS]
+        IP[client<br/>Pipeline ordering]
+        IC[client<br/>Concurrent coroutines]
+        IHA[Hash commands<br/>HGET/HSET/HSCAN/HDEL]
+        ILS[List commands<br/>LPUSH/RPOP/LRANGE/BLPOP]
+        IST[Set commands<br/>SADD/SMEMBERS/SINTER/SSCAN]
+        ISS[Sorted Set<br/>ZADD/ZRANGE/ZCOUNT/ZRANK]
+        ITX[Transactions<br/>MULTI/EXEC/WATCH]
+        IAD[Admin commands<br/>FLUSHDB/INFO/DBSIZE/SCAN]
+        IPS[PubSub<br/>subscribe/publish/receive]
+        ITS[TLS/mTLS<br/>handshake/rediss://]
     end
     
-    subgraph "Test Helpers (feature=test)"
-        IH[InMemoryClient\n client/test/]
-        IR[RedisTestRunner\n test-common/]
+    subgraph "E2E — Docker fixtures (feature=test)"
+        EF[E2E fixture<br/>plain + TLS containers]
     end
     
-    UE --> IH
-    UC --> IH
-    UP --> IH
-    IE --> IR
-    IP --> IR
-    IC --> IR
+    subgraph "Performance Tests"
+        EP[JWT load<br/>2000-user population<br/>login burst<br/>mixed workload]
+    end
+    
+    subgraph "Doctests"
+        ED[compile checks<br/>CRC16]
+    end
+    
+    UE --> IE
+    UC --> IE
+    UP --> IE
+    IE --> EF
+    IP --> EF
+    IC --> EF
+    IHA --> EF
+    ILS --> EF
+    IST --> EF
+    ISS --> EF
+    ITX --> EF
+    IAD --> EF
+    IPS --> EF
+    ITS --> EF
 ```
+
+## v0.1.0 Test Summary
+
+|| Suite | Tests | Runtime | Network | What validates |
+|------|-------|---------|---------|------------|
+| **core/unit** | 140+ | `#[test]` | None | FromRedisValue, ToRedisArgs, RedisValue, RedisError, f64/u64/i32/u8 parsing |
+| **codec/unit** | 60+ | `#[test]` | None | RESPReader, RESPWriter, roundtrip, CRLF handling, depth/length caps |
+| **protocol/unit** | 50+ | `#[test]` | None (FakeConnection) | CommandBuilder, Commands encoding, CommandPolicy, FakeConnection |
+| **cluster/unit** | 27 | `#[test]` | None | CRC16, hash-tag extraction, slot distribution, topology parsing, redirects |
+| **connection/unit** | 40+ | `#[test]` | None | SSRF protection (all IP ranges), URL parsing, connection errors, decode_responses, process_req |
+| **client/unit** | 10 | `#[test]` | None | Commands trait methods, RedisClient struct, URL parsing |
+| **integration** | 100+ | `may::run` | Docker Redis | End-to-end command execution across all 9 data categories |
+| **TLS integration** | 10+ | `may::run` | Docker TLS Redis | TLS handshake, rediss:// URL parsing, client certs, connection methods |
+| **PubSub integration** | 3+ | `may::run` | Docker Redis | subscribe, psubscribe, receive push messages |
+| **Docker fixture** | 2 | `may::run` | Docker | Plain + TLS container lifecycle |
+| **Perf tests** | 7 | `may::run` | None | 2000-user JWT load, login burst, mixed workload, concurrent population, authz latency, token refresh storm, authz load 10k |
+| **Doctests** | 8 | `#[test]` | None | Compile checks, CRC16 correctness |
+| **TOTAL** | **620** | | | **0 failures, 13 ignored** |
 
 ## Test Infrastructure by Crate
 
-### base — Pure Unit Tests
+### core — Pure Unit Tests (~140 tests)
 
 No runtime needed. Tests are pure `#[test]` functions.
 
-```rust
-#[test]
-fn test_from_redis_value_integer() {
-    let v = RedisValue::Integer(42);
-    let n: i64 = FromRedisValue::from_redis_value(&v).unwrap();
-    assert_eq!(n, 42);
-}
+**Scope:** `FromRedisValue` extraction for every Rust type we support (i64, String, Option<T>, Vec<T>, f64, u64, i32, u8, usize), `RedisError` variants, `ToRedisArgs` encoding for every Rust type, `RedisValue` enum operations.
 
-#[test]
-fn test_from_redis_value_array() {
-    let v = RedisValue::Array(vec![
-        RedisValue::BulkString(b"foo".into()),
-        RedisValue::BulkString(b"bar".into()),
-    ]);
-    let items: Vec<String> = FromRedisValue::from_redis_value(&v).unwrap();
-    assert_eq!(items, vec!["foo", "bar"]);
-}
+**Key test categories:**
+- `FromRedisValue` for primitives (i64 min/max, u64 max, u8 overflow, f64 edge cases including NaN/Inf/zero/exp)
+- `FromRedisValue` for Option<T> (Some bulk string → Some, Null → None, SimpleString → Some)
+- `FromRedisValue` for Vec<T> (array → Vec, single value → single-element Vec, error handling)
+- `ToRedisArgs` for all types (String, &str, bytes, i64, u32, bool, Vec, unit)
+- `RedisValue` variants (clone, default, is_null, all six variants)
+- `RedisError` display formatting
 
-#[test]
-fn test_from_redis_value_null() {
-    let v = RedisValue::Null;
-    let opt: Option<String> = FromRedisValue::from_redis_value(&v).unwrap();
-    assert!(opt.is_none());
-}
-```
-
-**Scope:** `FromRedisValue` extraction for every Rust type we support, `RedisError` variants, `ToRedisArgs` encoding for every Rust type.
-
-### codec — Pure Unit Tests
+### codec — Pure Unit Tests (~60 tests)
 
 No runtime needed. Tests are pure `#[test]` functions that exercise the encoder/decoder roundtrip.
 
-```rust
-#[test]
-fn test_encode_simple_string() {
-    let mut buf = BytesMut::new();
-    RESPWriter::write_simple(&mut buf, "OK");
-    assert_eq!(buf.to_bytes(), "+OK\r\n");
-}
+**Scope:** Every RESP type marker (`+`, `$`, `:`, `*`, `-`), edge cases (null bulk string `$-1`, empty array `*0\r\n`), encoding length calculations, large payloads, CRLF handling, depth/length caps.
 
-#[test]
-fn test_encode_bulk_string() {
-    let mut buf = BytesMut::new();
-    RESPWriter::write_bulk(&mut buf, b"hello");
-    assert_eq!(buf.to_bytes(), "$5\r\nhello\r\n");
-}
+**Key test categories:**
+- RESP writer: simple string, bulk string, integer, array, null bulk, empty array, error
+- RESP reader: decode every type marker, null bulk, empty array, error
+- Roundtrip: SET command, array of mixed types, large payload (64KB), unicode, binary
+- Reader caps: depth limit, array size cap, bulk string size cap
+- CRLF handling: missing CRLF after bulk, double LF, empty buffer
 
-#[test]
-fn test_encode_array() {
-    let mut buf = BytesMut::new();
-    RESPWriter::write_array(&mut buf, &[
-        RedisValue::BulkString(b"SET".into()),
-        RedisValue::BulkString(b"key".into()),
-        RedisValue::BulkString(b"value".into()),
-    ]);
-    assert_eq!(buf.to_bytes(), "*3\r\n$3\r\nSET\r\n$3\r\nkey\r\n$5\r\nvalue\r\n");
-}
-
-#[test]
-fn test_decode_integer() {
-    let data = b":42\r\n";
-    let mut reader = RESPReader::new(BytesMut::from(data));
-    let v = RESPReader::read_value(&mut reader).unwrap();
-    assert_eq!(v, RedisValue::Integer(42));
-}
-
-#[test]
-fn test_decode_array() {
-    let data = b"*2\r\n$3\r\nfoo\r\n$3\r\nbar\r\n";
-    let mut reader = RESPReader::new(BytesMut::from(data));
-    let v = RESPReader::read_value(&mut reader).unwrap();
-    assert_eq!(v, RedisValue::Array(vec![
-        RedisValue::BulkString(b"foo".into()),
-        RedisValue::BulkString(b"bar".into()),
-    ]));
-}
-
-#[test]
-fn test_roundtrip_set_command() {
-    let mut buf = BytesMut::new();
-    RESPWriter::write_array(&mut buf, &[
-        RedisValue::BulkString(b"SET".into()),
-        RedisValue::BulkString(b"key".into()),
-        RedisValue::BulkString(b"value".into()),
-    ]);
-    let decoded = RESPReader::read_value(&mut RESPReader::new(buf)).unwrap();
-    assert_eq!(decoded, RedisValue::Array(vec![
-        RedisValue::BulkString(b"SET".into()),
-        RedisValue::BulkString(b"key".into()),
-        RedisValue::BulkString(b"value".into()),
-    ]));
-}
-```
-
-**Scope:** Every RESP type marker (`+`, `$`, `:`, `*`, `-`), edge cases (null bulk string `$-1`, empty array `*0\r\n`), encoding length calculations, large payloads.
-
-### protocol — Unit Tests + Fake Connection Tests
+### protocol — Unit Tests + Fake Connection Tests (~50 tests)
 
 No network needed. Tests use a `FakeConnection` that implements the same interface as a real connection.
 
-```rust
-// Fake connection — captures sent commands, returns canned responses
-struct FakeConnection {
-    sent_commands: Arc<Mutex<Vec<BytesMut>>>,
-    responses: Arc<Mutex<VecDeque<RedisValue>>>,
-}
+**Scope:** `CommandBuilder::build()` output matches RESP wire format for all 96+ commands, `Commands` trait methods encode correctly, request tag assignment is monotonic, pipeline command ordering is preserved, `CommandPolicy` enforcement (AllowAll, DenyCommands, AllowCommands), `FakeConnection` roundtrip.
 
-impl ConnectionDriver for FakeConnection {
-    fn send(&self, cmd: BytesMut) { self.sent_commands.lock().unwrap().push(cmd); }
-    fn recv(&self) -> RedisValue { self.responses.lock().unwrap().pop_front().unwrap(); }
-}
-```
+**Key test categories:**
+- CommandBuilder: `cmd("GET").arg("key").build()` produces exact RESP bytes
+- Commands trait: every method (get, set, set_ex, mget, hset, hscan, lpush, sadd, zadd, multi, subscribe, etc.) encodes correctly
+- CommandPolicy: default allows safe commands, deny blocks dangerous ones (CONFIG, FLUSHALL, SHUTDOWN, DEBUG, KEYS)
+- FakeConnection: send → recv roundtrip, multiple commands in sequence
+- Pipeline ordering: commands sent in declaration order, response matching by FIFO position
 
-```rust
-#[test]
-fn test_command_builder_encoding() {
-    let cmd = cmd("GET").arg("mykey");
-    let bytes = cmd.build();
-    // Verify the bytes match expected RESP format
-    assert_eq!(bytes, b"*2\r\n$3\r\nGET\r\n$5\r\nmykey\r\n");
-}
+### cluster — Pure Unit Tests (27 tests)
 
-#[test]
-fn test_commands_trait_integration() {
-    let fake = FakeConnection::new();
-    let client = FakeClient::new(fake.clone());
-    
-    let result: Result<String, _> = client.get("key");
-    assert_eq!(result.unwrap(), "value");
-    
-    // Verify the command was encoded correctly
-    let sent = fake.sent_commands.lock().unwrap();
-    assert_eq!(sent[0], b"*2\r\n$3\r\nGET\r\n$3\r\nkey\r\n");
-}
-```
+No network needed. Tests verify CRC16 computation, hash-tag extraction, and topology parsing.
 
-**Scope:** `CommandBuilder::build()` output matches RESP wire format, `Commands` trait methods encode correctly, request tag assignment is monotonic, pipeline command ordering is preserved.
+**Scope:** CRC16 standard vectors, hash-tag extraction (all bracket patterns), slot distribution, slot map CRUD, topology parsing (cluster slots, cluster nodes), fan-out result aggregation, redirect parsing.
 
-### connection — Integration Tests
+**Key test categories:**
+- CRC16: standard test vectors, deterministic output, empty input, known inputs ("foo"), different inputs
+- Hash-tag extraction: simple prefix, nested braces, closing before opening, complex tag, no closing brace, plain key unchanged, space/digit in tag, special chars
+- Slot: range validation, single-byte key, distribution across 16384 slots
+- Fan-out: single slot vs multi slot del/mget, result aggregation (mixed results, single value)
+- Redirect: MOVED parsing, ASK parsing, invalid formats, simple string not error
+- Slot map: empty, add master, node info lookup, replica no slots, all slots, down node, remove node
+- Topology: single master all slots, 3 masters, with replicas, cluster nodes parsing, empty lines, invalid format
 
-Requires `may` runtime and real (or mocked) TCP.
+### connection — Unit Tests (~40 tests)
 
-```rust
-// Uses may::go! to spawn the connection loop, real TCP socket
-#[test]
-fn test_connection_established() {
-    may::run(|| {
-        may::go(|| {
-            let conn = Connection::connect("127.0.0.1", 6379);
-            assert!(conn.is_ok());
-        }).join();
-    });
-}
-```
+No network needed (except where explicitly tagged `requires live Redis server`).
 
-**Scope:** Connection lifecycle (connect, close, reconnect), TCP keepalive, non-blocking I/O correctness, epoll event ordering.
+**Scope:** SSRF protection for all IP ranges (v4 private, v4 link-local, v4 reserved, v4 multicast, v6 link-local, v6 loopback, v6 multicast, v6 unique-local), URL parsing, connection error display/formatting, `decode_responses` for every RESP type, `process_req` ordering, `epoll_loop` event handling.
 
-### client — Integration Tests
+**Key test categories:**
+- SSRF: public IPs allowed, private ranges blocked (10.x, 172.16-31, 192.168), link-local blocked, loopback blocked, multicast blocked, reserved blocked, zero blocked, mixed flags, default config
+- URL: valid redis://, rediss://, timeout param, port overflow, invalid formats, hostname vs IP
+- Connection errors: display formatting for timeout, connect, general, SSRF violation
+- Decode responses: bulk string, integer, error, array, multiple values in one buffer, pubsub push message, incomplete, unexpected type, ten bulk strings, multiple with partial trailing
 
-Requires `may` runtime and real Redis.
+### client — Unit Tests (~10 tests)
 
-```rust
-#[test]
-fn test_set_get_pipeline() {
-    may::run(|| {
-        let client = RedisClient::connect("redis://127.0.0.1:6379").unwrap();
-        client.set("key", "value").unwrap();
-        let result: String = client.get("key").unwrap();
-        assert_eq!(result, "value");
-    });
-}
-```
+No network needed. Tests the Commands trait and URL parsing.
 
-## Test Categories by Crate
+**Scope:** Commands trait method existence, RedisClient struct, URL parsing for redis:// and rediss://.
 
-### base (~10 tests, pure `#[test]`)
-
-| Test | What it validates |
-|------|------------------|
-| `test_from_redis_value_integer` | `i64` extraction |
-| `test_from_redis_value_string` | `String` extraction |
-| `test_from_redis_value_option` | `Option<T>` extraction |
-| `test_from_redis_value_vec` | `Vec<T>` extraction |
-| `test_from_redis_value_error` | `RedisError` extraction |
-| `test_to_redis_args_string` | String → `RedisValue` |
-| `test_to_redis_args_int` | Integer → `RedisValue` |
-| `test_to_redis_args_multiple` | Multiple args batching |
-| `test_redis_error_display` | Error formatting |
-| `test_redis_value_clone` | Value immutability |
-
-### codec (~15 tests, pure `#[test]`)
-
-| Test | What it validates |
-|------|------------------|
-| `test_encode_simple_string` | `+OK\r\n` |
-| `test_encode_bulk_string` | `$N\r\ndata\r\n` |
-| `test_encode_integer` | `:42\r\n` |
-| `test_encode_array` | `*N\r\n...` |
-| `test_encode_null_bulk` | `$-1\r\n` |
-| `test_encode_empty_array` | `*0\r\n` |
-| `test_decode_simple_string` | `+OK` → `RedisValue::SimpleString` |
-| `test_decode_bulk_string` | `$5\r\nhello\r\n` → `RedisValue::BulkString` |
-| `test_decode_integer` | `:42` → `RedisValue::Integer` |
-| `test_decode_array` | `*2...` → `RedisValue::Array` |
-| `test_decode_error` | `-ERR msg` → `RedisValue::Error` |
-| `test_decode_null_bulk` | `$-1` → `RedisValue::Null` |
-| `test_decode_empty_array` | `*0` → `RedisValue::Array([])` |
-| `test_roundtrip_set_command` | Encode → Decode → Compare |
-| `test_large_payload_encoding` | 64KB payload encoding |
-
-### protocol (~10 tests, `#[test]` with FakeConnection)
-
-| Test | What it validates |
-|------|------------------|
-| `test_command_builder_encoding` | `cmd("GET").arg("k").build()` |
-| `test_commands_trait_get` | `Commands::get()` encodes correctly |
-| `test_commands_trait_set` | `Commands::set()` encodes correctly |
-| `test_commands_trait_exists` | `Commands::exists()` encodes correctly |
-| `test_commands_trait_incr` | `Commands::incr()` encodes correctly |
-| `test_request_tag_monotonic` | Tags increase sequentially |
-| `test_pipeline_request_ordering` | Commands sent in declaration order |
-| `test_response_decoding_success` | Response → typed result |
-| `test_response_decoding_error` | Server error → `RedisError` |
-| `test_empty_command_args` | `PING` with no args |
-
-### connection (~5 tests, requires may runtime)
-
-| Test | What it validates |
-|------|------------------|
-| `test_connect_to_redis` | TCP connection established |
-| `test_close_connection` | Clean shutdown |
-| `test_connection_reset` | Handle server disconnect |
-| `test_request_queue_overflow` | Backpressure behavior |
-| `test_epoll_event_ordering` | READABLE vs WRITABLE priority |
-
-### client (~10 tests, requires may + Redis)
-
-| Test | What it validates |
-|------|------------------|
-| `test_connect` | `RedisClient::connect()` |
-| `test_set_get` | Store and retrieve |
-| `test_set_get_ex` | SET with EXPIRE |
-| `test_del` | Delete key |
-| `test_incr` | Atomic increment |
-| `test_exists` | Key existence check |
-| `test_ttl` | Check TTL |
-| `test_expire` | Set expiration |
-| `test_pipeline_ordering` | Commands execute in order |
-| `test_error_propagation` | Server errors bubble up |
-
-### Concurrency Tests (connection + client, 5 tests)
-
-| Test | What it validates |
-|------|------------------|
-| `test_concurrent_requests` | Multiple coroutines sharing one client |
-| `test_pipeline_concurrent` | Pipeline + normal requests interleaved |
-| `test_connection_reset_during_pipeline` | Handle reset mid-pipeline |
-| `test_concurrent_pipelines` | Two pipelines running simultaneously |
-| `test_backpressure_under_load` | Queue fills correctly, coroutines yield |
+**Key test categories:**
+- Commands trait: all trait methods exist and are callable
+- RedisClient: struct fields, method signatures
+- URL parsing: basic, query params, case insensitive, empty value, missing equals, trailing ampersand, URL decoding (percent, double percent, plus, colon, at sign, UTF-8, null byte)
+- TLS URL: rediss:// basic, no CA fails, custom CA
 
 ## Running Tests
 
 ```bash
-# Base crate — pure unit tests, fastest
-cargo test -p base
+# All tests with features (unit + integration + E2E + perf + doctests)
+cargo test --workspace --features test
 
-# Codec crate — pure unit tests
-cargo test -p codec
-
-# Protocol crate — unit tests with FakeConnection
-cargo test -p protocol
-
-# Connection crate — needs Redis
-cargo test -p connection
-
-# Client crate — needs Redis
-cargo test -p client
-
-# All tests (base + codec + protocol + connection + client)
+# Unit tests only (fastest, no network)
 cargo test --workspace
 
-# Only unit tests (no Redis needed)
-cargo test -p base -p codec -p protocol
+# Performance tests
+cargo test --test perf
 
-# With test feature (includes test helpers)
-cargo test -p may-redis --features test
+# Docker fixture E2E tests
+cargo test --test fixture_e2e --features test
+
+# Integration tests only
+cargo test --workspace --features test -- --test-threads=1
+
+# Doctests
+cargo test --doc
+
+# Specific module
+cargo test connection::tcp_tests
+cargo test cluster::crc16
+cargo test client::client_tests::integration_strings_basic
+```
+
+## Test Infrastructure
+
+### Docker test fixtures (feature = test)
+
+The `test_fixture` module provides bollard-managed Docker containers:
+
+```rust
+use may_redis::test_fixture;
+
+// Check if Docker is available
+if test_fixture::skip_docker_tests() {
+    return; // Skip gracefully
+}
+
+// Get a shared fixture (one Redis container per test run)
+let fixture = test_fixture::shared_fixture();
+
+// Connect to the plain Redis container
+let client = RedisClient::connect("127.0.0.1", fixture.port()).unwrap();
+
+// Connect to the TLS Redis container
+let tls_port = test_fixture::tls_redis_port().unwrap();
+```
+
+**Features:**
+- Auto-spins up Redis container on first use (RAII)
+- Auto-cleans up on drop (Docker container removal)
+- Skips gracefully when Docker is unavailable (`skip_docker_tests()`)
+- Supports both plain Redis (port 6379) and TLS Redis (dynamic port)
+- Uses bollard (Docker SDK for Rust) for container management
+
+### InMemoryClient (feature = test)
+
+`InMemoryClient` provides a clean per-test in-memory backend implementing the `Commands` semantics. Useful for unit tests that need command semantics without a running server.
+
+```rust
+let mut client = InMemoryClient::new();
+client.execute(client.set("key", "value")).unwrap();
+let result: Option<String> = client.get("key").unwrap();
+assert_eq!(result.as_deref(), Some("value"));
 ```
 
 ## Test Isolation
@@ -340,7 +242,7 @@ Each integration test must call `FLUSHDB` before and after execution. The `InMem
 #[test]
 fn test_pipeline_ordering() {
     may::run(|| {
-        let client = RedisClient::connect("redis://127.0.0.1:6379").unwrap();
+        let client = RedisClient::connect("127.0.0.1", 6379).unwrap();
         client.execute(cmd("FLUSHDB")).unwrap();
         
         // ... test logic ...
@@ -352,7 +254,7 @@ fn test_pipeline_ordering() {
 
 ## may Runtime for Tests
 
-Since we can't use `#[tokio::test]`, we use `may::run` to create the coroutine context:
+Since we can't use `#[tokio::test]`, we use `may::run` + `may::go!` to create the coroutine context:
 
 ```rust
 #[test]
@@ -360,7 +262,7 @@ fn test_with_may_runtime() {
     may::run(|| {
         may::go(|| {
             // Test code runs here in a coroutine
-            let client = RedisClient::connect("redis://127.0.0.1:6379").unwrap();
+            let client = RedisClient::connect("127.0.0.1", 6379).unwrap();
             let result: String = client.get("key").unwrap();
             assert_eq!(result, "value");
         }).join();
@@ -369,3 +271,12 @@ fn test_with_may_runtime() {
 ```
 
 This is analogous to `#[tokio::test]` but uses may's cooperative coroutine model.
+
+## Key Testing Rules
+
+1. **Never use `#[tokio::test]`, `async fn`, or `.await` anywhere.**
+2. **Integration tests must use `may::run` / `may::go!`** to create the coroutine context.
+3. **Reuse a single `RedisClient` across all integration tests** via the `shared_client()` `OnceLock`. Creating a fresh connection per test spawns a fresh epoll coroutine which is then cancelled on drop, and after ~4 tests the may scheduler runs out of free coroutine slots.
+4. **Run integration tests under `-- --test-threads=1`.** They share Redis state via `FLUSHDB` and will race otherwise.
+5. **Add a multi-value test for every decoder change.** Single-value tests will not catch dispatch bugs that only appear when several RESP frames share one TCP read (Bug 2).
+6. **EPOLL drain loop must be tested.** The edge-triggered epoll fix (v0.1.0) ensures the kernel buffer is drained before decoding — pipeline batches with many bulk GET replies must not hang.
