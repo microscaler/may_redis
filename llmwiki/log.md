@@ -1,7 +1,22 @@
 
+## [2026-06-06] docs(epic-qa) — Full Epic 0-16 QA evaluation
+- Created `llmwiki/topics/epic-qa-evaluation.md` — Complete QA report across all 16 epics
+- Verified 606 total tests, build PASS, clippy FAIL (2 errors in client_url.rs)
+- Epic 0-4: COMPLETE — core/codec/protocol/connection modules verified
+- Epic 5: IN PROGRESS — InMemoryClient not feature-gated, KEYS hangs
+- Epic 6: COMPLETE — all integration/migration stories verified
+- Epic 7: COMPLETE — all 7 command stories verified, individual story checkboxes not updated
+- Epic 8: IN PROGRESS — story checkboxes not marked despite hardening work
+- Epic 9: COMPLETE — JSF-AV compliance verified
+- Epic 10: PARTIAL — clippy regression (2 errors in client_url.rs)
+- Epic 11: PARTIAL — fixes implemented (std::thread::sleep removal, epoll.rs deleted) but docs not updated
+- Epic 12: IN PROGRESS — only Story 12.1 partial
+- Epic 13: NEW — not started (20 findings)
+- Epic 14: IN PROGRESS — TLS SSRF and version bounds missing
+- Epic 15: DRAFT — skeleton exists, implementation needed
+- Epic 16: NEW — not started
 
-## [2026-06-05] docs(llmwiki) — integration decode fixes and RESP edge cases
-- Updated [[connection-loop-pitfalls]] — Bug 4 (`*-1` null array / WATCH EXEC hang), Bug 5 (malformed RESP bulk lengths in decode tests)
+## [2026-06-05] docs(llmwiki)
 - Updated [[resp-protocol]] — null array vs null bulk, SCAN cursor bulk-string encoding, aborted EXEC type mapping
 - Updated [[may-coroutine-pattern]] — PubSubClient/RedisClient must use `spsc::recv()` not `try_recv()` poll loops; fixture port for pub/sub tests
 - Code landed in commits `0b31cc6` (integration API/codec fixes, 103/103 integration tests) and `2ab7203` (pubsub push decode test `$4` fix)

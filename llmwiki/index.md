@@ -1,7 +1,7 @@
 # Wiki Index
 
 > Content catalog. Every wiki page listed under its type with a one-line summary.
-> Last updated: 2026-06-05 | Total pages: 16
+> Last updated: 2026-06-06 | Total pages: 17
 
 ## Entities
 - [[may-redis]] — Coroutine-native Redis client built on may runtime, single crate
