@@ -13,7 +13,7 @@ use may::sync::spsc;
 
 /// AC-3.1: connect_with_limits() accepts custom limits.
 #[test]
-fn test_connect_with_limits_custom_depth() {
+fn test_integration_connect_with_limits_custom_depth() {
     let handle = go!(|| {
         let result = Connection::connect_with_limits(
             "127.0.0.1",
@@ -29,7 +29,7 @@ fn test_connect_with_limits_custom_depth() {
 
 /// AC-3.4: connect_with_limits() accepts large limits.
 #[test]
-fn test_connect_with_limits_large_request_size() {
+fn test_integration_connect_with_limits_large_request_size() {
     let handle = go!(|| {
         let result = Connection::connect_with_limits(
             "127.0.0.1",
@@ -46,7 +46,7 @@ fn test_connect_with_limits_large_request_size() {
 /// AC-3.2 + AC-3.3: Queue full returns QueueFull error, not panic.
 #[test]
 #[cfg(feature = "test")]
-fn test_queue_full_returns_error() {
+fn test_integration_queue_full_returns_error() {
     if crate::test_fixture::skip_docker_tests() {
         return;
     }
@@ -85,7 +85,7 @@ fn test_queue_full_returns_error() {
 /// AC-3.2: RequestTooLarge is returned when data exceeds max_request_size.
 #[test]
 #[cfg(feature = "test")]
-fn test_request_too_large_returns_error() {
+fn test_integration_request_too_large_returns_error() {
     if crate::test_fixture::skip_docker_tests() {
         return;
     }
