@@ -212,4 +212,14 @@ pub trait StringsCommands: Sized {
             .arg(offset)
             .arg(value)
     }
+
+    /// GETSET key value — Set the string value of a key and return its old value
+    #[must_use = "call .build() to encode the command"]
+    fn getset<K: ToRedisArgs, V: ToRedisArgs>(
+        &self,
+        key: K,
+        value: V,
+    ) -> CommandBuilder {
+        CommandBuilder::new("GETSET").arg(key).arg(value)
+    }
 }

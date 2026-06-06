@@ -6,7 +6,7 @@
 
 **Dependencies:** Epic 7.0 (epic setup), Story 7.4 (List — runs in parallel)
 
-**Status:** PENDING
+**Status:** COMPLETE
 
 **Source docs:** `docs/01-protocol-analysis.md` (RESP encoding for sorted set commands), `docs/08-command-audit.md` (sorted set coverage)
 

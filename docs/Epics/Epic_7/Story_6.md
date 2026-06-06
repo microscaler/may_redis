@@ -6,7 +6,7 @@
 
 **Dependencies:** Epic 7.0 (epic setup), Story 7.5 (Sorted Set — runs in parallel)
 
-**Status:** PENDING
+**Status:** COMPLETE
 
 **Source docs:** `docs/01-protocol-analysis.md` (RESP encoding for pub/sub and transaction commands), `docs/08-command-audit.md` (pub/sub and transaction coverage)
 

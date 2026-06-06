@@ -128,4 +128,14 @@ pub trait SetsCommands: Sized {
             .arg(destination)
             .arg(member)
     }
+
+    /// SDIFF keys — Get the difference between sets
+    #[must_use = "call .build() to encode the command"]
+    fn sdiff<K: ToRedisArgs>(&self, keys: &[K]) -> CommandBuilder {
+        let mut builder = CommandBuilder::new("SDIFF");
+        for key in keys {
+            builder = builder.arg(key);
+        }
+        builder
+    }
 }

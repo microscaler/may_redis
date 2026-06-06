@@ -132,4 +132,12 @@ pub trait ListsCommands: Sized {
         }
         builder.arg(timeout)
     }
+
+    /// RPOPLPUSH source destination — Remove the last element from a list, prepend it to another list and return it
+    #[must_use = "call .build() to encode the command"]
+    fn rpoplpush<K: ToRedisArgs>(&self, source: K, destination: K) -> CommandBuilder {
+        CommandBuilder::new("RPOPLPUSH")
+            .arg(source)
+            .arg(destination)
+    }
 }

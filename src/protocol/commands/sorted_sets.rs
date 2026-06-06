@@ -218,4 +218,76 @@ pub trait SortedSetsCommands: Sized {
             .arg(offset)
             .arg(count)
     }
+
+    /// ZREVRANGE key start stop — Return a range of members in a sorted set, with scores sorted from high to low
+    #[must_use = "call .build() to encode the command"]
+    fn zrevrange<K: ToRedisArgs>(
+        &self,
+        key: K,
+        start: i64,
+        stop: i64,
+    ) -> CommandBuilder {
+        CommandBuilder::new("ZREVRANGE")
+            .arg(key)
+            .arg(start)
+            .arg(stop)
+    }
+
+    /// ZREVRANK key member — Return the rank of a member in a sorted set, with the highest score at index 0
+    #[must_use = "call .build() to encode the command"]
+    fn zrevrank<K: ToRedisArgs, M: ToRedisArgs>(
+        &self,
+        key: K,
+        member: M,
+    ) -> CommandBuilder {
+        CommandBuilder::new("ZREVRANK").arg(key).arg(member)
+    }
+
+    /// ZUNIONSTORE dstkey numkeys key [key ...] — Add multiple sorted sets and store the resulting sorted set in a new key
+    #[allow(clippy::cast_possible_wrap)]
+    #[must_use = "call .build() to encode the command"]
+    fn zunionstore<K: ToRedisArgs>(
+        &self,
+        destination: K,
+        keys: &[K],
+    ) -> CommandBuilder {
+        let mut builder = CommandBuilder::new("ZUNIONSTORE");
+        builder = builder.arg(destination);
+        builder = builder.arg(keys.len() as i64);
+        for key in keys {
+            builder = builder.arg(key);
+        }
+        builder
+    }
+
+    /// ZINTERSTORE dstkey numkeys key [key ...] — Multiply multiple sorted sets and store the resulting sorted set in a new key
+    #[allow(clippy::cast_possible_wrap)]
+    #[must_use = "call .build() to encode the command"]
+    fn zinterstore<K: ToRedisArgs>(
+        &self,
+        destination: K,
+        keys: &[K],
+    ) -> CommandBuilder {
+        let mut builder = CommandBuilder::new("ZINTERSTORE");
+        builder = builder.arg(destination);
+        builder = builder.arg(keys.len() as i64);
+        for key in keys {
+            builder = builder.arg(key);
+        }
+        builder
+    }
+
+    /// ZREMRANGEBYSCORE key min max — Remove all members in a sorted set within the given scores
+    #[must_use = "call .build() to encode the command"]
+    fn zremrangebyscore<K: ToRedisArgs>(
+        &self,
+        key: K,
+        min: f64,
+        max: f64,
+    ) -> CommandBuilder {
+        CommandBuilder::new("ZREMRANGEBYSCORE")
+            .arg(key)
+            .arg(min)
+            .arg(max)
+    }
 }

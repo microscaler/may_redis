@@ -123,4 +123,36 @@ pub trait HashesCommands: Sized {
             .arg(field)
             .arg(increment)
     }
+
+    /// HVALS key — Get all values in a hash
+    #[must_use = "call .build() to encode the command"]
+    fn hvals<K: ToRedisArgs>(&self, key: K) -> CommandBuilder {
+        CommandBuilder::new("HVALS").arg(key)
+    }
+
+    /// HMGET key fields — Get the values of all the given hash fields
+    #[must_use = "call .build() to encode the command"]
+    fn hmget<K: ToRedisArgs, F: ToRedisArgs>(
+        &self,
+        key: K,
+        fields: &[F],
+    ) -> CommandBuilder {
+        let mut builder = CommandBuilder::new("HMGET");
+        builder = builder.arg(key);
+        for field in fields {
+            builder = builder.arg(field);
+        }
+        builder
+    }
+
+    /// HSETNX key field value — Set field in a hash only if the field does not exist
+    #[must_use = "call .build() to encode the command"]
+    fn hsetnx<K: ToRedisArgs, F: ToRedisArgs, V: ToRedisArgs>(
+        &self,
+        key: K,
+        field: F,
+        value: V,
+    ) -> CommandBuilder {
+        CommandBuilder::new("HSETNX").arg(key).arg(field).arg(value)
+    }
 }
