@@ -552,8 +552,8 @@ graph LR
 
 ### Test breakdown (v0.1.0)
 
-|| Suite | Tests | Runtime | Network | What validates |
-|------|-------|---------|---------|------------|
+| Suite | Tests | Runtime | Network | What validates |
+|-------|-------|---------|---------|----------------|
 | core/unit | 140+ | `#[test]` | None | FromRedisValue, ToRedisArgs, RedisValue, RedisError |
 | codec/unit | 60+ | `#[test]` | None | RESPReader, RESPWriter, roundtrip, CRLF handling |
 | protocol/unit | 50+ | `#[test]` | None (FakeConnection) | CommandBuilder, Commands encoding, CommandPolicy |
