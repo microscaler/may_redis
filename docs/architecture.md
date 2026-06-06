@@ -116,8 +116,8 @@ graph TB
 
 ### Module layer rules
 
-|| Layer | Modules | May / I/O? | Purpose |
-|------|---------|----------|-----------|
+| Layer | Modules | May / I/O? | Purpose |
+|-------|---------|------------|---------|
 | Data | `core`, `codec` | **No** | Pure types and RESP2 codec. Must build standalone. |
 | Construction | `protocol` | **No** | Build RESP-encoded commands. No runtime, no sockets. |
 | Runtime | `connection` | **Yes** | Owns the socket, runs the epoll loop, demultiplexes responses. |
