@@ -1,4 +1,12 @@
 
+
+## [2026-06-05] docs(llmwiki) — integration decode fixes and RESP edge cases
+- Updated [[connection-loop-pitfalls]] — Bug 4 (`*-1` null array / WATCH EXEC hang), Bug 5 (malformed RESP bulk lengths in decode tests)
+- Updated [[resp-protocol]] — null array vs null bulk, SCAN cursor bulk-string encoding, aborted EXEC type mapping
+- Updated [[may-coroutine-pattern]] — PubSubClient/RedisClient must use `spsc::recv()` not `try_recv()` poll loops; fixture port for pub/sub tests
+- Code landed in commits `0b31cc6` (integration API/codec fixes, 103/103 integration tests) and `2ab7203` (pubsub push decode test `$4` fix)
+- Key code anchors: `src/codec/reader.rs` (`read_array` `-1`), `src/core/from_value.rs` (`scan_cursor`), `src/client/pubsub_client.rs` (`recv()`)
+
 ## [2026-06-03] docs(epic16) — Docker-Managed Test Fixtures: PRD with FRs, NFRs, acceptance criteria
 - Analyzed BRRTRouter's bollard-based Docker test container patterns (tests/curl_harness.rs, tests/docker_integration_tests.rs)
 - Identified root problem: integration tests require hardcoded `localhost:6379` — fails on machines without pre-installed Redis, shares state across tests, dead code in tests/test_fixture.rs (uses tokio::spawn)

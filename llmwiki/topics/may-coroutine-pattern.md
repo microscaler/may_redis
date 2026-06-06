@@ -4,7 +4,7 @@
 - Source docs: `docs/02-may_postgres_comparison.md`, `docs/06-connection-layer-design.md`
 - Code anchors: `src/connection/`, `may::net::TcpStream`, `may::go!`, `may::sync::spsc`, `may::queue::mpsc::Queue`
 - Related: [Connection Loop Pitfalls](./connection-loop-pitfalls.md) — concrete bugs observed in this loop and how to avoid regressing them
-- Last updated: 2026-05-27
+- Last updated: 2026-06-05
 
 ## Core Architecture
 
@@ -73,6 +73,27 @@ loop into a busy-spin that never yields, deadlocking any coroutine
 that shares its worker. See
 [Connection Loop Pitfalls — Bug 1](./connection-loop-pitfalls.md#bug-1--connection-loop-never-yields-to-epoll-integration-tests-hang)
 for the exact regression.
+
+## spsc receive: use `recv()`, not `try_recv()` spin loops
+
+`RedisClient::execute()` and `PubSubClient::execute_value()` send a
+request, call `may::coroutine::yield_now()`, then block on
+`spsc::Receiver::recv()`. That registers the coroutine with the channel
+waiter list so the connection loop can wake it when the response (or
+pub/sub push) arrives.
+
+A `try_recv()` + `yield_now()` poll loop **does not** register the same
+waiter semantics. Under load (full integration suite, multiple connection
+loops on two workers) subscribe/receive tests timed out even though the
+connection loop had already decoded and sent the push.
+
+**Rule:** any path that waits for an `spsc` response from the connection
+loop must use cooperative `recv()` after an initial `yield_now()`.
+Reserve `recv_message_timeout()`-style polling only when a wall-clock
+deadline is required.
+
+Pub/sub integration tests must connect via `integration_redis_port()`
+(Docker fixture), not hardcoded `6379`.
 
 ## Request-Response Matching
 

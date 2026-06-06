@@ -1,9 +1,9 @@
 # RESP Protocol Reference
 
-- Status: unverified
+- Status: verified
 - Source docs: `docs/01-protocol-analysis.md`, `docs/05-protocol-layer-design.md`
-- Code anchors: `src/codec/`
-- Last updated: 2026-05-27
+- Code anchors: `src/codec/`, `src/core/from_value.rs`
+- Last updated: 2026-06-05
 
 ## RESP Wire Format
 
@@ -18,8 +18,9 @@ Redis uses **RESP** (Redis Serialization Protocol), a simple text-based protocol
 | `:N` | Integer | Decimal integer |
 | `$N` | Bulk string | N bytes terminated by `\r\n` |
 | `*N` | Array | N elements followed by their types |
-| `$-1` | Null bulk string | Null value |
-| `*0\r\n` | Empty array | Zero elements |
+| `$-1` | Null bulk string | Null value (no payload) |
+| `*-1` | Null array | Null value (no elements) — **not** the same as `$-1` |
+| `*0\r\n` | Empty array | Zero elements (valid empty array, not null) |
 
 ### RESP3 Types (out of scope for v1)
 
@@ -63,10 +64,25 @@ Example: `SET foo bar EX 60`
 | `+OK` | `Result<(), E>` | Simple string |
 | `:42` | `i64` | Integer |
 | `$5\r\nhello\r\n` | `String` | Bulk string |
-| `$-1` | `Option<String>` | Null bulk string |
+| `$-1` | `Option<String>` / `Option<T>` | Null bulk string |
+| `*-1` | `Option<Vec<T>>` | Null array — Redis uses this for aborted `EXEC` (WATCH conflict) |
 | `*2\r\n$3\r\nfoo\r\n$3\r\nbar\r\n` | `Vec<String>` | Array of strings |
 | `*0\r\n` | `Vec<String>` | Empty array |
 | `-ERR msg\r\n` | `RedisError` | Error |
+
+### SCAN-family cursor encoding
+
+Redis 7 returns SCAN / HSCAN / SSCAN / ZSCAN cursors as **bulk strings**
+(e.g. `"0"`, `"44"`), not integers, even in RESP2. The first element of
+the `*2` array is `$1\r\n0\r\n` or similar — not `:0\r\n`.
+
+`FromRedisValue for (i64, Vec<String>)` (and the `(i64, Vec<(String, f64)>)`
+variant) must parse the cursor via `scan_cursor()` in
+`src/core/from_value.rs`, accepting `Integer`, `BulkString`, or
+`SimpleString`.
+
+Integration tests that assumed `:N` integer cursors failed with parse
+errors until this was fixed (2026-06-05).
 
 ## Implementation
 

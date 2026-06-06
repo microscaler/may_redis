@@ -5,7 +5,7 @@
 - Code anchors:
   - `src/connection/connection.rs` — `spawn_connection_loop`, `decode_responses`, `nonblock_read`, `nonblock_write`
   - `../may_postgres/src/connection.rs` — `connection_loop`, `decode_messages` (reference)
-- Last updated: 2026-05-27
+- Last updated: 2026-06-05
 
 This page is a running list of subtle bugs that have actually been observed
 in the may-redis connection loop, with the root cause, the fix, and a
@@ -244,3 +244,55 @@ of a single `nonblock_read` per iteration.
   (decoder can handle 10 bulk values in one buffer)
 - `client::client_tests::integration::test_integration_request_ordering`
   (10 interleaved SET/GET pairs in one pipeline)
+
+## Bug 4 — `*-1` null array treated as parse error (WATCH/EXEC hang)
+
+### Symptom
+
+- `test_integration_transaction_watch_conflict` (and any caller awaiting
+  `EXEC` after a WATCH conflict) hangs forever on `rx.recv()`.
+- `decode_responses` returns `Ok(())` but the pending `EXEC` request is
+  never signalled.
+
+### Root cause
+
+Redis returns a **null array** (`*-1\r\n`) when `EXEC` aborts because a
+watched key changed. The RESP reader only handled null **bulk** strings
+(`$-1\r\n`). For arrays it tried to parse `-1` as a `usize` length,
+failed with `RedisError::Parse`, and `decode_responses` treated that as
+a partial value — restoring bytes and breaking without dispatching to
+the pending sender.
+
+### Fix
+
+In `RESPReader::read_array`, treat array length `-1` as
+`RedisValue::Null`. Decode aborted `EXEC` as `Option<Vec<String>>`
+(`Null` → `None`).
+
+### Regression coverage
+
+- `codec::reader_tests::tests::test_read_null_array`
+- `client::client_tests::integration_transactions::test_integration_transaction_watch_conflict`
+
+See also [[resp-protocol]] for null bulk vs null array.
+
+## Bug 5 — Malformed RESP bulk length in decode tests
+
+### Symptom
+
+- `connection::connection_tests::test_decode_responses_pubsub_push` fails
+  with `read_buf.is_empty()` even though push routing is correct.
+
+### Root cause
+
+Fixture used `$5\r\nnews\r\n` for the 4-byte channel `"news"`. Bulk
+length mismatch misaligns the parser; decode exits on partial parse with
+bytes still in `read_buf`.
+
+### Fix
+
+Use `$4\r\nnews\r\n`. Verify every `$N` in hand-built RESP fixtures.
+
+### Regression coverage
+
+- `connection::connection_tests::test_decode_responses_pubsub_push`
