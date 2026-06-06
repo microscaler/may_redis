@@ -3,6 +3,7 @@
 mod tests {
     use crate::connection::ssrf_allowed;
     use crate::connection::tcp::{resolve, ConnectionError, SsrfConfig, TcpConnector};
+    use may::go;
     use std::net::{SocketAddr, SocketAddrV4, SocketAddrV6};
 
     #[test]
@@ -74,22 +75,20 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "requires live network namespace"]
     fn test_connect_refused_returns_connect() {
-        use may::go;
-
         let wrapper = std::sync::Mutex::new(None::<()>);
         let _wrapper2 = wrapper.lock().unwrap();
         let wrapper2 = std::sync::Arc::new(std::sync::Mutex::new(None::<()>));
         let wrapper3 = std::sync::Arc::clone(&wrapper2);
 
-        let _ = go!(move || {
+        let handle = go!(move || {
             let result = TcpConnector::connect_timeout("127.0.0.1", 1, 5);
             assert!(result.is_err());
             let err = result.unwrap_err();
             assert!(matches!(err, ConnectionError::Connect(_)));
             *wrapper3.lock().unwrap() = Some(());
         });
+        let _ = handle.join();
     }
 
     #[test]

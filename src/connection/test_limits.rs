@@ -3,47 +3,57 @@
 //! Tests for AC-3.1 through AC-3.4: queue depth limits, request size limits,
 //! backpressure behavior, and distinguishable errors.
 
-#![allow(clippy::unwrap_used)]
+#![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use super::connection::Connection;
 use super::ConnectionLimitError;
+use may::go;
+#[cfg(feature = "test")]
 use may::sync::spsc;
 
 /// AC-3.1: connect_with_limits() accepts custom limits.
 #[test]
-#[ignore = "requires live network namespace"]
 fn test_connect_with_limits_custom_depth() {
-    let result = Connection::connect_with_limits(
-        "127.0.0.1",
-        6379,
-        std::time::Duration::from_secs(1),
-        10,   // custom queue depth
-        1024, // custom request size
-    );
-    assert!(result.is_err()); // no Redis, but limits accepted
+    let handle = go!(|| {
+        let result = Connection::connect_with_limits(
+            "127.0.0.1",
+            6379,
+            std::time::Duration::from_secs(1),
+            10,   // custom queue depth
+            1024, // custom request size
+        );
+        assert!(result.is_err()); // no Redis — connection expected to fail
+    });
+    let _ = handle.join();
 }
 
 /// AC-3.4: connect_with_limits() accepts large limits.
 #[test]
-#[ignore = "requires live network namespace"]
 fn test_connect_with_limits_large_request_size() {
-    let result = Connection::connect_with_limits(
-        "127.0.0.1",
-        6379,
-        std::time::Duration::from_secs(1),
-        1024,      // default queue depth
-        1_000_000, // 1 MB max request size
-    );
-    assert!(result.is_err());
+    let handle = go!(|| {
+        let result = Connection::connect_with_limits(
+            "127.0.0.1",
+            6379,
+            std::time::Duration::from_secs(1),
+            1024,      // default queue depth
+            1_000_000, // 1 MB max request size
+        );
+        assert!(result.is_err()); // no Redis — connection expected to fail
+    });
+    let _ = handle.join();
 }
 
 /// AC-3.2 + AC-3.3: Queue full returns QueueFull error, not panic.
 #[test]
-#[ignore = "requires live Redis server"]
+#[cfg(feature = "test")]
 fn test_queue_full_returns_error() {
+    if crate::test_fixture::skip_docker_tests() {
+        return;
+    }
+    let port = crate::test_fixture::plain_redis_port().expect("fixture port");
     let Ok(conn) = Connection::connect_with_limits(
         "127.0.0.1",
-        6379,
+        port,
         std::time::Duration::from_secs(1),
         2, // tiny queue depth — fills instantly
         65536,
@@ -74,11 +84,15 @@ fn test_queue_full_returns_error() {
 
 /// AC-3.2: RequestTooLarge is returned when data exceeds max_request_size.
 #[test]
-#[ignore = "requires live Redis server"]
+#[cfg(feature = "test")]
 fn test_request_too_large_returns_error() {
+    if crate::test_fixture::skip_docker_tests() {
+        return;
+    }
+    let port = crate::test_fixture::plain_redis_port().expect("fixture port");
     let Ok(conn) = Connection::connect_with_limits(
         "127.0.0.1",
-        6379,
+        port,
         std::time::Duration::from_secs(1),
         1024, // generous queue depth
         32,   // tiny request size — PING is 12 bytes

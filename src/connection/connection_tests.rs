@@ -4,6 +4,7 @@
 // nonblock_write, decode_responses, and Connection lifecycle.
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+#[cfg(feature = "test")]
 use super::connection::Connection;
 use super::connection::PendingRequest;
 use super::connection::Request;
@@ -12,15 +13,13 @@ use super::dispatch::process_req;
 use crate::core::RedisValue;
 use bytes::Buf;
 use bytes::BytesMut;
-use may::config;
-
+#[cfg(feature = "test")]
 use may::go;
 use may::queue::mpsc::Queue;
 use may::sync::spsc;
 use std::collections::VecDeque;
 use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
-use std::sync::Once;
 
 fn decode_test(
     read_buf: &mut BytesMut,
@@ -30,11 +29,17 @@ fn decode_test(
     decode_responses(read_buf, resp_queue, &pending_count, None)
 }
 
+#[allow(dead_code)]
 fn init_may_runtime() {
-    static INIT: Once = Once::new();
-    INIT.call_once(|| {
-        config().set_workers(2);
-    });
+    #[cfg(feature = "test")]
+    {
+        use may::config;
+        use std::sync::Once;
+        static INIT: Once = Once::new();
+        INIT.call_once(|| {
+            config().set_workers(2);
+        });
+    }
 }
 
 /// Test that Request creates correctly
@@ -308,9 +313,13 @@ fn test_decode_responses_pubsub_push() {
 
 /// Test Connection::connect establishes and returns valid connection
 #[test]
-#[ignore = "requires live Redis server"]
+#[cfg(feature = "test")]
 fn test_connection_connect() {
-    let conn = Connection::connect("127.0.0.1", 6379);
+    if crate::test_fixture::skip_docker_tests() {
+        return;
+    }
+    let port = crate::test_fixture::plain_redis_port().expect("fixture port");
+    let conn = Connection::connect("127.0.0.1", port);
     if let Ok(c) = conn {
         assert!(c.id() > 0);
         let tag = c.send(Request::new(vec![0], spsc::channel().0));
@@ -320,9 +329,13 @@ fn test_connection_connect() {
 
 /// Test Connection::send returns monotonically increasing tags
 #[test]
-#[ignore = "requires live Redis server"]
+#[cfg(feature = "test")]
 fn test_connection_send_tags() {
-    let conn = Connection::connect("127.0.0.1", 6379);
+    if crate::test_fixture::skip_docker_tests() {
+        return;
+    }
+    let port = crate::test_fixture::plain_redis_port().expect("fixture port");
+    let conn = Connection::connect("127.0.0.1", port);
     if let Ok(c) = conn {
         let tag0 = c.send(Request::new(vec![0], spsc::channel().0));
         let tag1 = c.send(Request::new(vec![0], spsc::channel().0));
@@ -335,9 +348,13 @@ fn test_connection_send_tags() {
 
 /// Test Connection::id returns the socket fd
 #[test]
-#[ignore = "requires live Redis server"]
+#[cfg(feature = "test")]
 fn test_connection_id() {
-    let conn = Connection::connect("127.0.0.1", 6379);
+    if crate::test_fixture::skip_docker_tests() {
+        return;
+    }
+    let port = crate::test_fixture::plain_redis_port().expect("fixture port");
+    let conn = Connection::connect("127.0.0.1", port);
     if let Ok(c) = conn {
         let id = c.id();
         assert!(id > 0); // socket fds start at 3
@@ -346,9 +363,13 @@ fn test_connection_id() {
 
 /// Test Drop cancels the connection loop coroutine
 #[test]
-#[ignore = "requires live Redis server"]
+#[cfg(feature = "test")]
 fn test_connection_drop() {
-    let conn = Connection::connect("127.0.0.1", 6379);
+    if crate::test_fixture::skip_docker_tests() {
+        return;
+    }
+    let port = crate::test_fixture::plain_redis_port().expect("fixture port");
+    let conn = Connection::connect("127.0.0.1", port);
     if let Ok(c) = conn {
         let id = c.id();
         assert!(id > 0);
@@ -372,13 +393,18 @@ fn test_connection_drop() {
 /// state if the loop is mid-write, or cancel without ensuring in-flight
 /// requests receive error responses.
 #[test]
-#[ignore = "requires live Redis server"]
+#[cfg(feature = "test")]
 fn test_connection_drop_during_request() {
     use std::sync::atomic::{AtomicUsize, Ordering};
 
+    if crate::test_fixture::skip_docker_tests() {
+        return;
+    }
+    let port = crate::test_fixture::plain_redis_port().expect("fixture port");
+
     init_may_runtime();
-    go!(|| {
-        let conn = Connection::connect("127.0.0.1", 6379).expect("connect");
+    go!(move || {
+        let conn = Connection::connect("127.0.0.1", port).expect("connect");
 
         let results = Arc::new(AtomicUsize::new(0));
         let timeout_ms = 5_000u64;
@@ -464,13 +490,18 @@ fn test_connection_drop_during_request() {
 /// the error-dispatch cleanup path that drains `resp_queue` with
 /// `RedisValue::Error`.
 #[test]
-#[ignore = "requires live Redis server"]
+#[cfg(feature = "test")]
 fn test_connection_drop_during_pipeline() {
     use std::sync::atomic::{AtomicUsize, Ordering};
 
+    if crate::test_fixture::skip_docker_tests() {
+        return;
+    }
+    let port = crate::test_fixture::plain_redis_port().expect("fixture port");
+
     init_may_runtime();
-    go!(|| {
-        let conn = Connection::connect("127.0.0.1", 6379).expect("connect");
+    go!(move || {
+        let conn = Connection::connect("127.0.0.1", port).expect("connect");
 
         let results = Arc::new(AtomicUsize::new(0));
         let timeout_ms = 5_000u64;
@@ -551,11 +582,16 @@ fn test_connection_drop_during_pipeline() {
 /// correctly, `may::coroutine::cancel` can trigger panics in the
 /// connection loop or leave dangling channels.
 #[test]
-#[ignore = "requires live Redis server"]
+#[cfg(feature = "test")]
 fn test_connection_drop_no_panic() {
+    if crate::test_fixture::skip_docker_tests() {
+        return;
+    }
+    let port = crate::test_fixture::plain_redis_port().expect("fixture port");
+
     // Scenario 1: Send then drop.
     {
-        let conn = Connection::connect("127.0.0.1", 6379).expect("connect");
+        let conn = Connection::connect("127.0.0.1", port).expect("connect");
         let (tx, rx): (spsc::Sender<RedisValue>, spsc::Receiver<RedisValue>) =
             spsc::channel();
         let _ = conn.send(Request::new(b"*1\r\n$4\r\nPING\r\n".to_vec(), tx));
@@ -571,7 +607,7 @@ fn test_connection_drop_no_panic() {
 
     // Scenario 2: Drop before send.
     {
-        let conn = Connection::connect("127.0.0.1", 6379).expect("connect");
+        let conn = Connection::connect("127.0.0.1", port).expect("connect");
         drop(conn);
         // A send into a cancelled/moved queue should not panic.
         // The Queue is Arc-moved, so push should not panic.

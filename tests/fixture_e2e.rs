@@ -1,5 +1,6 @@
 //! Standalone test to verify the bollard fixture works end-to-end.
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+#![cfg(feature = "test")]
 
 #[cfg(feature = "tls")]
 use may::config;
