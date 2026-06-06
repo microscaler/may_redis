@@ -1,7 +1,8 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-use super::unit::{run_integration, shared_client};
+use super::unit::{integration_redis_port, run_integration, shared_client};
 use crate::protocol::commands::{AdminCommands, StringsCommands, TransactionsCommands};
+use crate::RedisClient;
 
 // ---------------------------------------------------------------------------
 // MULTI/EXEC — Basic transaction
@@ -112,43 +113,32 @@ fn test_integration_transaction_watch() {
 #[test]
 fn test_integration_transaction_watch_conflict() {
     run_integration(|| {
-        let client = shared_client();
-        client.execute::<()>(client.flushdb()).ok();
+        let port = integration_redis_port();
+        let c1 = RedisClient::connect("127.0.0.1", port).expect("transaction client");
+        let c2 = RedisClient::connect("127.0.0.1", port).expect("conflict client");
+        may::coroutine::yield_now();
 
-        client
-            .execute::<()>(client.set("conflict_key", "original"))
-            .ok();
+        c1.execute::<()>(c1.flushdb()).ok();
+        c1.execute::<()>(c1.set("conflict_key", "original")).ok();
 
-        // First client watches and starts transaction
-        let c1 = client.clone();
-        let _: String = c1.execute(client.watch(&["conflict_key"])).unwrap();
+        let _: String = c1.execute(c1.watch(&["conflict_key"])).unwrap();
         let _: String = c1.execute(c1.multi()).unwrap();
         let _: String = c1.execute(c1.set("conflict_key", "from_c1")).unwrap();
 
-        // Second client changes the watched key
-        let _: () = client
-            .execute(client.set("conflict_key", "from_other"))
+        c2.execute::<()>(c2.set("conflict_key", "from_other"))
             .unwrap();
 
-        // First client tries to execute — should fail (nil/None)
-        let result: Result<Option<String>, _> = c1.execute(c1.exec());
+        // Redis returns RESP2 null array (*-1) when WATCH detects a conflict.
+        let exec_result: Option<Vec<String>> = c1.execute(c1.exec()).unwrap();
         assert!(
-            result.is_ok(),
-            "exec should succeed (returns None on conflict)"
-        );
-        // Redis returns nil (null) when watch conflict occurs
-        let exec_result = result.unwrap();
-        assert!(
-            exec_result.is_none()
-                || exec_result.iter().any(|r| r == "nil" || r.is_empty()),
-            "EXEC should return nil on watch conflict"
+            exec_result.is_none(),
+            "EXEC should return null on watch conflict, got {exec_result:?}"
         );
 
-        // Verify key wasn't changed by c1
-        let val: Option<String> = client.execute(client.get("conflict_key")).unwrap();
+        let val: Option<String> = c2.execute(c2.get("conflict_key")).unwrap();
         assert_eq!(val, Some("from_other".to_string()));
 
-        client.execute::<()>(client.flushdb()).ok();
+        c1.execute::<()>(c1.flushdb()).ok();
     });
 }
 

@@ -118,6 +118,7 @@ fn test_integration_admin_pttl() {
         let pttl: i64 = client.execute(client.pttl("no_ttl")).unwrap();
         assert_eq!(pttl, -1);
 
+        client.execute::<()>(client.set("ttl_key", "value")).ok();
         client.execute::<()>(client.pexpire("ttl_key", 60000)).ok();
         let pttl: i64 = client.execute(client.pttl("ttl_key")).unwrap();
         assert!(pttl > 0 && pttl <= 60000);

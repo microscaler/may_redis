@@ -1,5 +1,5 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
-use super::unit::{run_integration, shared_client};
+use super::unit::{integration_redis_port, run_integration, shared_client};
 use crate::connection::PubSubMessage;
 use crate::protocol::commands::{AdminCommands, PubsubCommands};
 use crate::PubSubClient;
@@ -10,8 +10,10 @@ fn test_integration_pubsub_subscribe_receive() {
         let publisher = shared_client();
         publisher.execute::<()>(publisher.flushdb()).ok();
 
+        let port = integration_redis_port();
         let subscriber =
-            PubSubClient::connect("127.0.0.1", 6379).expect("pubsub connect");
+            PubSubClient::connect("127.0.0.1", port).expect("pubsub connect");
+        may::coroutine::yield_now();
         subscriber.subscribe(&["chan_a"]).unwrap();
 
         let count: i64 = publisher
@@ -39,8 +41,10 @@ fn test_integration_pubsub_psubscribe() {
         let publisher = shared_client();
         publisher.execute::<()>(publisher.flushdb()).ok();
 
+        let port = integration_redis_port();
         let subscriber =
-            PubSubClient::connect("127.0.0.1", 6379).expect("pubsub connect");
+            PubSubClient::connect("127.0.0.1", port).expect("pubsub connect");
+        may::coroutine::yield_now();
         subscriber.psubscribe(&["news.*"]).unwrap();
 
         let count: i64 = publisher

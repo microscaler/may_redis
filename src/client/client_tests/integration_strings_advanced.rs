@@ -123,7 +123,7 @@ fn test_strings_getrange() {
         // [-3:] last 3 chars
         let val: Option<String> =
             client.execute(client.getrange("greeting", -3, -1)).unwrap();
-        assert_eq!(val, Some("rld".to_string()));
+        assert_eq!(val, Some("ld!".to_string()));
 
         // Out-of-range end
         let val: Option<String> =
@@ -151,7 +151,7 @@ fn test_strings_setrange() {
         assert_eq!(len, 12);
 
         let val: Option<String> = client.execute(client.get("orig")).unwrap();
-        assert_eq!(val, Some("Hello Rust!".to_string()));
+        assert_eq!(val, Some("Hello Rustd!".to_string()));
 
         client.execute::<()>(client.flushdb()).ok();
     });
@@ -206,9 +206,7 @@ fn test_strings_bitcount() {
         client.execute::<()>(client.flushdb()).ok();
 
         // Set 0xFF → "11111111" → 8 bits set
-        client
-            .execute::<()>(client.set("full", String::from_utf8(vec![0xff]).unwrap()))
-            .ok();
+        client.execute::<()>(client.set("full", &[0xff][..])).ok();
         let count: i64 = client.execute(client.bitcount("full")).unwrap();
         assert_eq!(count, 8);
 
@@ -218,9 +216,7 @@ fn test_strings_bitcount() {
         assert_eq!(count, 4);
 
         // Byte range: just the first byte
-        client
-            .execute::<()>(client.set("full", String::from_utf8(vec![0xff]).unwrap()))
-            .ok();
+        client.execute::<()>(client.set("full", &[0xff][..])).ok();
         let count: i64 = client.execute(client.bitcount_range("full", 0, 0)).unwrap();
         assert_eq!(count, 8);
 

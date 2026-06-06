@@ -81,7 +81,7 @@ pub(super) fn prepare_integration_tests() -> bool {
     }
 }
 
-fn integration_redis_port() -> u16 {
+pub(super) fn integration_redis_port() -> u16 {
     #[cfg(feature = "test")]
     if let Some(port) = crate::test_fixture::plain_redis_port() {
         return port;

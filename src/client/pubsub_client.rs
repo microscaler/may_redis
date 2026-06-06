@@ -12,12 +12,9 @@ use crate::protocol::builder::CommandBuilder;
 use crate::protocol::commands::PubsubCommands;
 use may::sync::spsc;
 
-const DEFAULT_TIMEOUT: Duration = Duration::from_secs(5);
-
 struct InnerPubSubClient {
     connection: Connection,
     message_rx: spsc::Receiver<PubSubMessage>,
-    default_timeout: Duration,
 }
 
 /// Subscriber connection for Redis pub/sub.
@@ -44,7 +41,6 @@ impl PubSubClient {
             inner: Arc::new(InnerPubSubClient {
                 connection,
                 message_rx: push_rx,
-                default_timeout: DEFAULT_TIMEOUT,
             }),
         })
     }
@@ -109,7 +105,10 @@ impl PubSubClient {
     /// # Errors
     /// Returns [`RedisError::Connection`] on timeout or channel close.
     pub fn recv_message(&self) -> Result<PubSubMessage, RedisError> {
-        self.recv_message_timeout(self.inner.default_timeout)
+        self.inner
+            .message_rx
+            .recv()
+            .map_err(|_| RedisError::Connection("pub/sub channel closed".into()))
     }
 
     /// Block until the next pub/sub push message or timeout.
@@ -143,22 +142,17 @@ impl PubSubClient {
             .connection
             .send(Request::new(data.to_vec(), tx))
             .map_err(|e| RedisError::Connection(format!("send failed: {e}")))?;
-        let deadline = std::time::Instant::now() + self.inner.default_timeout;
-        loop {
-            if let Ok(value) = rx.try_recv() {
-                if let RedisValue::Error(msg) = value {
-                    return Err(RedisError::Protocol(msg));
-                }
-                return Ok(value);
-            }
-            if std::time::Instant::now() >= deadline {
-                return Err(RedisError::Connection(format!(
-                    "command timed out after {:?}",
-                    self.inner.default_timeout
-                )));
-            }
-            may::coroutine::yield_now();
+
+        may::coroutine::yield_now();
+
+        let response = rx
+            .recv()
+            .map_err(|_| RedisError::Connection("response channel closed".into()))?;
+
+        if let RedisValue::Error(msg) = response {
+            return Err(RedisError::Protocol(msg));
         }
+        Ok(response)
     }
 }
 

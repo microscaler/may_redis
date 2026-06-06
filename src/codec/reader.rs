@@ -316,15 +316,15 @@ impl RESPReader {
 
         let line = self.read_line()?;
         self.expect_crlf()?;
-        let len = std::str::from_utf8(&line)
-            .map_err(|_| RedisError::Parse("array length is not valid UTF-8".into()))?
-            .parse::<usize>()
-            .map_err(|_| {
-                RedisError::Parse(format!(
-                    "invalid array length: {}",
-                    String::from_utf8_lossy(&line)
-                ))
-            })?;
+        let len_text = std::str::from_utf8(&line)
+            .map_err(|_| RedisError::Parse("array length is not valid UTF-8".into()))?;
+        if len_text == "-1" {
+            // RESP2 null array — Redis uses this for aborted EXEC (WATCH conflict).
+            return Ok(RedisValue::Null);
+        }
+        let len = len_text.parse::<usize>().map_err(|_| {
+            RedisError::Parse(format!("invalid array length: {len_text}"))
+        })?;
 
         if len > self.max_array_len {
             return Err(RedisError::Parse(format!(

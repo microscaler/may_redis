@@ -444,4 +444,16 @@ mod tests {
         let result: i32 = FromRedisValue::from_redis_value(&val).unwrap();
         assert_eq!(result, i32::MIN + 1);
     }
+
+    #[test]
+    fn test_from_redis_value_scan_cursor_bulk_string() {
+        let val = RedisValue::Array(vec![
+            RedisValue::BulkString(b"44".to_vec()),
+            RedisValue::Array(vec![RedisValue::BulkString(b"k1".to_vec())]),
+        ]);
+        let (cursor, keys): (i64, Vec<String>) =
+            FromRedisValue::from_redis_value(&val).unwrap();
+        assert_eq!(cursor, 44);
+        assert_eq!(keys, vec!["k1".to_string()]);
+    }
 }

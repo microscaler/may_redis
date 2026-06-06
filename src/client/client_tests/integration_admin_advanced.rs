@@ -46,10 +46,14 @@ fn test_integration_admin_sort_list() {
         let client = shared_client();
         client.execute::<()>(client.flushdb()).ok();
 
-        // SORT on a string key
+        // SORT on a string key returns WRONGTYPE
         client.execute::<()>(client.set("sort_string", "abc")).ok();
-        let sorted: Vec<String> = client.execute(client.sort("sort_string")).unwrap();
-        assert!(!sorted.is_empty());
+        let result: Result<Vec<String>, _> = client.execute(client.sort("sort_string"));
+        assert!(result.is_err(), "SORT on string key should fail");
+        assert!(
+            result.unwrap_err().to_string().contains("WRONGTYPE"),
+            "expected WRONGTYPE error"
+        );
 
         client.execute::<()>(client.flushdb()).ok();
     });

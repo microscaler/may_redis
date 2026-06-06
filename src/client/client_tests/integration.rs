@@ -327,8 +327,11 @@ fn test_integration_wrong_type_extraction() {
         let client = shared_client();
         client.execute::<()>(client.flushdb()).ok();
 
-        let result: Result<String, _> = client.execute(client.dbsize());
-        assert!(result.is_err(), "DBSIZE→String should error");
+        let result: Result<f64, _> = client.execute(client.dbsize());
+        assert!(
+            result.is_err(),
+            "DBSIZE→f64 should error (Integer is not BulkString)"
+        );
 
         client.execute::<()>(client.flushdb()).ok();
     });

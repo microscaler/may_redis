@@ -82,6 +82,15 @@ impl FromRedisValue for Option<String> {
     }
 }
 
+impl FromRedisValue for Option<Vec<String>> {
+    fn from_redis_value(value: &RedisValue) -> RedisResult<Self> {
+        match value {
+            RedisValue::Null => Ok(None),
+            other => Vec::<String>::from_redis_value(other).map(Some),
+        }
+    }
+}
+
 impl FromRedisValue for usize {
     fn from_redis_value(value: &RedisValue) -> RedisResult<Self> {
         match value {
@@ -169,6 +178,27 @@ impl FromRedisValue for f64 {
 // Compound types — collections of key/value pairs and scan cursors
 // ---------------------------------------------------------------------------
 
+/// Parse a SCAN-family cursor (Redis RESP2 sends bulk strings, e.g. `"0"`).
+fn scan_cursor(value: &RedisValue) -> RedisResult<i64> {
+    match value {
+        RedisValue::Integer(n) => Ok(*n),
+        RedisValue::BulkString(bytes) => {
+            let s = std::str::from_utf8(bytes).map_err(|_| {
+                RedisError::Parse("scan cursor is not valid UTF-8".into())
+            })?;
+            s.parse::<i64>().map_err(|_| {
+                RedisError::Parse(format!("cannot parse scan cursor from '{s}'"))
+            })
+        }
+        RedisValue::SimpleString(s) => s.parse::<i64>().map_err(|_| {
+            RedisError::Parse(format!("cannot parse scan cursor from '{s}'"))
+        }),
+        other => Err(RedisError::Parse(format!(
+            "expected scan cursor (bulk string or integer), got {other:?}"
+        ))),
+    }
+}
+
 impl FromRedisValue for Vec<(String, String)> {
     fn from_redis_value(value: &RedisValue) -> RedisResult<Self> {
         match value {
@@ -224,7 +254,7 @@ impl FromRedisValue for (i64, Vec<String>) {
                         items.len()
                     )));
                 }
-                let cursor = i64::from_redis_value(&items[0])?;
+                let cursor = scan_cursor(&items[0])?;
                 let values = Vec::<String>::from_redis_value(&items[1])?;
                 Ok((cursor, values))
             }
@@ -243,7 +273,7 @@ impl FromRedisValue for (i64, Vec<(String, f64)>) {
                         items.len()
                     )));
                 }
-                let cursor = i64::from_redis_value(&items[0])?;
+                let cursor = scan_cursor(&items[0])?;
                 let members = Vec::<(String, f64)>::from_redis_value(&items[1])?;
                 Ok((cursor, members))
             }

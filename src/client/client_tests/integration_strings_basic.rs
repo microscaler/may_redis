@@ -41,7 +41,10 @@ fn test_strings_incrby_overflow() {
         let err = client
             .execute::<i64>(client.incrby("big", 100))
             .unwrap_err();
-        assert!(err.to_string().contains("overflows"), "error: {err:?}");
+        assert!(
+            err.to_string().to_lowercase().contains("overflow"),
+            "error: {err:?}"
+        );
 
         client.execute::<()>(client.flushdb()).ok();
     });

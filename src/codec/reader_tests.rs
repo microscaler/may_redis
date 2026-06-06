@@ -112,6 +112,14 @@ mod tests {
     }
 
     #[test]
+    fn test_read_null_array() {
+        let buf = BytesMut::from(b"*-1\r\n".as_ref());
+        let mut r = RESPReader::new(buf);
+        let val = r.read_value().unwrap();
+        assert!(matches!(val, RedisValue::Null));
+    }
+
+    #[test]
     fn test_read_multiple_values() {
         let buf = BytesMut::from(b"+OK\r\n:42\r\n$-1\r\n".as_ref());
         let mut r = RESPReader::new(buf);
@@ -240,7 +248,8 @@ mod tests {
     fn test_bulk_under_default_cap() {
         // $1000 is well under 256 MB default
         let data: Vec<u8> = vec![b'a'; 1000];
-        let payload = format!("${}\r\n{}\r\n", data.len(), String::from_utf8_lossy(&data));
+        let payload =
+            format!("${}\r\n{}\r\n", data.len(), String::from_utf8_lossy(&data));
         let buf = BytesMut::from(payload.as_bytes());
         let mut r = RESPReader::new(buf);
         let val = r.read_value().unwrap();
@@ -302,7 +311,8 @@ mod tests {
     #[test]
     fn test_bulk_exact_cap_ok() {
         let data: Vec<u8> = vec![b'a'; 100];
-        let payload = format!("${}\r\n{}\r\n", data.len(), String::from_utf8_lossy(&data));
+        let payload =
+            format!("${}\r\n{}\r\n", data.len(), String::from_utf8_lossy(&data));
         let buf = BytesMut::from(payload.as_bytes());
         let mut r = RESPReader::new(buf).with_max_bulk_len(100);
         let val = r.read_value().unwrap();
