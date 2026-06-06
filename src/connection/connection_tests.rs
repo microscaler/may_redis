@@ -279,7 +279,7 @@ fn test_decode_responses_multiple_with_partial_trailing() {
 #[test]
 fn test_decode_responses_pubsub_push() {
     let mut read_buf: BytesMut =
-        b"*3\r\n$7\r\nmessage\r\n$5\r\nnews\r\n$5\r\nhello\r\n"
+        b"*3\r\n$7\r\nmessage\r\n$4\r\nnews\r\n$5\r\nhello\r\n"
             .as_slice()
             .into();
     let mut resp_queue = VecDeque::<PendingRequest>::new();
