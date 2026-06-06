@@ -266,8 +266,8 @@ graph TB
 
 ### Key may primitives in use
 
-|| Primitive | Role |
-|-----------|--------|
+| Primitive | Role |
+|-----------|------|
 | `may::go!` | Spawn the connection loop coroutine. |
 | `may::net::TcpStream` | may-aware TCP socket (registers with epoll, supports `wait_io`). |
 | `may::io::WaitIo` / `WaitIoWaker` | The loop's epoll yield point and the cross-coroutine wakeup hook. |
@@ -468,7 +468,7 @@ the `Vec<T>` impl when every result has the same type.
 
 ### `Commands` trait method shapes
 
-|| Method | Returns | RESP command produced |
+| Method | Returns | RESP command produced |
 |--------|---------|----------------------|
 | `get<K>(key)` | `CommandBuilder` | `GET key` |
 | `set<K, V>(key, value)` | `CommandBuilder` | `SET key value` |
@@ -494,8 +494,8 @@ builder use `Commands::ping(&client)`.
 
 ## 8. Feature flags
 
-|| Feature | Default | What it gates |
-|---------|---------|-----------|
+| Feature | Default | What it gates |
+|---------|---------|---------------|
 | `default` | yes | Empty — nothing extra is enabled by default. |
 | `test` | no | Compiles `client::in_memory::InMemoryClient`, `test_fixture/`, and test helpers. |
 | `tls` | no | Compiles TLS module (rustls, connector, TLS connections). |
@@ -607,8 +607,8 @@ this section only covers the architectural shape.
 
 ## 10. What's implemented (epics status as of v0.1.0)
 
-|| Epic | Title | Status | Key Deliverables |
-|------|-------|-------|--------|----------------|
+| Epic | Title | Status | Key Deliverables |
+|------|-------|--------|------------------|
 | 0 | Project foundation | COMPLETE | Single-crate layout, Cargo.toml, module structure |
 | 1 | Core types | COMPLETE | RedisValue, RedisError, FromRedisValue, ToRedisArgs |
 | 2 | RESP codec | COMPLETE | RESPReader, RESPWriter, roundtrip tests |
