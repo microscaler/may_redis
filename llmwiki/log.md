@@ -1,4 +1,8 @@
 
+## [2026-06-06] fix(clippy) + fix(epic5) — clippy regression + Epic 5 story docs
+- Fixed clippy regression in client_url.rs:260 (needless_return removed)
+- Updated Epic 5 Story 5.3 — both claimed gaps (feature gate, API consistency) already fixed in code, updated story docs to match
+
 ## [2026-06-06] docs(epic-qa) — Full Epic 0-16 QA evaluation
 - Created `llmwiki/topics/epic-qa-evaluation.md` — Complete QA report across all 16 epics
 - Verified 606 total tests, build PASS, clippy FAIL (2 errors in client_url.rs)
