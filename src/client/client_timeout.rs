@@ -5,8 +5,17 @@
 use crate::connection::Request;
 use crate::core::{FromRedisValue, RedisError, RedisValue};
 use crate::protocol::builder::CommandBuilder;
-use may::sync::spsc;
+use may::sync::spsc::{self, RecvError};
 use std::time::Duration;
+
+fn map_recv_error(e: &RecvError) -> RedisError {
+    match e {
+        RecvError::Timeout => RedisError::Connection("timeout".into()),
+        RecvError::Disconnected => {
+            RedisError::Connection("response channel closed".into())
+        }
+    }
+}
 
 // ---------------------------------------------------------------------------
 // Timeout-aware execution
@@ -17,19 +26,18 @@ impl super::client::RedisClient {
     ///
     /// # Arguments
     /// * `cmd` - The command to execute, built with [`CommandBuilder`]
-    /// * `timeout` - Reserved for future connection-layer deadline enforcement
+    /// * `timeout` - Maximum time to wait for the response on the spsc channel
     ///
     /// # Errors
-    /// Returns [`RedisError::Connection`] if the response channel closes before
-    /// a response arrives.
+    /// Returns [`RedisError::Connection`] with message `"timeout"` when the
+    /// deadline elapses before a response arrives, or when the response channel
+    /// closes.
     #[allow(clippy::unwrap_used)]
     pub fn execute_with_timeout<T: FromRedisValue>(
         &self,
         cmd: CommandBuilder,
         timeout: Duration,
     ) -> Result<T, RedisError> {
-        let _ = timeout;
-
         if let Some(name) = cmd.command_name() {
             if !self.inner.command_policy.is_allowed(name) {
                 return Err(RedisError::Security(format!(
@@ -50,8 +58,8 @@ impl super::client::RedisClient {
         may::coroutine::yield_now();
 
         let response = rx
-            .recv()
-            .map_err(|_| RedisError::Connection("response channel closed".into()))?;
+            .recv_with_timeout(timeout)
+            .map_err(|e| map_recv_error(&e))?;
 
         if let RedisValue::Error(msg) = response {
             return Err(RedisError::Protocol(msg));
@@ -65,7 +73,7 @@ impl super::client::RedisClient {
     /// # Errors
     ///
     /// Returns [`RedisError`] if the command fails, the response cannot be
-    /// decoded, or the connection returns an error value.
+    /// decoded, the deadline elapses, or the connection returns an error value.
     pub fn execute_timeout<T: FromRedisValue>(
         &self,
         cmd: CommandBuilder,

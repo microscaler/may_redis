@@ -10,7 +10,7 @@ use crate::connection::{Connection, PubSubMessage, Request};
 use crate::core::{RedisError, RedisValue};
 use crate::protocol::builder::CommandBuilder;
 use crate::protocol::commands::PubsubCommands;
-use may::sync::spsc;
+use may::sync::spsc::{self, RecvError};
 
 struct InnerPubSubClient {
     connection: Connection,
@@ -119,18 +119,17 @@ impl PubSubClient {
         &self,
         timeout: Duration,
     ) -> Result<PubSubMessage, RedisError> {
-        let deadline = std::time::Instant::now() + timeout;
-        loop {
-            if let Ok(msg) = self.inner.message_rx.try_recv() {
-                return Ok(msg);
-            }
-            if std::time::Instant::now() >= deadline {
-                return Err(RedisError::Connection(format!(
+        self.inner
+            .message_rx
+            .recv_with_timeout(timeout)
+            .map_err(|e| match e {
+                RecvError::Timeout => RedisError::Connection(format!(
                     "pub/sub recv timed out after {timeout:?}"
-                )));
-            }
-            may::coroutine::yield_now();
-        }
+                )),
+                RecvError::Disconnected => {
+                    RedisError::Connection("pub/sub channel closed".into())
+                }
+            })
     }
 
     fn execute_value(&self, cmd: CommandBuilder) -> Result<RedisValue, RedisError> {

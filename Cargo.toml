@@ -12,7 +12,8 @@ bollard = { version = "0.20", optional = true, features = ["ssl", "chrono"] }
 futures = { version = "0.3", optional = true }
 itoa = "1.0"
 log = "0.4"
-may = { version = "0.3", default-features = false, features = ["io_timeout"] }
+# Temporary: microscaler/may `may-sleep` until recv_with_timeout PR merges to master.
+may = { git = "https://github.com/microscaler/may.git", branch = "may-sleep", default-features = false, features = ["io_timeout"] }
 rustls = { version = "0.23", optional = true, default-features = false, features = ["ring", "std", "tls12"] }
 rustls-pemfile = { version = "2", optional = true }
 socket2 = "0.5"
