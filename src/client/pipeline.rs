@@ -8,9 +8,14 @@
 // 2. Execute all at once with `execute()`
 // 3. Responses come back in order
 
-use crate::connection::{Connection, Request};
+use crate::connection::{Connection, ConnectionLimitError, Request};
+use crate::core::{RedisError, RedisValue};
 use crate::protocol::builder::CommandBuilder;
 use may::coroutine::yield_now;
+
+fn map_send_error(e: &ConnectionLimitError) -> RedisError {
+    RedisError::Connection(format!("pipeline send failed: {e}"))
+}
 
 /// Batch command execution.
 ///
@@ -69,16 +74,18 @@ impl<'a> Pipeline<'a> {
     /// Execute all queued commands and collect raw `RedisValue` responses.
     ///
     /// # Errors
-    /// Returns [`crate::core::RedisError::Parse`] if the response channel is closed.
-    pub fn execute_raw(
-        &mut self,
-    ) -> Result<Vec<crate::core::RedisValue>, crate::core::RedisError> {
+    /// Returns [`RedisError::Connection`] if a command cannot be queued on
+    /// the connection (queue full, request too large) or if the response
+    /// channel closes before a response arrives.
+    pub fn execute_raw(&mut self) -> Result<Vec<RedisValue>, RedisError> {
         for (data, tx) in std::mem::take(&mut self.commands)
             .into_iter()
             .zip(std::mem::take(&mut self.senders))
         {
             let request = Request::new(data, tx);
-            let _ = self.connection.send(request);
+            self.connection
+                .send(request)
+                .map_err(|e| map_send_error(&e))?;
         }
 
         yield_now();
@@ -87,7 +94,7 @@ impl<'a> Pipeline<'a> {
         for rx in std::mem::take(&mut self.receivers) {
             yield_now();
             let response = rx.recv().map_err(|_| {
-                crate::core::RedisError::Parse("response channel closed".into())
+                RedisError::Connection("response channel closed".into())
             })?;
             responses.push(response);
         }
@@ -98,46 +105,53 @@ impl<'a> Pipeline<'a> {
     /// Execute all queued commands and collect responses as individual results.
     ///
     /// Unlike `execute_raw()`, this returns `Vec<Result<RedisValue, RedisError>>`
-    /// so that individual command failures don't block the entire pipeline.
-    pub fn execute_raw_results(
-        &mut self,
-    ) -> Vec<Result<crate::core::RedisValue, crate::core::RedisError>> {
+    /// so that individual command failures don't fail the entire pipeline.
+    /// A send rejected by connection limits or a closed response channel
+    /// produces an `Err` entry for that command instead of waiting forever.
+    ///
+    /// Responses are dispatched in FIFO order by the connection loop, so
+    /// receivers are drained in order with blocking `recv()` — which parks
+    /// the coroutine. Do NOT replace this with a `try_recv()` polling loop:
+    /// a yield-spinning coroutine hogs its may worker and starves the
+    /// connection-loop coroutine (Bug 1 in
+    /// `llmwiki/topics/connection-loop-pitfalls.md`).
+    pub fn execute_raw_results(&mut self) -> Vec<Result<RedisValue, RedisError>> {
         let n = self.commands.len();
 
-        // Push all commands to the connection's request queue at once
+        // Push all commands to the connection's request queue at once.
+        // A failed send is recorded immediately: its response can never
+        // arrive, so waiting on it would block forever.
+        let mut send_errors: Vec<Option<RedisError>> = Vec::with_capacity(n);
         for (data, tx) in std::mem::take(&mut self.commands)
             .into_iter()
             .zip(std::mem::take(&mut self.senders))
         {
             let request = Request::new(data, tx);
-            let _ = self.connection.send(request);
+            send_errors.push(
+                self.connection
+                    .send(request)
+                    .err()
+                    .map(|e| map_send_error(&e)),
+            );
         }
 
-        // Drain receivers into a local vec so we can poll them
         let receivers = std::mem::take(&mut self.receivers);
 
         // Yield to let the connection loop process all queued requests
         yield_now();
 
-        // Poll each receiver with try_recv, yielding between rounds.
-        // This avoids blocking on any single command.
-        let mut results = vec![None; n];
-        let mut done = 0;
-        while done < n {
-            for i in 0..n {
-                if results[i].is_none() {
-                    if let Ok(val) = receivers[i].try_recv() {
-                        results[i] = Some(Ok(val));
-                        done += 1;
-                    }
+        receivers
+            .into_iter()
+            .zip(send_errors)
+            .map(|(rx, send_error)| {
+                if let Some(e) = send_error {
+                    return Err(e);
                 }
-            }
-            if done < n {
-                yield_now();
-            }
-        }
-
-        results.into_iter().flatten().collect()
+                rx.recv().map_err(|_| {
+                    RedisError::Connection("response channel closed".into())
+                })
+            })
+            .collect()
     }
 
     /// Execute all queued commands and decode typed results via `FromPipelineResponse`.
