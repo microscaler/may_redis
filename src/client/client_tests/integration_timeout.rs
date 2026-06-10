@@ -1,15 +1,21 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-use super::unit::{integration_redis_port, run_integration, shared_client};
-use crate::protocol::commands::{AdminCommands, ListsCommands};
+use super::unit::{integration_redis_port, run_integration};
+use crate::protocol::commands::ListsCommands;
 use crate::PubSubClient;
 use std::time::{Duration, Instant};
 
 #[test]
 fn test_integration_execute_with_timeout_fires() {
     run_integration(|| {
-        let client = shared_client();
-        client.execute::<()>(client.flushdb()).ok();
+        // MUST use a dedicated connection: `BLPOP key 0` blocks the Redis
+        // connection forever server-side. Issuing it on the shared client
+        // would wedge every subsequent test (Redis serves a connection's
+        // commands strictly in order). The wedged connection is dropped at
+        // the end of this test.
+        let port = integration_redis_port();
+        let client =
+            crate::RedisClient::connect("127.0.0.1", port).expect("timeout client");
 
         let start = Instant::now();
         let err = client
@@ -28,8 +34,6 @@ fn test_integration_execute_with_timeout_fires() {
             format!("{err}").contains("timeout"),
             "expected timeout error, got {err}"
         );
-
-        client.execute::<()>(client.flushdb()).ok();
     });
 }
 

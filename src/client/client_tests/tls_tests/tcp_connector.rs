@@ -80,7 +80,9 @@ fn test_connect_resolve_fails() {
         return;
     }
     run_may(|| {
-        let result = RedisClient::connect("nonexistent.invalid.host.localhost", 6379);
+        // `.invalid` is reserved (RFC 2606) and guaranteed to NXDOMAIN;
+        // `.localhost` names resolve to loopback on systemd-resolved hosts.
+        let result = RedisClient::connect("nonexistent.host.invalid", 6379);
         assert!(result.is_err(), "Expected DNS resolution failure");
     });
 }

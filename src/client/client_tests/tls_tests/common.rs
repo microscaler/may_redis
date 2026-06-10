@@ -10,31 +10,39 @@
     clippy::needless_borrows_for_generic_args
 )]
 
-use may::config;
 use std::path::PathBuf;
-use std::sync::{Once, OnceLock};
+use std::sync::OnceLock;
 
 use crate::tls::{
     config::{RustlsRootCerts, TlsVersion},
     TlsConfig,
 };
 
-/// One-time initialization of the may coroutine runtime (TLS needs larger stacks).
+/// One-time initialization of the may coroutine runtime.
+///
+/// Delegates to the crate-wide test init: the may config is global, so all
+/// harnesses must agree on one workers/stack configuration.
 fn init_may_runtime() {
-    static INIT: Once = Once::new();
-    INIT.call_once(|| {
-        config().set_stack_size(64 * 1024);
-        config().set_workers(1);
-    });
+    crate::client::client_tests::unit::init_may_runtime();
 }
 
 /// Run test logic inside the may scheduler.
+///
+/// TLS integration tests share one `tls_client()` and one Redis DB, and
+/// call FLUSHDB for isolation — so they must not run concurrently. The
+/// guard is held on the libtest thread (not a may worker), serializing
+/// test bodies without affecting the coroutine scheduler.
 pub(super) fn run_may<F, T>(f: F) -> T
 where
     F: FnOnce() -> T + Send + 'static,
     T: Send + 'static,
 {
+    static ISOLATION: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
     init_may_runtime();
+    let _guard = ISOLATION
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     crate::client::client_tests::unit::run_may(f)
 }
 
@@ -111,15 +119,26 @@ pub(super) fn plain_port() -> u16 {
 }
 
 /// Shared TLS client connected to the Docker-managed Redis-TLS container.
+///
+/// Initialization is guarded by a `may` mutex, NOT `std::sync::Once`: this
+/// function runs inside coroutines, and the handshake parks its coroutine.
+/// A `Once` would block the worker *thread* in concurrent callers — with
+/// `set_workers(1)` that deadlocks the whole scheduler.
 pub(super) fn tls_client() -> crate::RedisClient {
-    static INIT: Once = Once::new();
     static CLIENT: OnceLock<crate::RedisClient> = OnceLock::new();
-    INIT.call_once(|| {
-        let config = test_tls_config();
-        let port = tls_port();
-        let client = crate::RedisClient::connect_tls("127.0.0.1", port, &config, 5)
-            .expect("Redis-TLS Docker fixture connection failed");
-        CLIENT.set(client).ok();
-    });
-    CLIENT.get().expect("TLS client not initialized").clone()
+    static INIT_LOCK: OnceLock<may::sync::Mutex<()>> = OnceLock::new();
+
+    let _guard = INIT_LOCK
+        .get_or_init(|| may::sync::Mutex::new(()))
+        .lock()
+        .expect("tls_client init lock poisoned");
+    if let Some(client) = CLIENT.get() {
+        return client.clone();
+    }
+    let config = test_tls_config();
+    let port = tls_port();
+    let client = crate::RedisClient::connect_tls("127.0.0.1", port, &config, 5)
+        .expect("Redis-TLS Docker fixture connection failed");
+    CLIENT.set(client.clone()).ok();
+    client
 }

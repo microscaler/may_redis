@@ -64,11 +64,21 @@ fn test_send_request_too_large() {
     }
     run_may(|| {
         let client = tls_client();
+        // Negative: the default max_request_size is 64 KiB
+        // (DEFAULT_MAX_REQUEST_SIZE), so a 100 KB request must be rejected
+        // loudly with the real cause.
         let large_value = "x".repeat(100_000);
         let result: Result<(), crate::core::RedisError> =
             client.execute(client.set("large_key", &large_value));
-        assert!(result.is_ok(), "100KB should be within default 1MB limit");
-        client.execute::<()>(client.flushdb()).ok();
+        let err = result.expect_err("100KB exceeds the 64 KiB default limit");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("too large"),
+            "error must name the real cause, got: {msg}"
+        );
+        // Positive: a rejected request must not poison the connection.
+        let pong: String = client.ping().unwrap();
+        assert_eq!(pong, "PONG");
     });
 }
 

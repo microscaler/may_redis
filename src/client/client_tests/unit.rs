@@ -20,10 +20,18 @@ use std::sync::Once;
 ///
 /// Without this, `go!` panics on fresh std threads (e.g. CI runners)
 /// because the may scheduler hasn't been started yet.
-fn init_may_runtime() {
+pub(super) fn init_may_runtime() {
     static INIT: Once = Once::new();
     INIT.call_once(|| {
+        // The may config is GLOBAL and effectively first-writer-wins once
+        // the scheduler starts. Every test harness in this crate must call
+        // THIS function instead of setting its own values — two harnesses
+        // racing with different worker counts/stack sizes makes full-suite
+        // runs nondeterministic.
         config().set_workers(2);
+        // rustls handshakes are stack-hungry; may's small default stack
+        // overflows (SIGSEGV) under TLS tests.
+        config().set_stack_size(64 * 1024);
     });
 }
 
@@ -90,29 +98,48 @@ pub(super) fn integration_redis_port() -> u16 {
 }
 
 /// Returns the shared RedisClient, initializing it on first call.
+///
+/// Initialization is guarded by a `may` mutex, NOT `std::sync::Once`: this
+/// function runs inside coroutines and `connect` parks its coroutine. A
+/// `Once` would block the worker *thread* in concurrent callers — with a
+/// single may worker that deadlocks the whole scheduler.
 pub(super) fn shared_client() -> RedisClient {
-    static INIT: std::sync::Once = std::sync::Once::new();
     static CLIENT: std::sync::OnceLock<RedisClient> = std::sync::OnceLock::new();
-    INIT.call_once(|| {
-        let port = integration_redis_port();
-        CLIENT
-            .set(
-                RedisClient::connect("127.0.0.1", port)
-                    .expect("Redis integration fixture connection failed"),
-            )
-            .ok();
-    });
-    CLIENT.get().expect("client not initialized").clone()
+    static INIT_LOCK: std::sync::OnceLock<may::sync::Mutex<()>> =
+        std::sync::OnceLock::new();
+
+    let _guard = INIT_LOCK
+        .get_or_init(|| may::sync::Mutex::new(()))
+        .lock()
+        .expect("shared_client init lock poisoned");
+    if let Some(client) = CLIENT.get() {
+        return client.clone();
+    }
+    let port = integration_redis_port();
+    let client = RedisClient::connect("127.0.0.1", port)
+        .expect("Redis integration fixture connection failed");
+    CLIENT.set(client.clone()).ok();
+    client
 }
 
 /// Run an integration test body inside the may scheduler (skips when Docker unavailable).
+///
+/// Integration tests share one `shared_client()` and one Redis DB, and call
+/// FLUSHDB for isolation — so they must not run concurrently. The guard is
+/// held on the libtest thread (not a may worker), serializing test bodies
+/// without affecting the coroutine scheduler.
 pub(super) fn run_integration<F>(f: F)
 where
     F: FnOnce() + Send + 'static,
 {
+    static ISOLATION: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
     if !prepare_integration_tests() {
         return;
     }
+    let _guard = ISOLATION
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     run_may(f);
 }
 
@@ -149,6 +176,15 @@ where
             .unwrap()
             .take()
             .expect("test coroutine did not store result"),
-        Err(e) => panic!("test coroutine panicked: {e:?}"),
+        Err(e) => {
+            // Downcast the panic payload so the real assertion message is
+            // visible instead of an opaque `Any { .. }`.
+            let msg = e
+                .downcast_ref::<&str>()
+                .map(|s| (*s).to_string())
+                .or_else(|| e.downcast_ref::<String>().cloned())
+                .unwrap_or_else(|| format!("{e:?}"));
+            panic!("test coroutine panicked: {msg}");
+        }
     }
 }
