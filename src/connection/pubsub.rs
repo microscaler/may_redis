@@ -6,15 +6,21 @@
 use crate::core::RedisValue;
 
 /// A pub/sub push or control message from Redis.
+///
+/// Payloads are binary-safe (`Vec<u8>`): Redis pub/sub payloads are
+/// arbitrary bytes, not necessarily UTF-8. Channel and pattern names
+/// remain `String`; a push with a non-UTF-8 channel name fails parsing
+/// and is escalated to a connection error rather than delivered
+/// corrupted.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum PubSubMessage {
     /// `message` — payload on a subscribed channel.
-    Message { channel: String, payload: String },
+    Message { channel: String, payload: Vec<u8> },
     /// `pmessage` — payload matching a pattern subscription.
     PatternMessage {
         pattern: String,
         channel: String,
-        payload: String,
+        payload: Vec<u8>,
     },
     /// `subscribe` acknowledgement.
     Subscribe { channel: String, count: i64 },
@@ -46,12 +52,12 @@ pub fn parse_pubsub_push(value: &RedisValue) -> Option<PubSubMessage> {
     match kind {
         "message" if items.len() == 3 => Some(PubSubMessage::Message {
             channel: bulk_to_string(&items[1])?,
-            payload: bulk_to_string(&items[2])?,
+            payload: bulk_to_bytes(&items[2])?,
         }),
         "pmessage" if items.len() == 4 => Some(PubSubMessage::PatternMessage {
             pattern: bulk_to_string(&items[1])?,
             channel: bulk_to_string(&items[2])?,
-            payload: bulk_to_string(&items[3])?,
+            payload: bulk_to_bytes(&items[3])?,
         }),
         _ => None,
     }
@@ -93,6 +99,15 @@ fn bulk_to_string(value: &RedisValue) -> Option<String> {
     }
 }
 
+/// Binary-safe extraction for payloads — never fails on non-UTF-8 bytes.
+fn bulk_to_bytes(value: &RedisValue) -> Option<Vec<u8>> {
+    match value {
+        RedisValue::BulkString(b) => Some(b.clone()),
+        RedisValue::SimpleString(s) => Some(s.clone().into_bytes()),
+        _ => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     #![allow(clippy::unwrap_used, clippy::expect_used)]
@@ -113,9 +128,64 @@ mod tests {
             msg,
             PubSubMessage::Message {
                 channel: "news".to_string(),
-                payload: "hello".to_string(),
+                payload: b"hello".to_vec(),
             }
         );
+    }
+
+    /// Positive: non-UTF-8 payloads are binary-safe — they must parse, not
+    /// vanish (previously parse returned None and the push was misrouted
+    /// into the command-response queue).
+    #[test]
+    fn test_parse_message_push_binary_payload() {
+        let payload = vec![0xff, 0xfe, 0x00, 0x80];
+        let value = RedisValue::Array(vec![
+            bulk("message"),
+            bulk("news"),
+            RedisValue::BulkString(payload.clone()),
+        ]);
+        let msg = parse_pubsub_push(&value).expect("binary payload must parse");
+        assert_eq!(
+            msg,
+            PubSubMessage::Message {
+                channel: "news".to_string(),
+                payload,
+            }
+        );
+    }
+
+    /// Positive: binary pmessage payloads parse too.
+    #[test]
+    fn test_parse_pmessage_push_binary_payload() {
+        let payload = vec![0xde, 0xad, 0xbe, 0xef];
+        let value = RedisValue::Array(vec![
+            bulk("pmessage"),
+            bulk("n*"),
+            bulk("news"),
+            RedisValue::BulkString(payload.clone()),
+        ]);
+        let msg = parse_pubsub_push(&value).expect("binary payload must parse");
+        assert_eq!(
+            msg,
+            PubSubMessage::PatternMessage {
+                pattern: "n*".to_string(),
+                channel: "news".to_string(),
+                payload,
+            }
+        );
+    }
+
+    /// Negative: a non-UTF-8 *channel name* still fails parsing (and is
+    /// escalated to a connection error by decode_responses) — it is never
+    /// delivered with a corrupted name.
+    #[test]
+    fn test_parse_message_push_non_utf8_channel_is_none() {
+        let value = RedisValue::Array(vec![
+            bulk("message"),
+            RedisValue::BulkString(vec![0xff, 0xfe]),
+            bulk("hello"),
+        ]);
+        assert!(parse_pubsub_push(&value).is_none());
     }
 
     #[test]

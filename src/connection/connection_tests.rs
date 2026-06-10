@@ -306,9 +306,46 @@ fn test_decode_responses_pubsub_push() {
         msg,
         crate::connection::PubSubMessage::Message {
             channel: "news".to_string(),
-            payload: "hello".to_string(),
+            payload: b"hello".to_vec(),
         }
     );
+}
+
+/// Positive: a binary (non-UTF-8) payload push is delivered intact to the
+/// push channel and does not disturb response dispatch.
+#[test]
+fn test_decode_responses_binary_payload_push() {
+    let mut read_buf: BytesMut =
+        b"*3\r\n$7\r\nmessage\r\n$4\r\nnews\r\n$3\r\n\xff\xfe\x00\r\n+OK\r\n"
+            .as_slice()
+            .into();
+    let mut resp_queue = VecDeque::<PendingRequest>::new();
+    let (tx, rx) = spsc::channel();
+    resp_queue.push_back(PendingRequest { sender: tx });
+    let (push_tx, push_rx) = spsc::channel();
+    let pending_count = Arc::new(AtomicUsize::new(1));
+
+    let result = decode_responses(
+        &mut read_buf,
+        &mut resp_queue,
+        &pending_count,
+        Some(&push_tx),
+    );
+
+    assert!(
+        result.is_ok(),
+        "binary payload must not fail the connection"
+    );
+    let msg = push_rx.try_recv().expect("binary push delivered");
+    assert_eq!(
+        msg,
+        crate::connection::PubSubMessage::Message {
+            channel: "news".to_string(),
+            payload: vec![0xff, 0xfe, 0x00],
+        }
+    );
+    let resp = rx.try_recv().expect("response still dispatched");
+    assert!(matches!(resp, RedisValue::SimpleString(ref s) if s == "OK"));
 }
 
 /// Negative: a pub/sub push on a connection with NO push channel must fail
