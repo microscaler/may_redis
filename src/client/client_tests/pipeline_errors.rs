@@ -23,7 +23,7 @@ const PING_WIRE_LEN: usize = 14;
 ///
 /// Accepts one connection, reads `expected_cmds` PING commands, writes
 /// `responses`, then holds the socket open until the client disconnects.
-fn spawn_fake_server(responses: &'static [u8], expected_cmds: usize) -> u16 {
+pub(super) fn spawn_fake_server(responses: &'static [u8], expected_cmds: usize) -> u16 {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let port = listener.local_addr().unwrap().port();
     std::thread::spawn(move || {

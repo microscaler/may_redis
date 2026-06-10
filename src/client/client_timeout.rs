@@ -29,9 +29,10 @@ impl super::client::RedisClient {
     /// * `timeout` - Maximum time to wait for the response on the spsc channel
     ///
     /// # Errors
-    /// Returns [`RedisError::Connection`] with message `"timeout"` when the
-    /// deadline elapses before a response arrives, or when the response channel
-    /// closes.
+    /// Returns [`RedisError::Connection`] if the command cannot be queued
+    /// on the connection (queue full, request too large), with message
+    /// `"timeout"` when the deadline elapses before a response arrives, or
+    /// when the response channel closes.
     #[allow(clippy::unwrap_used)]
     pub fn execute_with_timeout<T: FromRedisValue>(
         &self,
@@ -51,7 +52,10 @@ impl super::client::RedisClient {
         })?;
 
         let (tx, rx) = spsc::channel();
-        let _tag = self.inner.connection.send(Request::new(data.to_vec(), tx));
+        self.inner
+            .connection
+            .send(Request::new(data.to_vec(), tx))
+            .map_err(|e| RedisError::Connection(format!("send failed: {e}")))?;
 
         // Yield so the connection loop can flush before we block on recv
         // (same pattern as `Pipeline::execute_raw` and may_postgres).

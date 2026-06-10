@@ -59,6 +59,8 @@ pub mod pubsub_client;
 #[cfg(test)]
 mod client_tests {
     #[cfg(test)]
+    mod execute_errors;
+    #[cfg(test)]
     mod integration;
     #[cfg(test)]
     mod integration_admin_advanced;
