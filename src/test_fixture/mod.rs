@@ -49,25 +49,6 @@ impl RedisTestFixture {
     }
 }
 
-impl Drop for RedisTestFixture {
-    fn drop(&mut self) {
-        let containers: Vec<_> = self.containers.drain(..).collect();
-        runtime::run_on_docker_thread(move || {
-            runtime::block_on(async move {
-                for container in containers {
-                    use bollard::query_parameters::RemoveContainerOptionsBuilder;
-                    let opts =
-                        RemoveContainerOptionsBuilder::default().force(true).build();
-                    let _ = container
-                        .docker
-                        .remove_container(&container.id, Some(opts))
-                        .await;
-                }
-            });
-        });
-    }
-}
-
 /// Error type for Docker build failures.
 #[derive(Debug)]
 pub enum DockerBuildError {
@@ -95,21 +76,33 @@ impl std::fmt::Display for DockerBuildError {
 impl std::error::Error for DockerBuildError {}
 
 static FIXTURE: OnceLock<RedisTestFixture> = OnceLock::new();
+static FIXTURE_INIT: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 /// Start Docker containers once per test process (safe on the test main thread).
+///
+/// Containers use fixed names and persist across test processes: they are
+/// reused when already running instead of being recreated, so repeated test
+/// runs never accumulate containers.
 ///
 /// # Errors
 ///
 /// Returns [`DockerBuildError`] if Docker is unavailable or fixture startup fails.
 pub fn ensure_started() -> Result<(), DockerBuildError> {
+    // Serialize initialization: without this, two test threads can both
+    // build a fixture pointing at the same shared containers.
+    let _guard = FIXTURE_INIT
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     if FIXTURE.get().is_some() {
         return Ok(());
     }
     let fixture =
         runtime::run_on_docker_thread(|| RedisTestFixture::builder().build())?;
-    FIXTURE.set(fixture).map_err(|_| {
-        DockerBuildError::DockerNotAvailable("fixture already set".into())
-    })?;
+    if let Err(duplicate) = FIXTURE.set(fixture) {
+        // Unreachable under the lock, but never drop a duplicate handle to
+        // the shared containers.
+        std::mem::forget(duplicate);
+    }
     Ok(())
 }
 

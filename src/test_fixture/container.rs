@@ -94,6 +94,8 @@ impl RedisTestFixtureBuilder {
                 DockerBuildError::DockerNotAvailable(format!("Failed to connect: {e}"))
             })?;
 
+            remove_legacy_containers(&docker).await;
+
             let mut containers = Vec::new();
             if self.plain_redis {
                 containers.push(create_plain_redis(&docker).await?);
@@ -111,8 +113,120 @@ impl RedisTestFixtureBuilder {
     }
 }
 
+/// Fixed, process-independent container names so fixture containers are
+/// reused across test processes instead of leaking one pair per test run.
 fn container_name(variant: &str) -> String {
-    format!("may-redis-{variant}-{}", std::process::id())
+    format!("may-redis-{variant}")
+}
+
+/// Remove containers leaked by the old pid-suffixed naming scheme
+/// (`may-redis-plain-<pid>` / `may-redis-tls-<pid>`). Those containers were
+/// held in a static fixture whose `Drop` never ran, so they accumulated.
+async fn remove_legacy_containers(docker: &Docker) {
+    use bollard::query_parameters::{
+        ListContainersOptionsBuilder, RemoveContainerOptionsBuilder,
+    };
+
+    let list_opts = ListContainersOptionsBuilder::default().all(true).build();
+    let Ok(summaries) = docker.list_containers(Some(list_opts)).await else {
+        return;
+    };
+    for summary in summaries {
+        let is_legacy = summary.names.iter().flatten().any(|n| {
+            let n = n.trim_start_matches('/');
+            ["may-redis-plain-", "may-redis-tls-"].iter().any(|prefix| {
+                n.strip_prefix(prefix).is_some_and(|suffix| {
+                    !suffix.is_empty() && suffix.bytes().all(|b| b.is_ascii_digit())
+                })
+            })
+        });
+        if is_legacy {
+            if let Some(id) = &summary.id {
+                let opts = RemoveContainerOptionsBuilder::default().force(true).build();
+                let _ = docker.remove_container(id, Some(opts)).await;
+            }
+        }
+    }
+}
+
+/// Reuse an already-running container with the given name, if any.
+async fn reuse_running(
+    docker: &Docker,
+    name: &str,
+    port_key: &str,
+    fallback_port: u16,
+) -> Option<RedisContainer> {
+    let inspect = docker
+        .inspect_container(name, None::<InspectContainerOptions>)
+        .await
+        .ok()?;
+    let running = inspect
+        .state
+        .as_ref()
+        .and_then(|state| state.running)
+        .unwrap_or(false);
+    if !running {
+        return None;
+    }
+    let id = inspect.id.clone()?;
+    Some(RedisContainer {
+        id,
+        docker: docker.clone(),
+        host_port: mapped_port(&inspect, port_key, fallback_port),
+    })
+}
+
+/// Force-remove a container by name, ignoring "no such container" errors.
+async fn remove_by_name(docker: &Docker, name: &str) {
+    use bollard::query_parameters::RemoveContainerOptionsBuilder;
+    let opts = RemoveContainerOptionsBuilder::default().force(true).build();
+    let _ = docker.remove_container(name, Some(opts)).await;
+}
+
+/// Get-or-create a named fixture container: reuse it when already running,
+/// replace it when stopped, and tolerate create races with concurrent test
+/// processes by falling back to the winner's container.
+async fn ensure_container(
+    docker: &Docker,
+    name: &str,
+    port_key: &str,
+    fallback_port: u16,
+    cfg: ContainerCreateBody,
+) -> Result<RedisContainer, DockerBuildError> {
+    if let Some(existing) = reuse_running(docker, name, port_key, fallback_port).await {
+        return Ok(existing);
+    }
+    // A stopped leftover with the same name would make create fail.
+    remove_by_name(docker, name).await;
+
+    let create_opts = CreateContainerOptionsBuilder::default().name(name).build();
+    let id = match docker.create_container(Some(create_opts), cfg).await {
+        Ok(created) => created.id,
+        Err(e) => {
+            // 409 conflict: a concurrent test process created it first.
+            if format!("{e}").contains("409") {
+                if let Some(existing) =
+                    reuse_running(docker, name, port_key, fallback_port).await
+                {
+                    return Ok(existing);
+                }
+            }
+            return Err(DockerBuildError::ContainerCreate(format!("{e}")));
+        }
+    };
+    docker
+        .start_container(&id, None::<StartContainerOptions>)
+        .await
+        .map_err(|e| DockerBuildError::ContainerStart(format!("{e}")))?;
+    let inspect = docker
+        .inspect_container(&id, None::<InspectContainerOptions>)
+        .await
+        .map_err(|e| DockerBuildError::ContainerCreate(format!("inspect: {e}")))?;
+    Ok(RedisContainer {
+        id,
+        docker: docker.clone(),
+        host_port: mapped_port(&inspect, port_key, fallback_port),
+    })
 }
 
 fn mapped_port(
@@ -158,24 +272,7 @@ async fn create_plain_redis(
         ]),
         ..Default::default()
     };
-    let create_opts = CreateContainerOptionsBuilder::default().name(&name).build();
-    let created = docker
-        .create_container(Some(create_opts), cfg)
-        .await
-        .map_err(|e| DockerBuildError::ContainerCreate(format!("{e}")))?;
-    docker
-        .start_container(&created.id, None::<StartContainerOptions>)
-        .await
-        .map_err(|e| DockerBuildError::ContainerStart(format!("{e}")))?;
-    let inspect = docker
-        .inspect_container(&created.id, None::<InspectContainerOptions>)
-        .await
-        .map_err(|e| DockerBuildError::ContainerCreate(format!("inspect: {e}")))?;
-    Ok(RedisContainer {
-        id: created.id,
-        docker: docker.clone(),
-        host_port: mapped_port(&inspect, &port_key, 6379),
-    })
+    ensure_container(docker, &name, &port_key, 6379, cfg).await
 }
 
 async fn create_tls_redis(
@@ -219,22 +316,5 @@ async fn create_tls_redis(
         ]),
         ..Default::default()
     };
-    let create_opts = CreateContainerOptionsBuilder::default().name(&name).build();
-    let created = docker
-        .create_container(Some(create_opts), cfg)
-        .await
-        .map_err(|e| DockerBuildError::ContainerCreate(format!("{e}")))?;
-    docker
-        .start_container(&created.id, None::<StartContainerOptions>)
-        .await
-        .map_err(|e| DockerBuildError::ContainerStart(format!("{e}")))?;
-    let inspect = docker
-        .inspect_container(&created.id, None::<InspectContainerOptions>)
-        .await
-        .map_err(|e| DockerBuildError::ContainerCreate(format!("inspect: {e}")))?;
-    Ok(RedisContainer {
-        id: created.id,
-        docker: docker.clone(),
-        host_port: mapped_port(&inspect, &port_key, 6380),
-    })
+    ensure_container(docker, &name, &port_key, 6380, cfg).await
 }
