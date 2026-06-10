@@ -173,9 +173,15 @@ mod tests {
         let path = dir.join("may-redis-test-invalid-cert.pem");
         std::fs::write(&path, "this is not a valid pem file").unwrap();
         let certs = RustlsRootCerts::Pem(vec![path]);
-        // PEM parsing with rustls_pemfile::certs() for garbage data — may succeed
-        // (producing empty vec) or fail; either way it shouldn't panic.
-        let _ = certs.to_root_store();
+        // Negative: a PEM file yielding zero usable certificates is a
+        // configuration error, not a silent empty trust store.
+        let err = certs
+            .to_root_store()
+            .expect_err("PEM file without certificates must fail");
+        assert!(
+            err.to_string().contains("certificate"),
+            "error must mention certificates, got: {err}"
+        );
     }
 
     #[test]
@@ -186,16 +192,36 @@ mod tests {
         assert!(store.unwrap().roots.is_empty());
     }
 
+    /// Negative: garbage DER must be rejected loudly. rustls ignores
+    /// unparsable certs, which previously left an empty trust store and a
+    /// cryptic handshake failure much later.
     #[test]
-    fn test_rustls_root_certs_der_valid_single() {
-        // A minimal DER-encoded self-signed cert (not valid for real verification,
-        // but can be parsed by add_parsable_certificates).
+    fn test_rustls_root_certs_der_garbage_is_error() {
         let certs = RustlsRootCerts::Der(vec![vec![0u8; 100]]);
         let store = certs.to_root_store();
-        assert!(store.is_ok());
-        // The cert is malformed for real TLS, but add_parsable_certificates
-        // accepts any DER blob — so the store is non-empty.
-        assert!(!store.unwrap().roots.is_empty());
+        let err = store.expect_err("all-garbage DER input must fail");
+        assert!(
+            err.to_string().contains("parsable"),
+            "error must explain that nothing was parsable, got: {err}"
+        );
+    }
+
+    /// Positive: a real DER certificate loads into a non-empty store.
+    #[test]
+    fn test_rustls_root_certs_der_valid_cert() {
+        let ca_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/tls/ca.crt");
+        let pem = std::fs::read(&ca_path).expect("read tests/tls/ca.crt");
+        let ders: Vec<Vec<u8>> = rustls_pemfile::certs(&mut &pem[..])
+            .collect::<Result<Vec<_>, _>>()
+            .expect("parse ca.crt PEM")
+            .into_iter()
+            .map(|c| c.to_vec())
+            .collect();
+        assert!(!ders.is_empty(), "fixture CA cert must contain a cert");
+
+        let store = RustlsRootCerts::Der(ders).to_root_store();
+        assert!(!store.expect("valid DER must load").roots.is_empty());
     }
 
     #[test]
@@ -290,6 +316,8 @@ mod tests {
         assert!(config.into_config().is_ok());
     }
 
+    /// Positive: with verification disabled, no root certificates are
+    /// needed — the skip verifier must not require trust anchors.
     #[test]
     fn test_tls_config_pem_empty_path() {
         let config = TlsConfig {
@@ -302,6 +330,28 @@ mod tests {
         };
         // Empty PEM paths produce an empty root store (no error)
         assert!(config.into_config().is_ok());
+    }
+
+    /// Negative: verification enabled with an empty trust store must fail
+    /// at config time — previously it built fine and every handshake then
+    /// failed with an inscrutable UnknownIssuer error.
+    #[test]
+    fn test_tls_config_verify_with_empty_roots_is_error() {
+        let config = TlsConfig {
+            root_certificates: RustlsRootCerts::Pem(vec![]),
+            client_certs: None,
+            server_name: "localhost".to_string(),
+            min_version: TlsVersion::Tls12,
+            max_version: TlsVersion::Tls13,
+            verify_server: true,
+        };
+        let err = config
+            .into_config()
+            .expect_err("verify_server with no roots must fail");
+        assert!(
+            err.to_string().contains("root certificate"),
+            "error must explain the missing roots, got: {err}"
+        );
     }
 
     #[test]

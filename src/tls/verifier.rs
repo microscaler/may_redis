@@ -3,9 +3,15 @@
 // Provides `SkipVerifier`, a `ServerCertVerifier` implementation that
 // accepts **any** server certificate without validation (debugging only).
 
+use rustls::crypto::CryptoProvider;
 use rustls::pki_types::{CertificateDer, ServerName, UnixTime};
+use std::sync::Arc;
 
 /// A certificate verifier that skips verification (for debugging only).
+///
+/// Signature verification still uses the crypto provider's algorithms,
+/// but no root trust anchors are required — skipping verification with an
+/// empty root store must work.
 ///
 /// # Security
 ///
@@ -13,7 +19,7 @@ use rustls::pki_types::{CertificateDer, ServerName, UnixTime};
 /// NEVER use this in production.
 #[derive(Debug)]
 pub(super) struct SkipVerifier {
-    pub(super) inner: std::sync::Arc<rustls::client::WebPkiServerVerifier>,
+    pub(super) provider: Arc<CryptoProvider>,
 }
 
 impl rustls::client::danger::ServerCertVerifier for SkipVerifier {
@@ -34,7 +40,12 @@ impl rustls::client::danger::ServerCertVerifier for SkipVerifier {
         cert: &CertificateDer<'_>,
         dss: &rustls::DigitallySignedStruct,
     ) -> Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
-        self.inner.verify_tls12_signature(message, cert, dss)
+        rustls::crypto::verify_tls12_signature(
+            message,
+            cert,
+            dss,
+            &self.provider.signature_verification_algorithms,
+        )
     }
 
     fn verify_tls13_signature(
@@ -43,10 +54,17 @@ impl rustls::client::danger::ServerCertVerifier for SkipVerifier {
         cert: &CertificateDer<'_>,
         dss: &rustls::DigitallySignedStruct,
     ) -> Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
-        self.inner.verify_tls13_signature(message, cert, dss)
+        rustls::crypto::verify_tls13_signature(
+            message,
+            cert,
+            dss,
+            &self.provider.signature_verification_algorithms,
+        )
     }
 
     fn supported_verify_schemes(&self) -> Vec<rustls::SignatureScheme> {
-        self.inner.supported_verify_schemes()
+        self.provider
+            .signature_verification_algorithms
+            .supported_schemes()
     }
 }

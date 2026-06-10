@@ -4,7 +4,6 @@
 // handshake using may coroutine yields.
 
 use may::net::TcpStream;
-use rustls::client::WebPkiServerVerifier;
 use rustls::crypto::ring::default_provider;
 use rustls::pki_types::{CertificateDer, PrivateKeyDer, ServerName};
 use rustls::ClientConfig;
@@ -106,8 +105,8 @@ impl TlsConfig {
         // Install the ring crypto provider if not already installed.
         // `install_default()` returns `Err` if already installed — that's fine,
         // we just continue with the existing provider.
-        let provider = default_provider();
-        let _ = provider.clone().install_default(); // ignore already-installed
+        let provider = Arc::new(default_provider());
+        let _ = (*provider).clone().install_default(); // ignore already-installed
 
         // Determine which protocol versions to allow.
         let versions = match (self.min_version, self.max_version) {
@@ -120,27 +119,32 @@ impl TlsConfig {
             _ => rustls::DEFAULT_VERSIONS,
         };
 
-        let builder = ClientConfig::builder_with_provider(Arc::new(provider))
+        let builder = ClientConfig::builder_with_provider(Arc::clone(&provider))
             .with_protocol_versions(versions)
             .map_err(|e| TlsError::Config(format!("protocol version error: {e}")))?;
 
         // Build root certificates.
         let root_store = self.root_certificates.to_root_store()?;
 
-        // Build the config: either with standard verification or with SkipVerifier.
+        // Verification enabled with an empty trust store can never succeed:
+        // every handshake would fail later with an inscrutable
+        // UnknownIssuer error. Fail loudly at configuration time instead.
+        if self.verify_server && root_store.is_empty() {
+            return Err(TlsError::Config(
+                "server verification enabled but the root certificate store \
+                 is empty; provide CA certificates or enable system certs"
+                    .to_string(),
+            ));
+        }
+
+        // Build the config: either with standard verification or with
+        // SkipVerifier (which needs no trust anchors).
         let builder = if self.verify_server {
             builder.with_root_certificates(root_store)
         } else {
-            let verifier = WebPkiServerVerifier::builder(Arc::new(root_store))
-                .build()
-                .map_err(|e| {
-                    TlsError::Config(format!("failed to build verifier: {e}"))
-                })?;
             builder
                 .dangerous()
-                .with_custom_certificate_verifier(Arc::new(SkipVerifier {
-                    inner: verifier,
-                }))
+                .with_custom_certificate_verifier(Arc::new(SkipVerifier { provider }))
         };
 
         // Apply client certs for mTLS.
@@ -222,14 +226,34 @@ impl TlsConnector {
         let mut idle = 0u32;
 
         loop {
+            // Enforce the deadline at the socket level. may's TcpStream
+            // parks the coroutine inside complete_io's read until the peer
+            // sends data — a non-TLS peer that never responds would
+            // otherwise hang the handshake forever, regardless of
+            // `timeout`.
+            let remaining = deadline
+                .checked_duration_since(std::time::Instant::now())
+                .filter(|d| !d.is_zero())
+                .ok_or(TlsError::HandshakeTimeout)?;
+            set_stream_timeouts(&tls_stream.stream, Some(remaining))?;
+
             // Because conn and stream are separate fields we can borrow them
             // independently — no double-mutable-borrow on tls_stream.
-            let (read_done, write_done) = tls_stream
-                .conn
-                .complete_io(&mut tls_stream.stream)
-                .map_err(|e| {
-                    TlsError::Handshake(format!("I/O error during handshake: {e}"))
-                })?;
+            let io_result = tls_stream.conn.complete_io(&mut tls_stream.stream);
+            let (read_done, write_done) = match io_result {
+                Ok(progress) => progress,
+                Err(e)
+                    if e.kind() == std::io::ErrorKind::TimedOut
+                        || e.kind() == std::io::ErrorKind::WouldBlock =>
+                {
+                    return Err(TlsError::HandshakeTimeout);
+                }
+                Err(e) => {
+                    return Err(TlsError::Handshake(format!(
+                        "I/O error during handshake: {e}"
+                    )));
+                }
+            };
 
             // If handshake is done, we're done.
             if !tls_stream.conn.is_handshaking() {
@@ -252,6 +276,23 @@ impl TlsConnector {
             }
         }
 
+        // The connection loop owns post-handshake I/O scheduling; remove the
+        // handshake-only socket timeouts.
+        set_stream_timeouts(&tls_stream.stream, None)?;
+
         Ok(tls_stream)
     }
+}
+
+/// Apply read/write timeouts to the handshake socket.
+fn set_stream_timeouts(
+    stream: &TcpStream,
+    timeout: Option<Duration>,
+) -> Result<(), TlsError> {
+    stream
+        .set_read_timeout(timeout)
+        .and_then(|()| stream.set_write_timeout(timeout))
+        .map_err(|e| {
+            TlsError::Handshake(format!("failed to set handshake socket timeout: {e}"))
+        })
 }

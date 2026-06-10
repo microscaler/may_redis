@@ -56,8 +56,14 @@ pub enum RustlsRootCerts {
 impl RustlsRootCerts {
     /// Convert to a rustls `RootCertStore`.
     ///
+    /// Unparsable certificates are NOT silently ignored: a PEM file or DER
+    /// input that yields zero usable certificates is a configuration error.
+    /// Inputs that are partially parsable load the good certificates and
+    /// log a warning for the ignored ones.
+    ///
     /// # Errors
-    /// Returns [`super::TlsError::Config`] if PEM files cannot be loaded.
+    /// Returns [`super::TlsError::Config`] if PEM files cannot be loaded,
+    /// or if a non-empty certificate source produces no usable certificates.
     pub fn to_root_store(&self) -> Result<rustls::RootCertStore, super::TlsError> {
         let mut store = rustls::RootCertStore::empty();
 
@@ -93,14 +99,35 @@ impl RustlsRootCerts {
                                     path.display()
                                 ))
                             })?;
-                    store.add_parsable_certificates(certs);
+                    let (added, ignored) = store.add_parsable_certificates(certs);
+                    if added == 0 {
+                        return Err(super::TlsError::Config(format!(
+                            "no parsable certificates found in PEM file {}",
+                            path.display()
+                        )));
+                    }
+                    if ignored > 0 {
+                        log::warn!(
+                            "ignored {ignored} unparsable certificate(s) in {}",
+                            path.display()
+                        );
+                    }
                 }
             }
             Self::Der(certs) => {
-                for cert in certs {
-                    store.add_parsable_certificates(vec![
-                        rustls::pki_types::CertificateDer::from(cert.as_slice()),
-                    ]);
+                if !certs.is_empty() {
+                    let (added, ignored) =
+                        store.add_parsable_certificates(certs.iter().map(|cert| {
+                            rustls::pki_types::CertificateDer::from(cert.as_slice())
+                        }));
+                    if added == 0 {
+                        return Err(super::TlsError::Config(
+                            "no parsable certificates in DER input".to_string(),
+                        ));
+                    }
+                    if ignored > 0 {
+                        log::warn!("ignored {ignored} unparsable DER certificate(s)");
+                    }
                 }
             }
         }
