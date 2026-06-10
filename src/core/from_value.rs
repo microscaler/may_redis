@@ -203,6 +203,13 @@ impl FromRedisValue for Vec<(String, String)> {
     fn from_redis_value(value: &RedisValue) -> RedisResult<Self> {
         match value {
             RedisValue::Array(items) => {
+                if items.len() % 2 != 0 {
+                    return Err(RedisError::Parse(format!(
+                        "expected even-length array of key/value pairs, \
+                         got odd length {}",
+                        items.len()
+                    )));
+                }
                 let mut result = Self::with_capacity(items.len());
                 let mut iter = items.iter();
                 while let (Some(key), Some(val)) = (iter.next(), iter.next()) {
@@ -224,6 +231,13 @@ impl FromRedisValue for Vec<(String, f64)> {
     fn from_redis_value(value: &RedisValue) -> RedisResult<Self> {
         match value {
             RedisValue::Array(items) => {
+                if items.len() % 2 != 0 {
+                    return Err(RedisError::Parse(format!(
+                        "expected even-length array of member/score pairs, \
+                         got odd length {}",
+                        items.len()
+                    )));
+                }
                 let mut result = Self::with_capacity(items.len());
                 let mut iter = items.iter();
                 while let (Some(key), Some(score)) = (iter.next(), iter.next()) {

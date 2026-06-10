@@ -10,6 +10,71 @@ use crate::core::RedisValue;
 mod tests {
     use super::*;
 
+    fn bulk(s: &str) -> RedisValue {
+        RedisValue::BulkString(s.as_bytes().to_vec())
+    }
+
+    /// Positive: an even-length flat array decodes into pairs.
+    #[test]
+    fn test_pairs_string_string_even_array() {
+        let val =
+            RedisValue::Array(vec![bulk("k1"), bulk("v1"), bulk("k2"), bulk("v2")]);
+        let result: Vec<(String, String)> =
+            FromRedisValue::from_redis_value(&val).unwrap();
+        assert_eq!(
+            result,
+            vec![
+                ("k1".to_string(), "v1".to_string()),
+                ("k2".to_string(), "v2".to_string()),
+            ]
+        );
+    }
+
+    /// Negative: an odd-length array is corrupt — it must error, not
+    /// silently drop the trailing element (previously k2 vanished).
+    #[test]
+    fn test_pairs_string_string_odd_array_is_error() {
+        let val = RedisValue::Array(vec![bulk("k1"), bulk("v1"), bulk("k2")]);
+        let result: Result<Vec<(String, String)>, _> =
+            FromRedisValue::from_redis_value(&val);
+        let err = result.expect_err("odd-length pair array must fail");
+        assert!(
+            format!("{err}").contains("odd"),
+            "error must explain the odd length, got: {err}"
+        );
+    }
+
+    /// Positive: even-length member/score array decodes.
+    #[test]
+    fn test_pairs_string_f64_even_array() {
+        let val = RedisValue::Array(vec![
+            bulk("alice"),
+            bulk("1.5"),
+            bulk("bob"),
+            bulk("2.5"),
+        ]);
+        let result: Vec<(String, f64)> =
+            FromRedisValue::from_redis_value(&val).unwrap();
+        assert_eq!(
+            result,
+            vec![("alice".to_string(), 1.5), ("bob".to_string(), 2.5)]
+        );
+    }
+
+    /// Negative: odd-length member/score array must error, not silently
+    /// drop the trailing member.
+    #[test]
+    fn test_pairs_string_f64_odd_array_is_error() {
+        let val = RedisValue::Array(vec![bulk("alice"), bulk("1.5"), bulk("bob")]);
+        let result: Result<Vec<(String, f64)>, _> =
+            FromRedisValue::from_redis_value(&val);
+        let err = result.expect_err("odd-length score array must fail");
+        assert!(
+            format!("{err}").contains("odd"),
+            "error must explain the odd length, got: {err}"
+        );
+    }
+
     #[test]
     fn test_from_redis_value_array_to_vec_string() {
         let arr = vec![
