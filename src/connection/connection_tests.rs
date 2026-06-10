@@ -432,6 +432,143 @@ fn test_decode_responses_push_interleaved_with_response() {
     assert!(resp_queue.is_empty());
 }
 
+/// Positive: fail_queued_requests resolves every stranded request with an
+/// Error value and releases its pending-count slot.
+#[test]
+fn test_fail_queued_requests_drains_queue() {
+    use super::dispatch::fail_queued_requests;
+
+    let queue: Arc<Queue<Request>> = Arc::new(Queue::new());
+    let pending_count = Arc::new(AtomicUsize::new(2));
+
+    let (tx0, rx0) = spsc::channel();
+    let (tx1, rx1) = spsc::channel();
+    queue.push(Request::new(b"*1\r\n$4\r\nPING\r\n".to_vec(), tx0));
+    queue.push(Request::new(b"*1\r\n$4\r\nPING\r\n".to_vec(), tx1));
+
+    fail_queued_requests(&queue, &pending_count, "Connection loop terminated");
+
+    for rx in [rx0, rx1] {
+        let value = rx.try_recv().expect("stranded request must get a value");
+        assert!(
+            matches!(value, RedisValue::Error(ref m) if m.contains("terminated")),
+            "expected Error value, got {value:?}"
+        );
+    }
+    assert_eq!(
+        pending_count.load(std::sync::atomic::Ordering::SeqCst),
+        0,
+        "pending count must be released"
+    );
+    assert!(queue.pop().is_none(), "queue must be empty");
+}
+
+/// Negative: fail_queued_requests on an empty queue is a no-op.
+#[test]
+fn test_fail_queued_requests_empty_queue() {
+    use super::dispatch::fail_queued_requests;
+
+    let queue: Arc<Queue<Request>> = Arc::new(Queue::new());
+    let pending_count = Arc::new(AtomicUsize::new(0));
+    fail_queued_requests(&queue, &pending_count, "x");
+    assert_eq!(pending_count.load(std::sync::atomic::Ordering::SeqCst), 0);
+}
+
+/// After the server closes the socket, the connection must transition to
+/// dead: send() fails fast with ConnectionClosed instead of queueing
+/// requests forever and forcing callers into timeouts.
+#[test]
+fn test_send_fails_fast_after_connection_death() {
+    use super::ConnectionLimitError;
+    use std::net::TcpListener;
+
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let server = std::thread::spawn(move || {
+        // Accept and immediately close — the connection loop sees EOF.
+        let _ = listener.accept();
+    });
+
+    let handle = go!(move || {
+        let conn = Connection::connect_with_limits(
+            "127.0.0.1",
+            port,
+            std::time::Duration::from_secs(2),
+            1024,
+            65536,
+        )
+        .expect("connect to in-process listener");
+
+        // Poll until the loop notices the close and marks the
+        // connection dead (bounded at ~2s).
+        let mut closed_error = false;
+        for _ in 0..200 {
+            let (tx, _rx) = spsc::channel();
+            match conn.send(Request::new(b"*1\r\n$4\r\nPING\r\n".to_vec(), tx)) {
+                Err(ConnectionLimitError::ConnectionClosed) => {
+                    closed_error = true;
+                    break;
+                }
+                Ok(_) | Err(_) => {
+                    may::coroutine::sleep(std::time::Duration::from_millis(10));
+                }
+            }
+        }
+        assert!(
+            closed_error,
+            "send() must fail fast with ConnectionClosed after loop death"
+        );
+        assert!(!conn.is_alive(), "is_alive() must report death");
+    });
+    handle.join().expect("test coroutine panicked");
+    server.join().expect("server thread panicked");
+}
+
+/// A request in flight when the connection dies must be resolved (with an
+/// Error value or a closed channel) — never left waiting until timeout.
+#[test]
+fn test_inflight_request_resolved_on_connection_death() {
+    use std::net::TcpListener;
+
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let server = std::thread::spawn(move || {
+        let _ = listener.accept();
+    });
+
+    let handle = go!(move || {
+        let conn = Connection::connect_with_limits(
+            "127.0.0.1",
+            port,
+            std::time::Duration::from_secs(2),
+            1024,
+            65536,
+        )
+        .expect("connect to in-process listener");
+
+        let (tx, rx) = spsc::channel();
+        // The send may race the loop's death notice; both outcomes are
+        // valid as long as the caller is unblocked promptly.
+        if conn
+            .send(Request::new(b"*1\r\n$4\r\nPING\r\n".to_vec(), tx))
+            .is_ok()
+        {
+            match rx.recv_with_timeout(std::time::Duration::from_secs(2)) {
+                Ok(value) => assert!(
+                    matches!(value, RedisValue::Error(_)),
+                    "expected Error value, got {value:?}"
+                ),
+                Err(may::sync::spsc::RecvError::Disconnected) => {}
+                Err(may::sync::spsc::RecvError::Timeout) => {
+                    panic!("in-flight request was stranded until timeout")
+                }
+            }
+        }
+    });
+    handle.join().expect("test coroutine panicked");
+    server.join().expect("server thread panicked");
+}
+
 /// Positive: a dropped push receiver discards the push but keeps the
 /// connection (and response dispatch) alive.
 #[test]

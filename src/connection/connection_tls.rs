@@ -3,7 +3,7 @@
 // This module was extracted from `connection.rs` to keep that file under the
 // 350-line limit. It owns all TLS-related construction logic.
 
-use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::{AtomicBool, AtomicUsize};
 use std::sync::Arc;
 
 use may::queue::mpsc::Queue;
@@ -114,11 +114,13 @@ fn from_tls_stream_with_ssrf(
     let (id, waker) = tls_stream.socket_fd_and_waker();
     let req_queue = Arc::new(Queue::new());
     let pending_count = Arc::new(AtomicUsize::new(0));
+    let alive = Arc::new(AtomicBool::new(true));
     let io_handle = spawn_connection_loop(
         tls_stream,
         req_queue.clone(),
         pending_count.clone(),
         None,
+        alive.clone(),
     );
 
     super::connection::Connection {
@@ -131,5 +133,6 @@ fn from_tls_stream_with_ssrf(
         max_request_size: DEFAULT_MAX_REQUEST_SIZE,
         pending_count,
         ssrf_config,
+        alive,
     }
 }

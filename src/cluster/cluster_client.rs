@@ -24,7 +24,7 @@ use may::sync::spsc;
 
 use crate::cluster::compute_slot;
 use crate::cluster::slot_map::{NodeId, SlotMap};
-use crate::connection::{Connection, ConnectionLimitError, Request};
+use crate::connection::{Connection, Request};
 use crate::core::{FromRedisValue, RedisError, RedisValue};
 use crate::protocol::builder::CommandBuilder;
 
@@ -233,14 +233,7 @@ impl RedisClusterClient {
             })?;
         let (tx, rx) = spsc::channel();
         let request = Request::new(cmd.to_vec(), tx);
-        conn.send(request).map_err(|e| match e {
-            ConnectionLimitError::QueueFull(n) => {
-                RedisError::Parse(format!("request queue full: depth={n}"))
-            }
-            ConnectionLimitError::RequestTooLarge(max, got) => {
-                RedisError::Parse(format!("request too large: {got}/{max}"))
-            }
-        })?;
+        conn.send(request).map_err(RedisError::from)?;
 
         let response = rx
             .recv()
@@ -325,14 +318,7 @@ impl RedisClusterClient {
             // 2. Send the command.
             let (tx, rx) = spsc::channel();
             conn.send(Request::new(current_encoded.to_vec(), tx))
-                .map_err(|e| match e {
-                    ConnectionLimitError::QueueFull(n) => {
-                        RedisError::Parse(format!("request queue full: depth={n}"))
-                    }
-                    ConnectionLimitError::RequestTooLarge(max, got) => {
-                        RedisError::Parse(format!("request too large: {got}/{max}"))
-                    }
-                })?;
+                .map_err(RedisError::from)?;
 
             // 3. Read the response.
             let response = rx.recv().map_err(|_| {
@@ -401,16 +387,9 @@ impl RedisClusterClient {
                         RedisError::Parse("ASKING encoding failed".into())
                     })?;
                 let (tx2, rx2) = spsc::channel();
-                new_conn.send(Request::new(asking.to_vec(), tx2)).map_err(
-                    |e| match e {
-                        ConnectionLimitError::QueueFull(n) => {
-                            RedisError::Parse(format!("request queue full: depth={n}"))
-                        }
-                        ConnectionLimitError::RequestTooLarge(max, got) => {
-                            RedisError::Parse(format!("request too large: {got}/{max}"))
-                        }
-                    },
-                )?;
+                new_conn
+                    .send(Request::new(asking.to_vec(), tx2))
+                    .map_err(RedisError::from)?;
                 let _asking_resp = rx2.recv().map_err(|_| {
                     RedisError::Parse("ASKING response channel closed".into())
                 })?;
@@ -418,14 +397,7 @@ impl RedisClusterClient {
                 let (tx3, rx3) = spsc::channel();
                 new_conn
                     .send(Request::new(current_encoded.to_vec(), tx3))
-                    .map_err(|e| match e {
-                        ConnectionLimitError::QueueFull(n) => {
-                            RedisError::Parse(format!("request queue full: depth={n}"))
-                        }
-                        ConnectionLimitError::RequestTooLarge(max, got) => {
-                            RedisError::Parse(format!("request too large: {got}/{max}"))
-                        }
-                    })?;
+                    .map_err(RedisError::from)?;
                 let response = rx3.recv().map_err(|_| {
                     RedisError::Parse("ASK retry response channel closed".into())
                 })?;
@@ -464,14 +436,7 @@ impl RedisClusterClient {
             .ok_or_else(|| RedisError::Parse("CLUSTER NODES encoding failed".into()))?;
         let (tx, rx) = spsc::channel();
         conn.send(Request::new(cmd.to_vec(), tx))
-            .map_err(|e| match e {
-                ConnectionLimitError::QueueFull(n) => {
-                    RedisError::Parse(format!("request queue full: depth={n}"))
-                }
-                ConnectionLimitError::RequestTooLarge(max, got) => {
-                    RedisError::Parse(format!("request too large: {got}/{max}"))
-                }
-            })?;
+            .map_err(RedisError::from)?;
 
         let response = rx.recv().map_err(|_| {
             RedisError::Parse("response channel closed during topology refresh".into())

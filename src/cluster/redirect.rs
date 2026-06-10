@@ -137,7 +137,8 @@ pub fn update_slot_map_on_redirect(map: &mut SlotMap, redirect: &Redirect) {
 /// Requires the may coroutine runtime.
 ///
 /// # Errors
-/// Returns [`RedisError::Parse`] on protocol errors.
+/// Returns [`RedisError::Connection`] if the command cannot be queued on
+/// the connection, and [`RedisError::Parse`] on protocol errors.
 pub fn retry_command(
     conn: &Connection,
     ask: bool,
@@ -152,14 +153,7 @@ pub fn retry_command(
             .ok_or_else(|| RedisError::Parse("ASKING encoding failed".into()))?;
         let (tx, rx) = spsc::channel();
         conn.send(crate::connection::Request::new(asking.to_vec(), tx))
-            .map_err(|e| match e {
-                crate::connection::ConnectionLimitError::QueueFull(n) => {
-                    RedisError::Parse(format!("request queue full: depth={n}"))
-                }
-                crate::connection::ConnectionLimitError::RequestTooLarge(max, got) => {
-                    RedisError::Parse(format!("request too large: {got}/{max}"))
-                }
-            })?;
+            .map_err(|e| RedisError::Connection(format!("ASKING send failed: {e}")))?;
         let _resp = rx
             .recv()
             .map_err(|_| RedisError::Parse("ASKING response channel closed".into()))?;
@@ -168,14 +162,7 @@ pub fn retry_command(
     // Send the original command
     let (tx, rx) = spsc::channel();
     conn.send(crate::connection::Request::new(encoded.to_vec(), tx))
-        .map_err(|e| match e {
-            crate::connection::ConnectionLimitError::QueueFull(n) => {
-                RedisError::Parse(format!("request queue full: depth={n}"))
-            }
-            crate::connection::ConnectionLimitError::RequestTooLarge(max, got) => {
-                RedisError::Parse(format!("request too large: {got}/{max}"))
-            }
-        })?;
+        .map_err(|e| RedisError::Connection(format!("retry send failed: {e}")))?;
 
     rx.recv()
         .map_err(|_| RedisError::Parse("retry response channel closed".into()))

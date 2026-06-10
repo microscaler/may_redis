@@ -9,6 +9,8 @@ pub enum ConnectionLimitError {
     QueueFull(usize),
     /// Request exceeds the maximum size.
     RequestTooLarge(usize, usize),
+    /// The connection loop has terminated; the connection is dead.
+    ConnectionClosed,
 }
 
 impl std::fmt::Display for ConnectionLimitError {
@@ -20,11 +22,20 @@ impl std::fmt::Display for ConnectionLimitError {
             Self::RequestTooLarge(max, got) => {
                 write!(f, "request too large (max {max} bytes, got {got})")
             }
+            Self::ConnectionClosed => {
+                write!(f, "connection is closed (connection loop terminated)")
+            }
         }
     }
 }
 
 impl std::error::Error for ConnectionLimitError {}
+
+impl From<ConnectionLimitError> for crate::core::RedisError {
+    fn from(e: ConnectionLimitError) -> Self {
+        Self::Connection(format!("send failed: {e}"))
+    }
+}
 
 /// Default limits for a safe connection.
 ///

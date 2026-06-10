@@ -163,3 +163,23 @@ pub(super) fn error_dispatch(
         release_pending(pending_count);
     }
 }
+
+/// Fail every request still sitting in the mpsc request queue.
+///
+/// Called by the connection loop on exit. Requests that were `send()`-ed
+/// but not yet drained by `process_req` would otherwise be stranded
+/// forever: their senders stay alive inside the queue, so the callers'
+/// `rx.recv()` would block indefinitely with no error.
+///
+/// Safety: only the connection loop may call this — the mpsc queue
+/// permits a single consumer, and the loop is it.
+pub(super) fn fail_queued_requests(
+    queue: &Queue<Request>,
+    pending_count: &Arc<AtomicUsize>,
+    message: &str,
+) {
+    while let Some(req) = queue.pop() {
+        let _ = req.sender.send(RedisValue::Error(message.into()));
+        release_pending(pending_count);
+    }
+}

@@ -18,12 +18,15 @@ use std::sync::Arc;
 
 use super::connection::PendingRequest;
 use super::connection::Request;
-use super::dispatch::{decode_responses, error_dispatch, process_req};
+use super::dispatch::{
+    decode_responses, error_dispatch, fail_queued_requests, process_req,
+};
 use super::io_read::drain_nonblock_read;
 use super::io_write::nonblock_write;
 use super::pubsub::PubSubMessage;
 use super::StreamHandle;
 use crate::core::RedisValue;
+use std::sync::atomic::AtomicBool;
 
 /// Spawn the epoll-based connection loop as a may coroutine.
 ///
@@ -72,13 +75,22 @@ use crate::core::RedisValue;
 /// fatal connection error: every still-pending `spsc::Sender` in
 /// `resp_queue` is signalled with a [`RedisValue::Error`] describing
 /// the failure, and the loop breaks (the coroutine exits, the
-/// `JoinHandle` becomes joinable).
+/// `JoinHandle` becomes joinable). On exit the loop:
+///
+/// 1. Stores `false` into `alive` so `Connection::send` fails fast
+///    instead of queueing requests that can never be processed.
+/// 2. Drains `resp_queue` (requests already on the wire) with
+///    [`RedisValue::Error`].
+/// 3. Drains the mpsc `req_queue` (requests queued but never picked
+///    up by `process_req`) with [`RedisValue::Error`] — otherwise
+///    those callers would block on `rx.recv()` forever.
 #[allow(clippy::too_many_lines)]
 pub(super) fn spawn_connection_loop(
     mut stream: super::connection_stream::ConnectionStream,
     req_queue: Arc<Queue<Request>>,
     pending_count: Arc<AtomicUsize>,
     push_sender: Option<Arc<spsc::Sender<PubSubMessage>>>,
+    alive: Arc<AtomicBool>,
 ) -> JoinHandle<()> {
     go!(move || {
         let mut read_buf = BytesMut::with_capacity(65536);
@@ -212,12 +224,15 @@ pub(super) fn spawn_connection_loop(
             }
         }
 
-        // On loop exit (fatal error), drain remaining pending requests.
+        // On loop exit (fatal error): mark the connection dead FIRST so
+        // new send() calls fail fast, then resolve everything in flight.
+        alive.store(false, Ordering::SeqCst);
         while let Some(pending) = resp_queue.pop_front() {
             let _ = pending
                 .sender
                 .send(RedisValue::Error("Connection loop terminated".into()));
             pending_count.fetch_sub(1, Ordering::SeqCst);
         }
+        fail_queued_requests(&req_queue, &pending_count, "Connection loop terminated");
     })
 }

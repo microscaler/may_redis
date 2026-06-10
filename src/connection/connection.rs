@@ -47,7 +47,7 @@ use may::io::{WaitIo, WaitIoWaker};
 use may::queue::mpsc::Queue;
 use may::sync::spsc;
 use std::os::fd::AsRawFd;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 
 use super::connection_limits::{
@@ -110,6 +110,9 @@ pub struct Connection {
     pub(crate) max_request_size: usize,
     pub(crate) pending_count: Arc<AtomicUsize>,
     pub(crate) ssrf_config: Option<tcp::SsrfConfig>,
+    /// `false` once the connection loop has terminated. `send()` checks
+    /// this to fail fast instead of queueing requests nobody will read.
+    pub(crate) alive: Arc<AtomicBool>,
 }
 
 impl Drop for Connection {
@@ -154,12 +157,14 @@ impl Connection {
         let waker = stream.waker();
         let req_queue = Arc::new(Queue::new());
         let pending_count = Arc::new(AtomicUsize::new(0));
+        let alive = Arc::new(AtomicBool::new(true));
         let push_sender = push_tx.map(Arc::new);
         let io_handle = spawn_connection_loop(
             super::connection_stream::ConnectionStream::Tcp(stream),
             req_queue.clone(),
             pending_count.clone(),
             push_sender,
+            alive.clone(),
         );
         Ok(Self {
             io_handle,
@@ -171,6 +176,7 @@ impl Connection {
             max_request_size: DEFAULT_MAX_REQUEST_SIZE,
             pending_count,
             ssrf_config: None,
+            alive,
         })
     }
 
@@ -191,11 +197,13 @@ impl Connection {
         let waker = stream.waker();
         let req_queue = Arc::new(Queue::new());
         let pending_count = Arc::new(AtomicUsize::new(0));
+        let alive = Arc::new(AtomicBool::new(true));
         let io_handle = spawn_connection_loop(
             super::connection_stream::ConnectionStream::Tcp(stream),
             req_queue.clone(),
             pending_count.clone(),
             None,
+            alive.clone(),
         );
         Ok(Self {
             io_handle,
@@ -207,6 +215,7 @@ impl Connection {
             max_request_size: DEFAULT_MAX_REQUEST_SIZE,
             pending_count,
             ssrf_config: Some(ssrf_config),
+            alive,
         })
     }
 
@@ -226,11 +235,13 @@ impl Connection {
         let waker = stream.waker();
         let req_queue = Arc::new(Queue::new());
         let pending_count = Arc::new(AtomicUsize::new(0));
+        let alive = Arc::new(AtomicBool::new(true));
         let io_handle = spawn_connection_loop(
             super::connection_stream::ConnectionStream::Tcp(stream),
             req_queue.clone(),
             pending_count.clone(),
             None,
+            alive.clone(),
         );
         Ok(Self {
             io_handle,
@@ -242,6 +253,7 @@ impl Connection {
             max_request_size,
             pending_count,
             ssrf_config: None,
+            alive,
         })
     }
 
@@ -253,12 +265,23 @@ impl Connection {
     /// Send a request to the Redis server.
     ///
     /// # Errors
+    /// Returns [`ConnectionLimitError::ConnectionClosed`] if the connection
+    /// loop has terminated — the request would never be processed.
     /// Returns [`ConnectionLimitError::QueueFull`] if the pending request
     /// count exceeds [`Self::max_queue_depth`]. Returns
     /// [`ConnectionLimitError::RequestTooLarge`] if the request exceeds
     /// [`Self::max_request_size`].
+    ///
+    /// # Residual race
+    /// The liveness check is best-effort: a request pushed in the
+    /// nanoseconds between the check and the loop's terminal drain can
+    /// still be stranded in the queue. Callers that wait without a
+    /// timeout accept that risk; `execute_with_timeout` does not.
     #[must_use = "the tag identifies the request for response matching"]
     pub fn send(&self, request: Request) -> Result<usize, ConnectionLimitError> {
+        if !self.alive.load(Ordering::SeqCst) {
+            return Err(ConnectionLimitError::ConnectionClosed);
+        }
         if self.pending_count.load(Ordering::SeqCst) >= self.max_queue_depth {
             return Err(ConnectionLimitError::QueueFull(self.max_queue_depth));
         }
@@ -273,6 +296,12 @@ impl Connection {
         self.req_queue.push(request);
         self.waker.wakeup();
         Ok(tag)
+    }
+
+    /// Returns `true` while the background connection loop is running.
+    #[must_use]
+    pub fn is_alive(&self) -> bool {
+        self.alive.load(Ordering::SeqCst)
     }
 
     #[must_use]

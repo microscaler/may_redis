@@ -174,14 +174,7 @@ pub fn aggregate_responses(
         let (tx, rx) = spsc::channel();
         fc.connection
             .send(Request::new(fc.data, tx))
-            .map_err(|e| match e {
-                crate::connection::ConnectionLimitError::QueueFull(n) => {
-                    RedisError::Parse(format!("request queue full: depth={n}"))
-                }
-                crate::connection::ConnectionLimitError::RequestTooLarge(max, got) => {
-                    RedisError::Parse(format!("request too large: {got}/{max}"))
-                }
-            })?;
+            .map_err(RedisError::from)?;
         let response = rx
             .recv()
             .map_err(|_| RedisError::Parse("response channel closed".into()))?;
