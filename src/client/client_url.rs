@@ -172,9 +172,19 @@ pub fn connect_url(url: &str) -> Result<super::client::RedisClient, RedisError> 
         }
     }
 
+    // An unparseable timeout is a configuration error — silently falling
+    // back to the default would mask typos like `timeout=3O`.
     let timeout_secs: u32 = params
         .get("timeout")
-        .and_then(|v| v.parse().ok())
+        .map(|v| {
+            v.parse().map_err(|_| {
+                RedisError::Parse(format!(
+                    "invalid timeout value: '{v}' \
+                     (expected non-negative whole seconds)"
+                ))
+            })
+        })
+        .transpose()?
         .unwrap_or(5);
     let ca_cert_paths: Option<String> = params.get("ca_cert").cloned();
     let client_cert_path: Option<String> = params.get("client_cert").cloned();
@@ -403,7 +413,7 @@ enum ConnectionScheme {
 
 #[cfg(test)]
 mod tests {
-    #![allow(clippy::unwrap_used, clippy::expect_used)]
+    #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
     use super::*;
 
     // -----------------------------------------------------------------------
@@ -449,6 +459,54 @@ mod tests {
     fn test_url_decode_utf8() {
         // %C3%A9 = é
         assert_eq!(url_decode("caf%C3%A9").unwrap(), "café");
+    }
+
+    // -----------------------------------------------------------------------
+    // Timeout parameter validation
+    // -----------------------------------------------------------------------
+
+    /// Negative: a non-numeric timeout must be rejected loudly, not
+    /// silently replaced by the 5s default.
+    #[test]
+    fn test_connect_url_invalid_timeout_is_parse_error() {
+        let Err(err) = connect_url("redis://127.0.0.1:1?timeout=abc") else {
+            panic!("invalid timeout must not connect")
+        };
+        match err {
+            RedisError::Parse(msg) => {
+                assert!(
+                    msg.contains("timeout"),
+                    "error must name the timeout parameter, got: {msg}"
+                );
+            }
+            other => panic!("expected RedisError::Parse, got {other:?}"),
+        }
+    }
+
+    /// Negative: a negative timeout cannot be a u32 and must be rejected.
+    #[test]
+    fn test_connect_url_negative_timeout_is_parse_error() {
+        let Err(err) = connect_url("redis://127.0.0.1:1?timeout=-1") else {
+            panic!("negative timeout must not connect")
+        };
+        assert!(
+            matches!(err, RedisError::Parse(ref msg) if msg.contains("timeout")),
+            "expected Parse error naming timeout, got {err:?}"
+        );
+    }
+
+    /// Positive: a valid timeout passes parsing — the failure (if any) is
+    /// the connection itself, never timeout validation.
+    #[test]
+    fn test_connect_url_valid_timeout_passes_parsing() {
+        let Err(err) = connect_url("redis://127.0.0.1:1?timeout=3") else {
+            panic!("nothing listens on port 1; connect must fail")
+        };
+        let msg = format!("{err}");
+        assert!(
+            !msg.contains("invalid timeout"),
+            "valid timeout must not fail validation, got: {msg}"
+        );
     }
 
     // -----------------------------------------------------------------------
