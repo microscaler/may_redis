@@ -156,7 +156,12 @@ impl<'a> Pipeline<'a> {
 
     /// Execute all queued commands and decode typed results via `FromPipelineResponse`.
     ///
+    /// Use [`Self::execute_raw`] or [`Self::execute_raw_results`] to receive
+    /// server errors inline as [`RedisValue::Error`] values instead.
+    ///
     /// # Errors
+    /// Returns [`RedisError::Protocol`] if any response in the batch is a
+    /// server error (`-ERR ...`), carrying the server's message.
     /// Returns [`crate::core::RedisError::Parse`] if the number of responses does not match
     /// the expected count for the target type, or if a response cannot be
     /// converted to the requested Rust type. Delegates to the underlying
@@ -165,6 +170,14 @@ impl<'a> Pipeline<'a> {
         &mut self,
     ) -> Result<T, crate::core::RedisError> {
         let responses = self.execute_raw()?;
+        // Surface server errors loudly: depending on the target type a
+        // RedisValue::Error could otherwise be swallowed or surface as a
+        // confusing type-conversion failure.
+        for value in &responses {
+            if let RedisValue::Error(msg) = value {
+                return Err(RedisError::Protocol(msg.clone()));
+            }
+        }
         T::from_responses(responses)
     }
 }

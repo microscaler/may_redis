@@ -123,6 +123,64 @@ fn test_pipeline_execute_raw_success() {
     });
 }
 
+/// Negative: a server error inside a pipeline batch must fail
+/// Pipeline::execute as a Protocol error carrying the server's message —
+/// previously it surfaced (at best) as a type-conversion Parse error.
+#[test]
+fn test_pipeline_execute_surfaces_server_error() {
+    run_may(|| {
+        let port = spawn_fake_server(b"+OK\r\n-ERR boom\r\n", 2);
+        let conn = connect(port, 1024);
+        let mut pipeline = Pipeline::new(&conn);
+        pipeline.add(CommandBuilder::new("PING"));
+        pipeline.add(CommandBuilder::new("PING"));
+
+        let err = pipeline
+            .execute::<((), String)>()
+            .expect_err("server error must fail the typed pipeline");
+        match err {
+            RedisError::Protocol(msg) => {
+                assert!(msg.contains("boom"), "error text lost: {msg}");
+            }
+            other => panic!("expected RedisError::Protocol, got {other:?}"),
+        }
+    });
+}
+
+/// Positive: typed execute decodes clean responses.
+#[test]
+fn test_pipeline_execute_typed_success() {
+    run_may(|| {
+        let port = spawn_fake_server(b"+PONG\r\n+PONG\r\n", 2);
+        let conn = connect(port, 1024);
+        let mut pipeline = Pipeline::new(&conn);
+        pipeline.add(CommandBuilder::new("PING"));
+        pipeline.add(CommandBuilder::new("PING"));
+
+        let (a, b): (String, String) =
+            pipeline.execute().expect("typed pipeline should succeed");
+        assert_eq!(a, "PONG");
+        assert_eq!(b, "PONG");
+    });
+}
+
+/// Positive: execute_raw stays raw — callers who want the unconverted
+/// values still see RedisValue::Error inline.
+#[test]
+fn test_pipeline_execute_raw_passes_errors_through() {
+    run_may(|| {
+        let port = spawn_fake_server(b"+OK\r\n-ERR boom\r\n", 2);
+        let conn = connect(port, 1024);
+        let mut pipeline = Pipeline::new(&conn);
+        pipeline.add(CommandBuilder::new("PING"));
+        pipeline.add(CommandBuilder::new("PING"));
+
+        let values = pipeline.execute_raw().expect("raw pipeline succeeds");
+        assert!(matches!(values[0], RedisValue::SimpleString(ref s) if s == "OK"));
+        assert!(matches!(values[1], RedisValue::Error(ref m) if m.contains("boom")));
+    });
+}
+
 /// Positive: execute_raw_results returns Ok entries on the happy path.
 #[test]
 fn test_pipeline_execute_raw_results_success() {
