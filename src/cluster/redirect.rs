@@ -108,18 +108,31 @@ fn parse_redirect(text: &str, kind: RedirectKind) -> Option<Redirect> {
 
 /// Update a slot map when a MOVED or ASK redirect is received.
 ///
-/// Sets the slot to point to the redirect target node if the target
-/// is already known in the map. This ensures the next command using
-/// the same key goes directly to the correct node.
-pub fn update_slot_map_on_redirect(map: &mut SlotMap, redirect: &Redirect) {
-    // Find the node that owns this redirect target address and
-    // re-add it so the redirect slot points to it.
-    for node in map.nodes().cloned() {
-        if node.addr == redirect.target {
-            map.add_node(node);
-            break;
-        }
-    }
+/// Reassigns the redirected slot to the target node so the next command
+/// using the same key goes directly to the correct node.
+///
+/// # Returns
+/// `true` if the slot mapping was updated. `false` (with a warning log)
+/// if the redirect target is not a known node — the map is then stale
+/// and the caller should refresh the cluster topology; retries against
+/// the stale map will keep redirecting until the retry limit surfaces
+/// an error.
+pub fn update_slot_map_on_redirect(map: &mut SlotMap, redirect: &Redirect) -> bool {
+    let target_id = map
+        .nodes()
+        .find(|node| node.addr == redirect.target)
+        .map(|node| node.id);
+    let Some(node_id) = target_id else {
+        log::warn!(
+            "redirect target {} is not a known cluster node; \
+             slot {} mapping left stale (topology refresh needed)",
+            redirect.target,
+            redirect.slot
+        );
+        return false;
+    };
+    map.assign_slot(redirect.slot, node_id);
+    true
 }
 
 // ---------------------------------------------------------------------------
@@ -263,12 +276,51 @@ mod tests {
             target: "10.0.0.2:6379".parse().unwrap(),
             kind: RedirectKind::Moved,
         };
-        update_slot_map_on_redirect(&mut map, &redirect);
+        let updated = update_slot_map_on_redirect(&mut map, &redirect);
 
-        // Slot 50 should now map to nodeB's node if it was in the 101..=200 range
-        // But our update logic re-adds the node at the redirect target,
-        // which means slots 101..=200 get re-mapped to nodeB.
-        // This test verifies no panic and the map is still valid.
+        // Positive: slot 50 must actually move to node B (previously the
+        // function re-added node B's own range and left slot 50 on node A).
+        assert!(updated, "known target must report an update");
+        assert_eq!(
+            map.node_for_slot(50),
+            Some(crate::cluster::slot_map::NodeId::from_hex(
+                "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            )),
+            "redirected slot must point at the target node"
+        );
         assert!(!map.is_empty());
+    }
+
+    /// Negative: a redirect to a node the map does not know is reported
+    /// (returns false) instead of silently doing nothing.
+    #[test]
+    fn test_moved_update_slot_map_unknown_target() {
+        let mut map = SlotMap::empty();
+        let node_a = crate::cluster::slot_map::NodeInfo {
+            id: crate::cluster::slot_map::NodeId::from_hex(
+                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            ),
+            addr: "10.0.0.1:6379".parse().unwrap(),
+            role: crate::cluster::slot_map::NodeRole::Master,
+            slots: Some(0..=100),
+            state: crate::cluster::slot_map::NodeState::Online,
+        };
+        map.add_node(node_a);
+
+        let redirect = Redirect {
+            slot: 50,
+            target: "10.0.0.99:6379".parse().unwrap(), // not in the map
+            kind: RedirectKind::Moved,
+        };
+        let updated = update_slot_map_on_redirect(&mut map, &redirect);
+
+        assert!(!updated, "unknown target must report no update");
+        assert_eq!(
+            map.node_for_slot(50),
+            Some(crate::cluster::slot_map::NodeId::from_hex(
+                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            )),
+            "slot ownership must be unchanged"
+        );
     }
 }

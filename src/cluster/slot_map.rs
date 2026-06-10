@@ -166,6 +166,14 @@ impl SlotMap {
         false
     }
 
+    /// Assign a single slot to a node (e.g. after a MOVED redirect).
+    ///
+    /// The node should already be known to the map; this only updates the
+    /// slot-to-node index, not the node's advertised slot range.
+    pub fn assign_slot(&mut self, slot: u16, node_id: NodeId) {
+        self.slots[slot as usize] = Some(node_id);
+    }
+
     /// Look up which node owns a given slot.
     ///
     /// # Returns
