@@ -149,8 +149,18 @@ pub(super) fn spawn_connection_loop(
                         );
                         break;
                     }
-                    if let Err(e) = tls.drive_io() {
-                        if e.kind() != std::io::ErrorKind::WouldBlock {
+                    // Drive ciphertext I/O and drain decrypted plaintext
+                    // until the socket would block. Draining plaintext
+                    // AFTER every drive_io is load-bearing: a response
+                    // decrypted by drive_io but not drained would be
+                    // stranded inside rustls' buffers while step (5) parks
+                    // on a socket event that never comes (the bytes are
+                    // already here) — surfacing as spurious client
+                    // timeouts and stale-response dispatch on the next
+                    // wakeup.
+                    match drive_tls_until_blocked(tls, &mut read_buf) {
+                        Ok(blocked) => blocked,
+                        Err(e) => {
                             log::error!("tls io error: {e}");
                             error_dispatch(
                                 &mut resp_queue,
@@ -159,35 +169,6 @@ pub(super) fn spawn_connection_loop(
                             );
                             break;
                         }
-                    }
-                    if io_events & 1 != 0 {
-                        match drain_nonblock_read(tls, &mut read_buf) {
-                            Ok(blocked) => {
-                                if let Err(e) = tls.drive_io() {
-                                    if e.kind() != std::io::ErrorKind::WouldBlock {
-                                        log::error!("tls io error: {e}");
-                                        error_dispatch(
-                                            &mut resp_queue,
-                                            &pending_count,
-                                            &format!("TLS I/O error: {e}"),
-                                        );
-                                        break;
-                                    }
-                                }
-                                blocked
-                            }
-                            Err(e) => {
-                                log::error!("read error: {e}");
-                                error_dispatch(
-                                    &mut resp_queue,
-                                    &pending_count,
-                                    &format!("Read error: {e}"),
-                                );
-                                break;
-                            }
-                        }
-                    } else {
-                        true
                     }
                 }
             };
@@ -235,4 +216,35 @@ pub(super) fn spawn_connection_loop(
         }
         fail_queued_requests(&req_queue, &pending_count, "Connection loop terminated");
     })
+}
+
+/// Drive TLS record-layer I/O and drain decrypted plaintext into `read_buf`
+/// until the socket would block (or rustls reports quiescence).
+///
+/// Every `drive_io` call can decrypt new plaintext, so a drain MUST follow
+/// each one before the loop is allowed to park — otherwise a complete
+/// response can sit inside rustls' internal buffers with no pending socket
+/// event to wake the loop.
+///
+/// Returns `Ok(true)` when it is safe to park (`wait_io`): the socket is
+/// drained and all decrypted plaintext has been moved into `read_buf`.
+#[cfg(feature = "tls")]
+fn drive_tls_until_blocked(
+    tls: &mut crate::tls::TlsStream,
+    read_buf: &mut BytesMut,
+) -> std::io::Result<bool> {
+    loop {
+        let socket_blocked = match tls.drive_io() {
+            // (0, 0) progress: nothing to write and nothing readable was
+            // processed — driving again cannot make progress.
+            Ok((0, 0)) => true,
+            Ok(_) => false,
+            Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => true,
+            Err(e) => return Err(e),
+        };
+        drain_nonblock_read(tls, read_buf)?;
+        if socket_blocked {
+            return Ok(true);
+        }
+    }
 }

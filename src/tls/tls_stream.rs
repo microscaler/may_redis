@@ -38,9 +38,13 @@ impl TlsStream {
     ///
     /// Must be called after queuing plaintext writes and before/after reads so
     /// encrypted bytes actually hit the socket and incoming records are processed.
-    pub(crate) fn drive_io(&mut self) -> io::Result<()> {
+    ///
+    /// Returns the `(bytes_read, bytes_written)` progress from rustls so the
+    /// connection loop can detect quiescence — `(0, 0)` means there is
+    /// nothing further to drive right now.
+    pub(crate) fn drive_io(&mut self) -> io::Result<(usize, usize)> {
         let sys = self.stream.inner_mut();
-        self.conn.complete_io(sys).map(|_| ())
+        self.conn.complete_io(sys)
     }
 }
 
