@@ -76,11 +76,22 @@ fn release_pending(pending_count: &Arc<AtomicUsize>) {
 ///   to the caller (which will fail the connection and drain
 ///   `resp_queue` with [`RedisValue::Error`]s).
 ///
+/// # Pub/sub pushes
+///
+/// `message` / `pmessage` pushes are routed to `push_sender` and are
+/// never matched against `resp_queue`. A push arriving when
+/// `push_sender` is `None` (a non-pub/sub connection) or a push that
+/// fails to parse is a hard connection error — failing loudly is
+/// required because the alternative is dispatching the push as some
+/// unrelated command's response.
+///
 /// # Errors
 ///
 /// Returns [`io::Error::other`] wrapping a [`RedisError`] for any
-/// non-`Parse` decode failure. Partial-value parse errors are treated
-/// as benign and turned into `Ok(())`.
+/// non-`Parse` decode failure, for a pub/sub push on a connection
+/// without a push channel, and for a malformed pub/sub push.
+/// Partial-value parse errors are treated as benign and turned into
+/// `Ok(())`.
 pub(super) fn decode_responses(
     read_buf: &mut BytesMut,
     resp_queue: &mut VecDeque<PendingRequest>,
@@ -92,13 +103,34 @@ pub(super) fn decode_responses(
         match reader.read_value() {
             Ok(value) => {
                 read_buf.unsplit(reader.take_buf());
+                // Pub/sub pushes must NEVER fall through to the pending-request
+                // queue: dispatching a push as a command response silently
+                // corrupts the positional FIFO matching for every later
+                // command on this connection.
                 if is_pubsub_push(&value) {
-                    if let Some(tx) = push_sender {
-                        if let Some(msg) = parse_pubsub_push(&value) {
-                            let _ = tx.send(msg);
-                            continue;
-                        }
+                    let Some(tx) = push_sender else {
+                        log::error!(
+                            "pub/sub push received on a non-pub/sub connection; \
+                             use PubSubClient for subscriptions"
+                        );
+                        return Err(io::Error::other(RedisError::Protocol(
+                            "pub/sub push received on a non-pub/sub connection \
+                             (use PubSubClient for subscriptions)"
+                                .into(),
+                        )));
+                    };
+                    let Some(msg) = parse_pubsub_push(&value) else {
+                        log::error!("malformed pub/sub push: {value:?}");
+                        return Err(io::Error::other(RedisError::Protocol(format!(
+                            "malformed pub/sub push: {value:?}"
+                        ))));
+                    };
+                    if tx.send(msg).is_err() {
+                        log::warn!(
+                            "pub/sub subscriber receiver dropped; discarding push"
+                        );
                     }
+                    continue;
                 }
                 if let Some(pending) = resp_queue.pop_front() {
                     let _ = pending.sender.send(value);

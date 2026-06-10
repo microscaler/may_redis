@@ -311,6 +311,120 @@ fn test_decode_responses_pubsub_push() {
     );
 }
 
+/// Negative: a pub/sub push on a connection with NO push channel must fail
+/// the connection loudly — it must never be dispatched to a pending request
+/// as if it were that command's response (silent response corruption).
+#[test]
+fn test_decode_responses_push_without_push_sender_is_error() {
+    let mut read_buf: BytesMut =
+        b"*3\r\n$7\r\nmessage\r\n$4\r\nnews\r\n$5\r\nhello\r\n"
+            .as_slice()
+            .into();
+    let mut resp_queue = VecDeque::<PendingRequest>::new();
+    let (tx, rx) = spsc::channel();
+    resp_queue.push_back(PendingRequest { sender: tx });
+    let pending_count = Arc::new(AtomicUsize::new(1));
+
+    let result = decode_responses(&mut read_buf, &mut resp_queue, &pending_count, None);
+
+    assert!(
+        result.is_err(),
+        "push on non-pub/sub connection must be a hard error"
+    );
+    assert!(
+        rx.try_recv().is_err(),
+        "pending request must NOT receive the push as its response"
+    );
+    assert_eq!(
+        resp_queue.len(),
+        1,
+        "pending request must stay queued for error_dispatch"
+    );
+}
+
+/// Negative: a malformed push (wrong arity) on a pub/sub connection must
+/// fail loudly instead of being delivered as a command response.
+#[test]
+fn test_decode_responses_malformed_push_is_error() {
+    // "message" with only 2 elements — not a valid push.
+    let mut read_buf: BytesMut =
+        b"*2\r\n$7\r\nmessage\r\n$4\r\nnews\r\n".as_slice().into();
+    let mut resp_queue = VecDeque::<PendingRequest>::new();
+    let (tx, rx) = spsc::channel();
+    resp_queue.push_back(PendingRequest { sender: tx });
+    let (push_tx, push_rx) = spsc::channel();
+    let pending_count = Arc::new(AtomicUsize::new(1));
+
+    let result = decode_responses(
+        &mut read_buf,
+        &mut resp_queue,
+        &pending_count,
+        Some(&push_tx),
+    );
+
+    assert!(result.is_err(), "malformed push must be a hard error");
+    assert!(rx.try_recv().is_err(), "pending must not get the push");
+    assert!(push_rx.try_recv().is_err(), "push channel must stay empty");
+}
+
+/// Positive: a push interleaved with a real response — the response goes to
+/// the pending request, the push goes to the push channel, nothing shifts.
+#[test]
+fn test_decode_responses_push_interleaved_with_response() {
+    let mut read_buf: BytesMut =
+        b"*3\r\n$7\r\nmessage\r\n$4\r\nnews\r\n$5\r\nhello\r\n+OK\r\n"
+            .as_slice()
+            .into();
+    let mut resp_queue = VecDeque::<PendingRequest>::new();
+    let (tx, rx) = spsc::channel();
+    resp_queue.push_back(PendingRequest { sender: tx });
+    let (push_tx, push_rx) = spsc::channel();
+    let pending_count = Arc::new(AtomicUsize::new(1));
+
+    let result = decode_responses(
+        &mut read_buf,
+        &mut resp_queue,
+        &pending_count,
+        Some(&push_tx),
+    );
+
+    assert!(result.is_ok());
+    let resp = rx.try_recv().expect("pending must get the OK response");
+    assert!(matches!(resp, RedisValue::SimpleString(ref s) if s == "OK"));
+    assert!(push_rx.try_recv().is_ok(), "push must reach push channel");
+    assert!(resp_queue.is_empty());
+}
+
+/// Positive: a dropped push receiver discards the push but keeps the
+/// connection (and response dispatch) alive.
+#[test]
+fn test_decode_responses_push_receiver_dropped_keeps_connection() {
+    let mut read_buf: BytesMut =
+        b"*3\r\n$7\r\nmessage\r\n$4\r\nnews\r\n$5\r\nhello\r\n+OK\r\n"
+            .as_slice()
+            .into();
+    let mut resp_queue = VecDeque::<PendingRequest>::new();
+    let (tx, rx) = spsc::channel();
+    resp_queue.push_back(PendingRequest { sender: tx });
+    let (push_tx, push_rx) = spsc::channel();
+    drop(push_rx); // subscriber gone
+    let pending_count = Arc::new(AtomicUsize::new(1));
+
+    let result = decode_responses(
+        &mut read_buf,
+        &mut resp_queue,
+        &pending_count,
+        Some(&push_tx),
+    );
+
+    assert!(
+        result.is_ok(),
+        "dropped subscriber must not kill connection"
+    );
+    let resp = rx.try_recv().expect("response still dispatched");
+    assert!(matches!(resp, RedisValue::SimpleString(ref s) if s == "OK"));
+}
+
 /// Test Connection::connect establishes and returns valid connection
 #[test]
 #[cfg(feature = "test")]
