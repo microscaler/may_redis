@@ -18,7 +18,7 @@ impl NodeId {
     /// # Panics
     /// Panics if the string is not exactly 40 hex characters.
     #[must_use]
-    pub fn from_hex(s: &str) -> Self {
+    pub const fn from_hex(s: &str) -> Self {
         let mut bytes = [0u8; 20];
         let mut i = 0;
         let mut ch = 0;
