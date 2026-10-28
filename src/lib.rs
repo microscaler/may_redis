@@ -17,8 +17,8 @@
 #![allow(clippy::io_other_error)]
 #![allow(clippy::ref_as_ptr)]
 // `assert_is_empty` (clippy 1.99) would turn `assert!(x.is_empty())` in tests into typed
-// empty-array comparisons that read worse.
-#![cfg_attr(test, allow(clippy::assert_is_empty))]
+// empty-array comparisons that read worse. `unknown_lints`: toolchains before 1.99 lack the lint.
+#![cfg_attr(test, allow(unknown_lints, clippy::assert_is_empty))]
 
 pub mod client;
 pub mod cluster;
