@@ -24,7 +24,10 @@ use std::io;
 /// Returns the underlying [`io::Error`] for any non-`WouldBlock`
 /// failure. A clean half-close (read of 0 bytes) is mapped to
 /// [`io::ErrorKind::BrokenPipe`] so the caller treats it as a fatal
-/// connection error.
+/// connection error. Bytes read before the error are kept in
+/// `read_buf` either way: a server that answers and then closes (a
+/// reply followed by EOF in one wakeup) must still have its replies
+/// decoded and delivered before the connection is failed.
 ///
 /// # History
 ///
@@ -54,10 +57,18 @@ pub(super) fn nonblock_read<R: io::Read>(
             // valid subslice of `buf`.
             buf.get_unchecked_mut(read_cnt..)
         }) {
-            Ok(0) => return Err(io::Error::new(io::ErrorKind::BrokenPipe, "closed")),
+            Ok(0) => {
+                // SAFETY: as below - `read_cnt` bytes were written into the buffer.
+                unsafe { read_buf.advance_mut(read_cnt) };
+                return Err(io::Error::new(io::ErrorKind::BrokenPipe, "closed"));
+            }
             Ok(n) => read_cnt += n,
             Err(e) if e.kind() == io::ErrorKind::WouldBlock => break,
-            Err(e) => return Err(e),
+            Err(e) => {
+                // SAFETY: as below - `read_cnt` bytes were written into the buffer.
+                unsafe { read_buf.advance_mut(read_cnt) };
+                return Err(e);
+            }
         }
     }
     // SAFETY: `stream.read()` wrote exactly `read_cnt` bytes into the uninitialized
@@ -86,4 +97,43 @@ pub(super) fn drain_nonblock_read<R: io::Read>(
         // read filled the buffer but more kernel data may remain
     }
     Ok(true)
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod eof_tests {
+    use super::{drain_nonblock_read, nonblock_read};
+    use bytes::BytesMut;
+    use std::io::{self, Read};
+
+    /// Yields its chunks, then end of stream.
+    struct ThenEof(Vec<Vec<u8>>);
+
+    impl Read for ThenEof {
+        fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+            if self.0.is_empty() {
+                return Ok(0);
+            }
+            let chunk = self.0.remove(0);
+            buf[..chunk.len()].copy_from_slice(&chunk);
+            Ok(chunk.len())
+        }
+    }
+
+    #[test]
+    fn bytes_read_before_eof_stay_in_the_buffer() {
+        let mut buf = BytesMut::with_capacity(64);
+        let mut s = ThenEof(vec![b"+OK\r\n".to_vec(), b"$-1\r\n".to_vec()]);
+        let err = nonblock_read(&mut s, &mut buf).unwrap_err();
+        assert_eq!(err.kind(), io::ErrorKind::BrokenPipe);
+        assert_eq!(&buf[..], b"+OK\r\n$-1\r\n");
+    }
+
+    #[test]
+    fn drain_keeps_bytes_read_before_eof() {
+        let mut buf = BytesMut::with_capacity(64);
+        let mut s = ThenEof(vec![b"$-1\r\n".to_vec()]);
+        assert!(drain_nonblock_read(&mut s, &mut buf).is_err());
+        assert_eq!(&buf[..], b"$-1\r\n");
+    }
 }
