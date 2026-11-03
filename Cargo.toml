@@ -12,9 +12,14 @@ bollard = { version = "0.20", optional = true, features = ["ssl", "chrono"] }
 futures = { version = "0.3", optional = true }
 itoa = "1.0"
 log = "0.4"
-# microscaler/may master: crates.io may plus `spsc::Receiver::recv_with_timeout`. Dependents that
-# patch `may` to match (one scheduler per process) must name the same URL and branch.
-may = { git = "https://github.com/microscaler/may.git", branch = "master", default-features = false, features = ["io_timeout"] }
+# The crates.io requirement, so a dependent's `[patch.crates-io] may = ...` governs it and the
+# process has ONE may runtime. A git source here (it was `branch = "master"`) is a different crate
+# to cargo from a dependent's patched `may`: the process then runs two may schedulers, and this
+# crate's connection loops run on the second one - with may's default coroutine stack, whatever
+# the application configured on its own scheduler. Builds of this repository use the fork through
+# the [patch.crates-io] below (it adds `spsc::Receiver::recv_with_timeout`); dependents must patch
+# `may` to a revision of github.com/microscaler/may that has it.
+may = { version = "0.3", default-features = false, features = ["io_timeout"] }
 rustls = { version = "0.23", optional = true, default-features = false, features = ["ring", "std", "tls12"] }
 rustls-pemfile = { version = "2", optional = true }
 socket2 = "0.5"
@@ -55,3 +60,7 @@ missing_safety_doc = "deny"
 unwrap_used = "deny"
 expect_used = "deny"
 panic = "deny"
+
+# This repository's own builds: the may fork (see the `may` dependency above).
+[patch.crates-io]
+may = { git = "https://github.com/microscaler/may.git", rev = "2156e046291dfd568797f10630ffbc74694d33aa" }

@@ -86,7 +86,13 @@ impl RedisClient {
         port: u16,
         timeout: Duration,
     ) -> Result<Self, crate::connection::ConnectionError> {
-        let connection = Connection::connect(host, port)?;
+        let connection = Connection::connect_with_limits(
+            host,
+            port,
+            timeout,
+            crate::connection::connection_limits::DEFAULT_MAX_QUEUE_DEPTH,
+            crate::connection::connection_limits::DEFAULT_MAX_REQUEST_SIZE,
+        )?;
         Ok(Self {
             inner: Arc::new(InnerClient {
                 connection,
@@ -266,6 +272,14 @@ impl RedisClient {
                 "unexpected PING response: {response}"
             )))
         }
+    }
+
+    /// Whether the connection's background loop is still running. A client whose connection
+    /// has died fails every command; callers that keep a client for long replace it when this
+    /// turns `false` (the crate does not reconnect on its own).
+    #[must_use]
+    pub fn is_alive(&self) -> bool {
+        self.inner.connection.is_alive()
     }
 
     /// Create a pipeline for batch command execution.
