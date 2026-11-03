@@ -126,6 +126,15 @@ pub(super) fn spawn_connection_loop(
                             Ok(blocked) => blocked,
                             Err(e) => {
                                 log::error!("read error: {e}");
+                                // Replies that arrived before the error (a server
+                                // that answers and then closes) go to their callers
+                                // first; only the rest fail.
+                                let _ = decode_responses(
+                                    &mut read_buf,
+                                    &mut resp_queue,
+                                    &pending_count,
+                                    push_sender.as_ref().map(std::sync::Arc::as_ref),
+                                );
                                 error_dispatch(
                                     &mut resp_queue,
                                     &pending_count,
@@ -162,6 +171,13 @@ pub(super) fn spawn_connection_loop(
                         Ok(blocked) => blocked,
                         Err(e) => {
                             log::error!("tls io error: {e}");
+                            // As for plain TCP: deliver what was decrypted first.
+                            let _ = decode_responses(
+                                &mut read_buf,
+                                &mut resp_queue,
+                                &pending_count,
+                                push_sender.as_ref().map(std::sync::Arc::as_ref),
+                            );
                             error_dispatch(
                                 &mut resp_queue,
                                 &pending_count,
