@@ -9,8 +9,8 @@ use std::path::PathBuf;
 use crate::connection::SsrfConfig;
 use std::time::Duration;
 
+use super::url_credentials::{auth_command, userinfo_credentials};
 use crate::core::RedisError;
-use crate::protocol::builder::CommandBuilder;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -111,9 +111,12 @@ fn parse_tls_query_params(query: &str) -> Result<HashMap<String, String>, RedisE
 ///
 /// # URL encoding
 ///
-/// Passwords and usernames are URL-decoded before use. This allows
+/// Passwords and usernames are percent-decoded before use. This allows
 /// passwords containing `@`, `:`, `/`, `?`, `#`, `[`, `]`, `%` to be
-/// represented in URLs via percent-encoding.
+/// represented in URLs via percent-encoding. `+` is kept as it is (it means a
+/// space only in the query string). With a user (`user:password@`) the client
+/// sends `AUTH user password`; without one (`:password@` or `password@`),
+/// `AUTH password`.
 ///
 /// # Errors
 ///
@@ -213,8 +216,9 @@ pub fn connect_url(url: &str) -> Result<super::client::RedisClient, RedisError> 
         }
     });
 
-    // URL-decode the password
-    let password: Option<String> = password.map(url_decode).transpose()?;
+    // Split `user:password` and percent-decode both (the whole userinfo used to be sent as the password, so
+    // `default:secret` was refused).
+    let (username, password) = userinfo_credentials(password)?;
 
     // Parse host:port — handle IPv6 [::1]:6379 and IPv4 127.0.0.1:6379
     let default_port = if is_tls {
@@ -366,7 +370,7 @@ pub fn connect_url(url: &str) -> Result<super::client::RedisClient, RedisError> 
 
             // Send AUTH if password was provided in URL
             if let Some(pass) = password {
-                let auth_cmd = CommandBuilder::new("AUTH").arg(pass);
+                let auth_cmd = auth_command(username.as_deref(), &pass);
                 client
                     .execute::<String>(auth_cmd)
                     .map_err(|e| RedisError::Parse(format!("AUTH failed: {e}")))?;
@@ -385,7 +389,7 @@ pub fn connect_url(url: &str) -> Result<super::client::RedisClient, RedisError> 
 
         // Send AUTH if password was provided in URL
         if let Some(pass) = password {
-            let auth_cmd = CommandBuilder::new("AUTH").arg(pass);
+            let auth_cmd = auth_command(username.as_deref(), &pass);
             client
                 .execute::<String>(auth_cmd)
                 .map_err(|e| RedisError::Parse(format!("AUTH failed: {e}")))?;

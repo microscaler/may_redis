@@ -55,6 +55,7 @@ mod client_url;
 pub mod pipeline;
 pub mod pipeline_response;
 pub mod pubsub_client;
+mod url_credentials;
 
 #[cfg(test)]
 mod client_tests {
