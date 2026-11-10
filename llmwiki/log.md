@@ -400,4 +400,10 @@
   `user:password@`, and `AUTH password` for `:password@` or `password@`.
 - User information is percent-decoded without turning `+` into a space (that rule is for query strings only),
   so a password may contain `+`.
-- `src/client/url_credentials.rs` (`userinfo_credentials`, `auth_command`, `percent_decode_userinfo`), with unit tests; `client_url.rs` uses them.
+- An empty password with a user (`user:@host`) is a parse error; with no user (`:@host`), no credentials.
+- `src/client/url_credentials.rs` (`split_userinfo`, `userinfo_credentials`, `auth_command`,
+  `percent_decode_userinfo`), with unit tests; `client_url.rs` uses them.
+- Live: `scripts/test-url-auth.sh` runs `tests/url_auth_live.rs` against two throwaway `redis:7` containers
+  (`requirepass` plus an ACL user, and no auth): `AUTH password` and `AUTH user password` for real, reserved
+  characters in passwords, WRONGPASS surfaced at once without retries, NOAUTH, a server without auth, and parse
+  errors before any connection.

@@ -9,7 +9,7 @@ use std::path::PathBuf;
 use crate::connection::SsrfConfig;
 use std::time::Duration;
 
-use super::url_credentials::{auth_command, userinfo_credentials};
+use super::url_credentials::{auth_command, split_userinfo, userinfo_credentials};
 use crate::core::RedisError;
 
 // ---------------------------------------------------------------------------
@@ -204,21 +204,10 @@ pub fn connect_url(url: &str) -> Result<super::client::RedisClient, RedisError> 
     let tls_max_version_str: Option<&str> =
         params.get("tls_max_version").map(String::as_str);
 
-    // Extract auth credentials — use rfind('@') to correctly handle
-    // passwords containing '@' (RFC 3986 §3.2.1).
-    let (password, host_part) = path_part.rfind('@').map_or((None, path_part), |idx| {
-        let password = &path_part[..idx];
-        let host_part = &path_part[idx + 1..];
-        if password.is_empty() {
-            (None, host_part)
-        } else {
-            (Some(password), host_part)
-        }
-    });
-
-    // Split `user:password` and percent-decode both (the whole userinfo used to be sent as the password, so
-    // `default:secret` was refused).
-    let (username, password) = userinfo_credentials(password)?;
+    // The user information ends at the last '@' (so an unencoded '@' in a password still parses); split it into
+    // user and password and percent-decode both (url_credentials.rs).
+    let (userinfo, host_part) = split_userinfo(path_part);
+    let (username, password) = userinfo_credentials(userinfo)?;
 
     // Parse host:port — handle IPv6 [::1]:6379 and IPv4 127.0.0.1:6379
     let default_port = if is_tls {
