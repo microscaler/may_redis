@@ -392,3 +392,18 @@
 - Phase 1 (CRC16 + SlotMap) already implemented in src/cluster/crc16.rs and slot_map.rs
 - All stories behind `cluster` feature flag, zero new dependencies
 - Each story has: FRs with method signatures, code anchors, struct definitions, tasks, verification
+
+## [2026-11-10] fix | URL credentials: user and password are split
+
+- `connect_url` used the whole user information (`user:password`) as the password and sent a one-argument
+  `AUTH`, so `redis://default:secret@host` was refused (WRONGPASS). It now sends `AUTH user password` for
+  `user:password@`, and `AUTH password` for `:password@` or `password@`.
+- User information is percent-decoded without turning `+` into a space (that rule is for query strings only),
+  so a password may contain `+`.
+- An empty password with a user (`user:@host`) is a parse error; with no user (`:@host`), no credentials.
+- `src/client/url_credentials.rs` (`split_userinfo`, `userinfo_credentials`, `auth_command`,
+  `percent_decode_userinfo`), with unit tests; `client_url.rs` uses them.
+- Live: `scripts/test-url-auth.sh` runs `tests/url_auth_live.rs` against two throwaway `redis:7` containers
+  (`requirepass` plus an ACL user, and no auth): `AUTH password` and `AUTH user password` for real, reserved
+  characters in passwords, WRONGPASS surfaced at once without retries, NOAUTH, a server without auth, and parse
+  errors before any connection.
