@@ -288,7 +288,7 @@ fn test_decode_responses_pubsub_push() {
             .as_slice()
             .into();
     let mut resp_queue = VecDeque::<PendingRequest>::new();
-    let (push_tx, push_rx) = spsc::channel();
+    let (push_tx, push_rx) = may::sync::mpmc::channel();
     let pending_count = Arc::new(AtomicUsize::new(0));
 
     let result = decode_responses(
@@ -322,7 +322,7 @@ fn test_decode_responses_binary_payload_push() {
     let mut resp_queue = VecDeque::<PendingRequest>::new();
     let (tx, rx) = spsc::channel();
     resp_queue.push_back(PendingRequest { sender: tx });
-    let (push_tx, push_rx) = spsc::channel();
+    let (push_tx, push_rx) = may::sync::mpmc::channel();
     let pending_count = Arc::new(AtomicUsize::new(1));
 
     let result = decode_responses(
@@ -389,7 +389,7 @@ fn test_decode_responses_malformed_push_is_error() {
     let mut resp_queue = VecDeque::<PendingRequest>::new();
     let (tx, rx) = spsc::channel();
     resp_queue.push_back(PendingRequest { sender: tx });
-    let (push_tx, push_rx) = spsc::channel();
+    let (push_tx, push_rx) = may::sync::mpmc::channel();
     let pending_count = Arc::new(AtomicUsize::new(1));
 
     let result = decode_responses(
@@ -415,7 +415,7 @@ fn test_decode_responses_push_interleaved_with_response() {
     let mut resp_queue = VecDeque::<PendingRequest>::new();
     let (tx, rx) = spsc::channel();
     resp_queue.push_back(PendingRequest { sender: tx });
-    let (push_tx, push_rx) = spsc::channel();
+    let (push_tx, push_rx) = may::sync::mpmc::channel();
     let pending_count = Arc::new(AtomicUsize::new(1));
 
     let result = decode_responses(
@@ -553,13 +553,13 @@ fn test_inflight_request_resolved_on_connection_death() {
             .send(Request::new(b"*1\r\n$4\r\nPING\r\n".to_vec(), tx))
             .is_ok()
         {
-            match rx.recv_with_timeout(std::time::Duration::from_secs(2)) {
+            match rx.recv_timeout(std::time::Duration::from_secs(2)) {
                 Ok(value) => assert!(
                     matches!(value, RedisValue::Error(_)),
                     "expected Error value, got {value:?}"
                 ),
-                Err(may::sync::spsc::RecvError::Disconnected) => {}
-                Err(may::sync::spsc::RecvError::Timeout) => {
+                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {}
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
                     panic!("in-flight request was stranded until timeout")
                 }
             }
@@ -580,7 +580,7 @@ fn test_decode_responses_push_receiver_dropped_keeps_connection() {
     let mut resp_queue = VecDeque::<PendingRequest>::new();
     let (tx, rx) = spsc::channel();
     resp_queue.push_back(PendingRequest { sender: tx });
-    let (push_tx, push_rx) = spsc::channel();
+    let (push_tx, push_rx) = may::sync::mpmc::channel();
     drop(push_rx); // subscriber gone
     let pending_count = Arc::new(AtomicUsize::new(1));
 

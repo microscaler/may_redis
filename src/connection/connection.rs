@@ -45,7 +45,7 @@
 use may::coroutine::JoinHandle;
 use may::io::{WaitIo, WaitIoWaker};
 use may::queue::mpsc::Queue;
-use may::sync::spsc;
+use may::sync::{mpmc, spsc};
 use std::os::fd::AsRawFd;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -142,7 +142,7 @@ impl Connection {
     pub fn connect_for_pubsub(
         host: &str,
         port: u16,
-        push_tx: spsc::Sender<super::pubsub::PubSubMessage>,
+        push_tx: mpmc::Sender<super::pubsub::PubSubMessage>,
     ) -> Result<Self, ConnectionError> {
         Self::connect_with_push(host, port, Some(push_tx))
     }
@@ -150,7 +150,7 @@ impl Connection {
     fn connect_with_push(
         host: &str,
         port: u16,
-        push_tx: Option<spsc::Sender<super::pubsub::PubSubMessage>>,
+        push_tx: Option<mpmc::Sender<super::pubsub::PubSubMessage>>,
     ) -> Result<Self, ConnectionError> {
         let stream = TcpConnector::connect(host, port)?;
         let id = stream.as_raw_fd() as usize;
@@ -158,12 +158,12 @@ impl Connection {
         let req_queue = Arc::new(Queue::new());
         let pending_count = Arc::new(AtomicUsize::new(0));
         let alive = Arc::new(AtomicBool::new(true));
-        let push_sender = push_tx.map(Arc::new);
+        // Moved into the connection loop, its only producer.
         let io_handle = spawn_connection_loop(
             super::connection_stream::ConnectionStream::Tcp(stream),
             req_queue.clone(),
             pending_count.clone(),
-            push_sender,
+            push_tx,
             alive.clone(),
         );
         Ok(Self {

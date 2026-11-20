@@ -11,7 +11,7 @@ use bytes::BytesMut;
 use may::coroutine::JoinHandle;
 use may::go;
 use may::queue::mpsc::Queue;
-use may::sync::spsc;
+use may::sync::mpmc;
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -89,7 +89,7 @@ pub(super) fn spawn_connection_loop(
     mut stream: super::connection_stream::ConnectionStream,
     req_queue: Arc<Queue<Request>>,
     pending_count: Arc<AtomicUsize>,
-    push_sender: Option<Arc<spsc::Sender<PubSubMessage>>>,
+    push_sender: Option<mpmc::Sender<PubSubMessage>>,
     alive: Arc<AtomicBool>,
 ) -> JoinHandle<()> {
     go!(move || {
@@ -133,7 +133,7 @@ pub(super) fn spawn_connection_loop(
                                     &mut read_buf,
                                     &mut resp_queue,
                                     &pending_count,
-                                    push_sender.as_ref().map(std::sync::Arc::as_ref),
+                                    push_sender.as_ref(),
                                 );
                                 error_dispatch(
                                     &mut resp_queue,
@@ -176,7 +176,7 @@ pub(super) fn spawn_connection_loop(
                                 &mut read_buf,
                                 &mut resp_queue,
                                 &pending_count,
-                                push_sender.as_ref().map(std::sync::Arc::as_ref),
+                                push_sender.as_ref(),
                             );
                             error_dispatch(
                                 &mut resp_queue,
@@ -196,7 +196,7 @@ pub(super) fn spawn_connection_loop(
                 &mut read_buf,
                 &mut resp_queue,
                 &pending_count,
-                push_sender.as_ref().map(std::sync::Arc::as_ref),
+                push_sender.as_ref(),
             ) {
                 log::error!("decode error: {e}");
                 error_dispatch(

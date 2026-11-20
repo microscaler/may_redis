@@ -17,8 +17,8 @@ log = "0.4"
 # to cargo from a dependent's patched `may`: the process then runs two may schedulers, and this
 # crate's connection loops run on the second one - with may's default coroutine stack, whatever
 # the application configured on its own scheduler. Builds of this repository use the fork through
-# the [patch.crates-io] below (it adds `spsc::Receiver::recv_with_timeout`); dependents must patch
-# `may` to a revision of github.com/microscaler/may that has it.
+# the [patch.crates-io] below; anything from may 0.3.52 works (`spsc::Receiver::recv_timeout`, and
+# !Sync channel halves, which this crate respects).
 may = { version = "0.3", default-features = false, features = ["io_timeout"] }
 rustls = { version = "0.23", optional = true, default-features = false, features = ["ring", "std", "tls12"] }
 rustls-pemfile = { version = "2", optional = true }
@@ -63,4 +63,4 @@ panic = "deny"
 
 # This repository's own builds: the may fork (see the `may` dependency above).
 [patch.crates-io]
-may = { git = "https://github.com/microscaler/may.git", rev = "2156e046291dfd568797f10630ffbc74694d33aa" }
+may = { git = "https://github.com/microscaler/may.git", rev = "c2828e56ea24ecf713931c2ad67e81049b33ef0a" }
