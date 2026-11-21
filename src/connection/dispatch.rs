@@ -18,7 +18,7 @@ use crate::core::{RedisError, RedisValue};
 
 use super::connection::{PendingRequest, Request};
 use super::pubsub::{is_pubsub_push, parse_pubsub_push};
-use may::sync::spsc;
+use may::sync::mpmc;
 
 const MIN_BUFFER_CAPACITY: usize = 512;
 
@@ -96,7 +96,7 @@ pub(super) fn decode_responses(
     read_buf: &mut BytesMut,
     resp_queue: &mut VecDeque<PendingRequest>,
     pending_count: &Arc<AtomicUsize>,
-    push_sender: Option<&spsc::Sender<super::pubsub::PubSubMessage>>,
+    push_sender: Option<&mpmc::Sender<super::pubsub::PubSubMessage>>,
 ) -> io::Result<()> {
     while !read_buf.is_empty() {
         let mut reader = RESPReader::new(read_buf.split());
