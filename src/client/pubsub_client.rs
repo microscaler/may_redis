@@ -10,11 +10,15 @@ use crate::connection::{Connection, PubSubMessage, Request};
 use crate::core::{RedisError, RedisValue};
 use crate::protocol::builder::CommandBuilder;
 use crate::protocol::commands::PubsubCommands;
-use may::sync::spsc::{self, RecvError};
+use may::sync::{mpmc, spsc};
+use std::sync::mpsc::RecvTimeoutError;
 
 struct InnerPubSubClient {
     connection: Connection,
-    message_rx: spsc::Receiver<PubSubMessage>,
+    /// mpmc, not spsc: `PubSubClient` is `Clone`, and clones may wait for messages at the same time. Each
+    /// message goes to one of them. (spsc's Receiver is `!Sync` since may 0.3.52: two clones receiving at once
+    /// were a data race on its unsynchronised pop.)
+    message_rx: mpmc::Receiver<PubSubMessage>,
 }
 
 /// Subscriber connection for Redis pub/sub.
@@ -35,7 +39,7 @@ impl PubSubClient {
         host: &str,
         port: u16,
     ) -> Result<Self, crate::connection::ConnectionError> {
-        let (push_tx, push_rx) = spsc::channel();
+        let (push_tx, push_rx) = mpmc::channel();
         let connection = Connection::connect_for_pubsub(host, port, push_tx)?;
         Ok(Self {
             inner: Arc::new(InnerPubSubClient {
@@ -121,12 +125,12 @@ impl PubSubClient {
     ) -> Result<PubSubMessage, RedisError> {
         self.inner
             .message_rx
-            .recv_with_timeout(timeout)
+            .recv_timeout(timeout)
             .map_err(|e| match e {
-                RecvError::Timeout => RedisError::Connection(format!(
+                RecvTimeoutError::Timeout => RedisError::Connection(format!(
                     "pub/sub recv timed out after {timeout:?}"
                 )),
-                RecvError::Disconnected => {
+                RecvTimeoutError::Disconnected => {
                     RedisError::Connection("pub/sub channel closed".into())
                 }
             })

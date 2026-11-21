@@ -5,13 +5,14 @@
 use crate::connection::Request;
 use crate::core::{FromRedisValue, RedisError, RedisValue};
 use crate::protocol::builder::CommandBuilder;
-use may::sync::spsc::{self, RecvError};
+use may::sync::spsc;
+use std::sync::mpsc::RecvTimeoutError;
 use std::time::Duration;
 
-fn map_recv_error(e: &RecvError) -> RedisError {
+fn map_recv_error(e: RecvTimeoutError) -> RedisError {
     match e {
-        RecvError::Timeout => RedisError::Connection("timeout".into()),
-        RecvError::Disconnected => {
+        RecvTimeoutError::Timeout => RedisError::Connection("timeout".into()),
+        RecvTimeoutError::Disconnected => {
             RedisError::Connection("response channel closed".into())
         }
     }
@@ -61,9 +62,7 @@ impl super::client::RedisClient {
         // (same pattern as `Pipeline::execute_raw` and may_postgres).
         may::coroutine::yield_now();
 
-        let response = rx
-            .recv_with_timeout(timeout)
-            .map_err(|e| map_recv_error(&e))?;
+        let response = rx.recv_timeout(timeout).map_err(map_recv_error)?;
 
         if let RedisValue::Error(msg) = response {
             return Err(RedisError::Protocol(msg));
